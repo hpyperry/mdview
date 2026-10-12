@@ -15,37 +15,30 @@
     * 默认 0.0.0.0 + 任意文件可读：等同于一个好看一点的静态文件服务器；启动 banner 会
       显式打印真实暴露范围。需要收紧时用 --safe。
     * 路径穿越防护：解决后的路径必须仍在 root 内，否则 403。
-    * 只有 .md 被特殊处理：默认渲染为 HTML，?raw=1 走带行锚点的源码视图。
-      其余文件完全交还标准库：Content-Type 由 mimetypes 推断，
-      响应头只有 Content-Type / Content-Length / Last-Modified
-      （与 `python3 -m http.server` 一致）—— 所以 .zip/.docx 点击下载是正常行为。
+    * 虚拟主机名不参与路由；所有 .md 一律渲染，?raw=1 返回纯文本。
 
 SECTION 导航（本文件按功能分块；行号由 python3 sync_nav.py 生成）:
-    [1 ] 常量与配置                CONSTANTS                  mdview.py:64
-    [2 ] 内联 CSS               CSS                        mdview.py:158
-    [3 ] HTML 模板              TEMPLATES                  mdview.py:264
-    [4 ] 语法高亮器                HIGHLIGHTER                mdview.py:320
-    [5 ] 内联解析                 INLINE                     mdview.py:534
-    [6 ] 链接/图片重写              URL REWRITE                mdview.py:973
-    [7 ] 块级解析                 BLOCKS                     mdview.py:1100
-    [8 ] 目录索引 / 搜索页           DIRECTORY & SEARCH         mdview.py:1462
-    [9 ] HTTP 处理器             HANDLER                    mdview.py:1648
-    [10] CLI 与启动              CLI                        mdview.py:1903
+    [1 ] 常量与配置                CONSTANTS                  mdview.py:57
+    [2 ] 内联 CSS               CSS                        mdview.py:104
+    [3 ] HTML 模板              TEMPLATES                  mdview.py:210
+    [4 ] 语法高亮器                HIGHLIGHTER                mdview.py:266
+    [5 ] 内联解析                 INLINE                     mdview.py:480
+    [6 ] 链接/图片重写              URL REWRITE                mdview.py:919
+    [7 ] 块级解析                 BLOCKS                     mdview.py:1046
+    [8 ] 目录索引 / 搜索页           DIRECTORY & SEARCH         mdview.py:1408
+    [9 ] HTTP 处理器             HANDLER                    mdview.py:1594
+    [10] CLI 与启动              CLI                        mdview.py:1843
 
 已知行为（写在代码里而不是靠口头约定）:
     * 裸 HTML 全部转义，不透传 —— 100% 消除 .md 作为 XSS 载体。
-    * 列表/引用可嵌套；只有**带语言标识**的围栏代码块才高亮（未标语言或
-      text/plaintext 一律素色）。
-    * 单层目录不限制条目数，大目录索引可能较慢。
+    * 列表/引用可嵌套；未标语言的围栏代码块按通用规则高亮。
+    * 单层目录不限制条目数（--max-list 可调），大目录可能较慢。
     * 单文件渲染不限制大小；非 UTF-8 用 errors="replace" 解码。
     * 隐藏目录（.git / .svn / node_modules 等）不进索引与搜索，但仍可直接按 URL 访问。
 """
 
 import argparse
-import calendar
-import codecs
 import html
-import mimetypes
 import os
 import posixpath
 import re
@@ -79,79 +72,32 @@ RENDER_CACHE_MAX = 512
 PORT_TRIES = 10
 MD_SEARCH_CAP = 400          # 单次搜索最多返回多少条命中行
 SEARCH_CONTEXT = 2           # 每条命中上下各带几行
-CHARSET_SNIFF_BYTES = 8192   # 判定文本编码时最多嗅探多少字节
-# 这些 Content-Type 会在文件里补 charset（否则浏览器只能猜编码 -> 中文乱码）
-TEXTUAL_CTYPES = {
-    "text/plain", "text/csv", "text/x-c", "text/x-python", "text/x-sh",
-    "text/x-java-source", "text/x-shellscript", "application/json",
-    "application/yaml", "application/x-sh", "application/javascript",
-    "application/xml", "text/markdown", "text/html", "text/css",
+
+MIME = {
+    ".md": "text/markdown; charset=utf-8",
+    ".txt": "text/plain; charset=utf-8",
+    ".html": "text/html; charset=utf-8",
+    ".htm": "text/html; charset=utf-8",
+    ".css": "text/css; charset=utf-8",
+    ".js": "text/javascript; charset=utf-8",
+    ".json": "application/json; charset=utf-8",
+    ".xml": "application/xml; charset=utf-8",
+    ".csv": "text/csv; charset=utf-8",
+    ".py": "text/plain; charset=utf-8",
+    ".yaml": "text/plain; charset=utf-8",
+    ".yml": "text/plain; charset=utf-8",
+    ".toml": "text/plain; charset=utf-8",
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".svg": "image/svg+xml",
+    ".webp": "image/webp",
+    ".bmp": "image/bmp",
+    ".ico": "image/x-icon",
+    ".avif": "image/avif",
+    ".pdf": "application/pdf",
 }
-
-# 静态文件的 Content-Type 完全交给标准库判断（与 `python3 -m http.server` 一致）。
-# 曾经手写一张小表，结果 .zip/.docx/.mp4/.log 等全部落到 application/octet-stream
-# 而触发下载 —— 比标准库还差。这里不再维护第二份真相。
-_mimetypes_ready = False
-
-
-def guess_ctype(path):
-    """按扩展名推断 Content-Type；未知类型回落到 octet-stream（同 stdlib）。
-
-    只用于**非 Markdown** 文件：.md 走渲染或源码视图，由本服务自己定类型。
-    """
-    global _mimetypes_ready
-    if not _mimetypes_ready:
-        mimetypes.init()          # 不读系统/用户 mime.types，保证可复现
-        _mimetypes_ready = True
-    ctype, _encoding = mimetypes.guess_type(path)
-    return ctype or "application/octet-stream"
-
-
-def _looks_utf8(path, limit=CHARSET_SNIFF_BYTES):
-    """嗅探文件开头是否能被 UTF-8 解码（分段解码，避免多字节字符被切断）。"""
-    decoder = codecs.getincrementaldecoder("utf-8")()
-    try:
-        with open(path, "rb") as fh:
-            while True:
-                chunk = fh.read(4096)
-                if not chunk:
-                    decoder.decode(b"", True)
-                    return True
-                decoder.decode(chunk)
-                limit -= len(chunk)
-                if limit <= 0:
-                    return True          # 前若干 KB 都是合法 UTF-8，认它是 UTF-8
-    except UnicodeDecodeError:
-        return False
-    except OSError:
-        return False
-
-
-def resolve_ctype(path):
-    """非 Markdown 文件的 Content-Type，并在需要时补上 charset。
-
-    为什么要比 stdlib 多做这一步：`python3 -m http.server` 对 `.txt` 只发
-    `text/plain` 不带 charset，浏览器只能猜。UTF-8 文件通常猜对，但内网常见的
-    **GBK/GB18030 中文文件必然乱码**。而固定声明一个 charset 也不行 ——
-    UTF-8 与 GBK 是互斥的（实测：谁被错标谁乱码）。所以这里：
-
-      1) Content-Type 仍由标准库 mimetypes 推断（决定内联还是下载）；
-      2) 只有文本类且原本没带 charset 时才补：
-         文件开头是合法 UTF-8 -> `charset=utf-8`；否则 -> `--fallback-charset`
-         （默认 gb18030）。加 `--no-charset` 则整个第 2 步跳过，完全等同 stdlib。
-
-    注意只改响应头，**不碰字节**：文件内容始终原样发出。
-    """
-    ctype = guess_ctype(path)
-    if CFG.fallback_charset is None:          # --no-charset：完全按标准库
-        return ctype
-    if "charset=" in ctype or ctype.split(";")[0].strip() not in TEXTUAL_CTYPES:
-        return ctype
-    if _looks_utf8(path):
-        return ctype + "; charset=utf-8"
-    if CFG.fallback_charset:
-        return ctype + "; charset=" + CFG.fallback_charset
-    return ctype
 
 
 # ============================================================================
@@ -1654,7 +1600,6 @@ class Config(object):
         self.safe = False
         self.depth = 0
         self.search = True
-        self.fallback_charset = "gb18030"   # None = --no-charset，不补 charset
 
 
 CFG = Config()
@@ -1701,16 +1646,12 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(body)
 
     def _send_file(self, path):
-        """非 Markdown 文件：与 `python3 -m http.server` 同样的响应形态。
-
-        Content-Type 决定浏览器是内联显示还是下载，而那是**标准库的推断结果**：
-        .pdf/.png/.txt 内联，.zip/.docx 之类下载都是正常且预期的行为。
-        这里只额外分块写出（避免大文件整块进内存）。
-        """
-        ctype = resolve_ctype(path)
+        ext = os.path.splitext(path)[1].lower()
+        ctype = MIME.get(ext)
+        if ctype is None:
+            ctype = "application/octet-stream"
         try:
             size = os.path.getsize(path)
-            mtime = time.gmtime(os.path.getmtime(path))
             fh = open(path, "rb")
         except OSError:
             self._send(HTTPStatus.NOT_FOUND, _error_page("404", "文件不存在"))
@@ -1718,8 +1659,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(size))
-        self.send_header("Last-Modified", self.date_time_string(
-            calendar.timegm(mtime)))
+        self.send_header("Cache-Control", "no-store")
         self.end_headers()
         if self.command == "HEAD":
             fh.close()
@@ -1951,12 +1891,6 @@ def build_parser():
                    help="服务根目录（默认：启动时的当前工作目录）")
     p.add_argument("--depth", type=int, default=0,
                    help="目录索引首页展开层数（默认 0=分层浏览，3 左右比较合适）")
-    p.add_argument("--fallback-charset", default="gb18030", metavar="ENC",
-                   help="文本文件无法判定为 UTF-8 时在 Content-Type 里声明的编码"
-                        "（默认 gb18030，覆盖 GBK/GB2312 中文文件）")
-    p.add_argument("--no-charset", action="store_true",
-                   help="完全不补 charset，与 python3 -m http.server 一致"
-                        "（代价：GBK 等非 UTF-8 文本会乱码）")
     p.add_argument("--port-tries", type=int, default=PORT_TRIES, metavar="N",
                    help="端口占用时向后尝试几个（默认 %d）" % PORT_TRIES)
     p.add_argument("--safe", action="store_true",
@@ -1982,10 +1916,6 @@ def banner(host, port, cfg):
     print(" 服务根目录 : %s" % root)
     print(" 可读范围   : %s" % exposure)
     print(" 搜索       : %s" % ("开启" if cfg.search else "关闭"))
-    print(" 文本编码   : %s" % (
-        "完全不声明 charset（等同标准库，非 UTF-8 文本会乱码）"
-        if cfg.fallback_charset is None else
-        "UTF-8 自动识别；否则声明 " + (cfg.fallback_charset or "（无）")))
     print(" 索引深度   : %s" % (("%d 层（首页展开树）" % cfg.depth) if cfg.depth
                                 else "分层浏览（首页只列当前层）"))
     if not cfg.safe and host in ("0.0.0.0", "::", ""):
@@ -2060,7 +1990,6 @@ def main(argv=None):
     CFG.safe = args.safe
     CFG.depth = max(0, args.depth)
     CFG.search = not args.no_search
-    CFG.fallback_charset = None if args.no_charset else (args.fallback_charset or "").strip()
 
     httpd, port = bind_server(args.host, args.port, max(1, args.port_tries))
     banner(args.host, port, CFG)
