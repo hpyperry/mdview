@@ -298,6 +298,77 @@ class TestContentType(unittest.TestCase):
                          "不应保留手写 MIME 表；统一走 guess_ctype()")
 
 
+class TestCharsetDeclaration(unittest.TestCase):
+    """文本文件的 Content-Type 要能正确声明编码，否则非 UTF-8 中文必然乱码。
+
+    背景：`python3 -m http.server` 对 .txt 只发 `text/plain` 不带 charset，
+    浏览器只能猜 —— UTF-8 通常猜对，内网常见的 GBK 文件必乱码。固定声明一个
+    charset 也不行（UTF-8 与 GBK 互斥），所以必须嗅探。
+    """
+
+    def setUp(self):
+        import tempfile
+        self._tmp = tempfile.TemporaryDirectory()
+        self.d = self._tmp.name
+        self._saved = m.CFG.fallback_charset
+
+    def tearDown(self):
+        m.CFG.fallback_charset = self._saved
+        self._tmp.cleanup()
+
+    def _write(self, name, text, enc="utf-8"):
+        path = os.path.join(self.d, name)
+        with open(path, "wb") as fh:
+            fh.write(text.encode(enc))
+        return path
+
+    def test_utf8_text_gets_utf8_charset(self):
+        p = self._write("a.txt", "中文测试：编码\n第二行\n")
+        self.assertEqual(m.resolve_ctype(p), "text/plain; charset=utf-8")
+
+    def test_gbk_text_gets_fallback_charset(self):
+        p = self._write("g.txt", "中文测试：GBK 编码\n", enc="gbk")
+        self.assertEqual(m.resolve_ctype(p), "text/plain; charset=gb18030")
+
+    def test_no_charset_mode_matches_stdlib(self):
+        """--no-charset 时一个字都不许多加。"""
+        m.CFG.fallback_charset = None
+        for name, enc in (("u.txt", "utf-8"), ("g.txt", "gbk")):
+            p = self._write(name, "中文\n", enc=enc)
+            want = m.guess_ctype(p)
+            self.assertEqual(m.resolve_ctype(p), want)
+            self.assertNotIn("charset", m.resolve_ctype(p))
+
+    def test_binary_gets_no_charset(self):
+        p = os.path.join(self.d, "b.zip")
+        with open(p, "wb") as fh:
+            fh.write(b"PK\x03\x04\xff\xfe\x00\x01")
+        self.assertEqual(m.resolve_ctype(p), "application/zip")
+
+    def test_image_gets_no_charset(self):
+        p = os.path.join(self.d, "i.png")
+        with open(p, "wb") as fh:
+            fh.write(b"\x89PNG\r\n\x1a\n")
+        self.assertEqual(m.resolve_ctype(p), "image/png")
+
+    def test_utf8_split_across_chunk_boundary(self):
+        """多字节字符被读块切断时不能误判为非法 UTF-8。"""
+        p = os.path.join(self.d, "big.txt")
+        with open(p, "wb") as fh:
+            fh.write(("中" * 5000).encode("utf-8"))     # 远超嗅探上限
+        self.assertIn("charset=utf-8", m.resolve_ctype(p))
+
+    def test_bytes_are_never_modified(self):
+        """声明的只是头；文件字节必须原样（GBK 文件不能被转码）。"""
+        raw = "中文测试：GBK\n".encode("gbk")
+        p = os.path.join(self.d, "same.txt")
+        with open(p, "wb") as fh:
+            fh.write(raw)
+        m.resolve_ctype(p)
+        with open(p, "rb") as fh:
+            self.assertEqual(fh.read(), raw)
+
+
 class TestRoutingHelpers(unittest.TestCase):
     def test_resolve_stays_in_root(self):
         root = os.path.abspath(os.sep + "tmp")

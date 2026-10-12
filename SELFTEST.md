@@ -5,8 +5,8 @@
 
 | 项目 | 命令 | 结果 |
 |------|------|------|
-| 渲染器单元测试 | `python3 tests/tests_render.py` | **48 项全部通过**（`Ran 48 tests ... OK`） |
-| 端到端 HTTP 验证 | `bash tests/selftest.sh` | **113 项断言全部通过**（`PASS=113 FAIL=0`） |
+| 渲染器单元测试 | `python3 tests/tests_render.py` | **55 项全部通过**（`Ran 55 tests ... OK`） |
+| 端到端 HTTP 验证 | `bash tests/selftest.sh` | **120 项断言全部通过**（`PASS=120 FAIL=0`） |
 | 语法兼容性 | `ast` 扫描 | 无 walrus / `match` / 3.9+ 独有语法 → 3.6+ 可运行 |
 | `--safe` | 见下 §3 | 只放行 `.md` 与图片，其余 404 |
 | `--no-search` | 见下 §3 | 路由与界面搜索框同时消失 |
@@ -24,7 +24,7 @@
 $ python3 tests/tests_render.py
 ...
 ----------------------------------------------------------------------
-Ran 48 tests in 0.015s
+Ran 55 tests in 0.019s
 
 OK
 ```
@@ -35,7 +35,7 @@ OK
 
 ---
 
-## 2. 端到端 HTTP 验证（`bash tests/selftest.sh`，113 项）
+## 2. 端到端 HTTP 验证（`bash tests/selftest.sh`，120 项）
 
 脚本自己在 `127.0.0.1:8731` 起临时实例，跑完自动关闭。关键断言与实测：
 
@@ -125,7 +125,7 @@ OK
   ok   端口占用自动回退                  "端口 8739 不可用（Address already in use），尝试 8740…"
   ok   回退后端口可用                    http://127.0.0.1:8740/ -> 200
 
-PASS=113 FAIL=0
+PASS=120 FAIL=0
 全部通过 ✔
 ```
 
@@ -213,8 +213,8 @@ $ curl -s 'http://127.0.0.1:8731/../../../../etc/passwd' | grep -c 'root:'
 
 ```bash
 cd /Users/hpy/Documents/deepseek-harness/md-preview
-python3 tests/tests_render.py      # 48 项
-bash tests/selftest.sh             # 113 项（自动起停临时服务）
+python3 tests/tests_render.py      # 55 项
+bash tests/selftest.sh             # 120 项（自动起停临时服务）
 python3 tests/sync_nav.py --check  # 导航行号与代码一致
 ```
 
@@ -283,7 +283,7 @@ md-preview/
 
 三个脚本都改为**从自身位置推出仓库根**（`selftest.sh` 新增 `ROOT`，`sync_nav.py` 新增
 `ROOT`，`tests_render.py` 的 `sys.path` 指向上一层），因此从任何目录执行都可以 ——
-已实测在仓库根与 `/tmp` 下分别执行 `tests/selftest.sh`，均为 `PASS=113 FAIL=0`。
+已实测在仓库根与 `/tmp` 下分别执行 `tests/selftest.sh`，均为 `PASS=120 FAIL=0`。
 
 ---
 
@@ -310,3 +310,39 @@ md-preview/
 浏览器层面的表现（这是标准库推断的自然结果，不是 bug）：
 `.txt`/`.log`/`.json`/`.csv`/`.pdf`/`.png` 内联显示；
 `.zip`/`.docx`/`.xlsx`/`.pptx` 与未知扩展名下载。
+
+---
+
+## 9. 中文乱码：文本文件的 charset 声明
+
+用户报告"非 Markdown 文件乱码"。实测定位（三层排除，结论与直觉不同）：
+
+| 检查 | 结果 |
+|------|------|
+| 服务发出的字节 | 与原文件 **sha256 完全一致**，未被改动 |
+| 服务发出的头 | 与 `python3 -m http.server` 一字不差（`text/plain`，无 charset） |
+| UTF-8 文本文件 | 浏览器按 UTF-8 解，**显示正常** |
+| **GBK/GB18030 文本文件** | 浏览器按 UTF-8 硬解 → `���Ĳ��ԣ�` **乱码** |
+
+所以根因是**文件本身不是 UTF-8**（内网中文文件常见），加上标准库不发 charset，
+浏览器只能猜。这不是本服务的 bug —— stdlib 对同一个文件同样乱码。
+
+验证过"固定声明一个 charset"解决不了：UTF-8 与 GBK **互斥**，谁被错标谁乱码：
+
+| 声明 | UTF-8 文件 | GBK 文件 |
+|------|-----------|----------|
+| 不声明 | 正常 | 乱码 |
+| `charset=utf-8` | 正常 | 乱码 |
+| `charset=gb18030` | 乱码 | 正常 |
+
+因此实现为**嗅探 + 声明**，这是全项目唯一一处刻意偏离 stdlib 的地方：
+
+- 文本类 Content-Type 且原本无 charset 时才补：开头是合法 UTF-8 → `charset=utf-8`；
+  否则 → `--fallback-charset`（默认 `gb18030`）
+- 非文本类（图片/压缩包/Office）不补，维持标准库行为
+- `--no-charset` 可完全退回标准库行为（一个 charset 都不补）
+- **只改响应头，绝不改字节**：GBK 文件仍以原字节发出（有断言核对 sha256）
+
+验证：单元测试 55 项（+7：UTF-8 得 utf-8、GBK 得兜底编码、`--no-charset` 与 stdlib
+一致、二进制/图片不声明、多字节跨读块边界不误判、字节未被转码）；
+端到端 120 项（+7：三种 charset 断言 + 两种文件的 sha256 原样比对）。

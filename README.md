@@ -56,6 +56,8 @@ python3 mdview.py --root docs --safe
 | `--safe` | 关 | 只服务 `.md` + 图片（png/jpg/jpeg/gif/svg/webp/bmp/ico/avif），其余 404 |
 | `--no-search` | 关 | 关闭全文搜索页 |
 | `--port-tries N` | `10` | 端口被占用时向后尝试多少个（此前是硬编码隐藏值） |
+| `--fallback-charset ENC` | `gb18030` | 文本文件无法判定为 UTF-8 时声明的编码 |
+| `--no-charset` | 关 | 完全不补 charset，与 `python3 -m http.server` 一致 |
 | `--version` | — | 打印版本 |
 
 `Ctrl-C` 干净退出（多线程为 daemon 线程）。
@@ -141,7 +143,7 @@ python3 mdview.py                  # ❌ 在 md-preview/ 下启动，/media/logo
 | `/path/doc.md` | 渲染为 HTML，`Cache-Control: no-store`（改了 md 刷新即见） |
 | `/path/doc.md?raw=1` | 源码视图：原始 Markdown 逐行渲染，每行带 `id="L<n>"` 锚点（供搜索精确跳转） |
 | `/search?q=…` | 全文搜索：只扫 `.md`，大小写不敏感子串匹配，文件名命中与正文命中分两块（并集），正文命中带上下文行与 `?raw=1#L<行号>` 跳转 |
-| **其他任意文件** | **与 `python3 -m http.server` 完全一致**：`Content-Type` 由标准库 `mimetypes` 推断，带 `Content-Length` 与 `Last-Modified`，不设 `Content-Disposition`、不设 `Cache-Control`（`--safe` 下则 404） |
+| **其他任意文件** | **与 `python3 -m http.server` 一致**：`Content-Type` 由标准库 `mimetypes` 推断，带 `Content-Length` 与 `Last-Modified`，不设 `Content-Disposition`、不设 `Cache-Control`（`--safe` 下则 404）。**唯一例外**：文本类会补 `charset`，见下 |
 | 目录缺少结尾 `/` | `301` 补斜杠 |
 | 不存在 | `404` 友好页面 |
 | `HEAD` | 支持（与 `GET` 同样的头，不返回体） |
@@ -166,6 +168,30 @@ mimetypes.add_type("text/plain", ".mydoc")   # 放在 main() 之前
 
 反过来，早期版本为了"精确控制"手写了一张小 MIME 表，结果把 `.zip`/`.docx`/`.mp4`/`.log`
 全部打成 `application/octet-stream`，**比标准库还差**。现在只有一份真相：标准库。
+
+### 文本文件为什么会乱码，以及本服务的处理
+
+`python3 -m http.server` 对 `.txt` 只发 `text/plain`、**不带 charset**，编码只能靠浏览器猜。
+后果是：UTF-8 文件通常猜对，而内网常见的 **GBK/GB18030 中文文件必然乱码**
+（服务只能发字节，没法替文件决定编码）。
+
+本服务对**文本类** Content-Type 多做一步（只改响应头，**不碰字节**）：
+
+| 文件开头 | 声明的 charset |
+|----------|----------------|
+| 合法 UTF-8 | `charset=utf-8` |
+| 其它 | `--fallback-charset`（默认 `gb18030`，覆盖 GBK/GB2312） |
+| 非文本类（图片/压缩包/Office…） | 不声明，维持标准库行为 |
+
+**为什么不固定声明一个编码**：UTF-8 与 GBK 是互斥的，实测谁被错标谁乱码 —— 只能嗅探。
+
+想**完全**回到 `python3 -m http.server` 的行为，用 `--no-charset`：
+
+```bash
+python3 mdview.py --no-charset          # 一个 charset 都不补（GBK 文本会乱码）
+python3 mdview.py --fallback-charset gbk    # 换一个兜底编码
+python3 mdview.py --fallback-charset ""     # 不声明（同 --no-charset 的效果）
+```
 
 ---
 
@@ -222,8 +248,8 @@ md-preview/
 ├─ README.md            # 本文
 ├─ SELFTEST.md          # 验证结果与缺陷修复台账
 ├─ tests/               # 测试与开发工具（见 tests/README.md）
-│  ├─ tests_render.py   #   渲染器回归测试（48 项，纯 unittest）
-│  ├─ selftest.sh       #   端到端 HTTP 冒烟测试（113 项断言）
+│  ├─ tests_render.py   #   渲染器回归测试（55 项，纯 unittest）
+│  ├─ selftest.sh       #   端到端 HTTP 冒烟测试（120 项断言）
 │  └─ sync_nav.py       #   重新生成顶部导航行号（维护工具）
 └─ docs/                # 示例语料：表格/任务列表/嵌套列表/代码块/相对链接/图片
 ```
@@ -233,8 +259,8 @@ md-preview/
 ## 8. 测试
 
 ```bash
-python3 tests/tests_render.py      # 渲染器单元测试：48 项
-bash tests/selftest.sh             # 端到端 HTTP 验证：113 项断言
+python3 tests/tests_render.py      # 渲染器单元测试：55 项
+bash tests/selftest.sh             # 端到端 HTTP 验证：120 项断言
 python3 tests/sync_nav.py --check  # 校验顶部导航行号与代码一致
 ```
 
