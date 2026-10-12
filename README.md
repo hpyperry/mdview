@@ -243,8 +243,8 @@ md-preview/
 ├─ README.md            # 本文
 ├─ SELFTEST.md          # 验证结果与缺陷修复台账
 ├─ tests/               # 测试（见 tests/README.md）
-│  ├─ tests_render.py   #   渲染器回归测试（111 项，纯 unittest）
-│  └─ selftest.sh       #   端到端 HTTP 冒烟测试（239 项断言）
+│  ├─ tests_render.py   #   渲染器回归测试（116 项，纯 unittest）
+│  └─ selftest.sh       #   端到端 HTTP 冒烟测试（245 项断言）
 ├─ tools/minify.py      #   生成运行版（去注释/docstring/空行）
 ├─ dist/mdview.min.py   #   ★ 压缩运行版（82 KB，可单独拿去运行）
 └─ docs/                # 示例语料
@@ -258,8 +258,8 @@ md-preview/
 ## 8. 测试
 
 ```bash
-python3 tests/tests_render.py      # 渲染器单元测试：111 项
-bash tests/selftest.sh             # 端到端 HTTP 验证：239 项断言
+python3 tests/tests_render.py      # 渲染器单元测试：116 项
+bash tests/selftest.sh             # 端到端 HTTP 验证：245 项断言
 ```
 
 三者都是零依赖、可重复执行的。`tests/selftest.sh` 会在 `127.0.0.1:8731` 起一个临时实例，

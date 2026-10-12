@@ -505,6 +505,23 @@ curl -s --limit-rate 100k --max-time 0.2 -o /dev/null "$BASE/preview/large/big.t
 sleep 0.5
 chk "断开不刷 traceback"     "$(grep -c 'Traceback' "$LOG" 2>/dev/null || echo 0)" '0'
 
+echo "== 上级目录链接（根边界：不能出现 //）=="
+PL="$(mktemp -d -t mdview-parent)"
+mkdir -p "$PL/lvl1/lvl2"
+printf '# a\n' > "$PL/lvl1/a.md"
+printf '# b\n' > "$PL/lvl1/lvl2/b.md"
+printf '# top\n' > "$PL/top.md"
+PLPID="$(serve_root "$((PORT+11))" "$PL")"; PLB="http://127.0.0.1:$((PORT+11))"
+chk "根目录页无上级链接"     "$(curl -s "$PLB/" | grep -c '上级目录')" '0'
+chk "一级子目录上级是 /"     "$(curl -s "$PLB/lvl1/" | grep -o 'href="[^"]*">\.\./ 上级目录' | sed 's/href="//; s/">.*//')" '/'
+nchk "一级子目录不出现 //"   "$(curl -s "$PLB/lvl1/" | grep -ci 'href="//"')" '1'
+chk "二级子目录上级是 /lvl1/" "$(curl -s "$PLB/lvl1/lvl2/" | grep -o 'href="[^"]*">\.\./ 上级目录' | sed 's/href="//; s/">.*//')" '/lvl1/'
+chk "点上级能回到根（200）"  "$(curl -s -o /dev/null -w '%{http_code}' "$PLB/")" '200'
+# 全站目录页里不允许出现 href="//"
+nchk "目录页无 // 链接"      "$(for d in / /lvl1/ /lvl1/lvl2/; do curl -s "$PLB$d"; done | grep -ci 'href="//"')" '1'
+{ kill "$PLPID" 2>/dev/null; wait "$PLPID" 2>/dev/null; }
+rm -rf "$PL"
+
 echo "== 参数开关（另起临时实例） =="
 
 { kill "$SERVER_PID" 2>/dev/null; wait "$SERVER_PID" 2>/dev/null; } ; sleep 0.3

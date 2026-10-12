@@ -1417,7 +1417,12 @@ def url_for_rel(rel, trailing_slash=False):
     """站内相对路径 -> 根相对 URL（逐段百分号编码）。全库唯一一处拼装逻辑。"""
     parts = [quote_seg(x) for x in rel.split("/") if x]
     url = "/" + "/".join(parts)
-    return url + "/" if trailing_slash else url
+    if not trailing_slash:
+        return url
+    # 根目录本身就是 "/"，不能再补斜杠 —— 否则拼出 "//"，
+    # 而浏览器把 "//" 当作**协议相对 URL**（//host/），会拦成
+    # about:blank#blocked。实测：/lvl1/ 页面的"上级目录"链接会变成 //。
+    return url if url.endswith("/") else url + "/"
 
 
 def depth_nav_html(rel):

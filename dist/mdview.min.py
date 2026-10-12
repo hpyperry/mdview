@@ -980,7 +980,9 @@ def quote_seg(seg):
 def url_for_rel(rel, trailing_slash=False):
     parts = [quote_seg(x) for x in rel.split("/") if x]
     url = "/" + "/".join(parts)
-    return url + "/" if trailing_slash else url
+    if not trailing_slash:
+        return url
+    return url if url.endswith("/") else url + "/"
 def depth_nav_html(rel):
     if not rel:
         return ""

@@ -444,6 +444,38 @@ class TestReviewRegressions(unittest.TestCase):
             m._parse_size("9" * 309)
 
 
+class TestParentLinkAtRootBoundary(unittest.TestCase):
+    """上级目录链接指到根时不能拼出 `//`。
+
+    `//` 会被浏览器当作**协议相对 URL**（`//host/`），导航被拦成
+    about:blank#blocked —— 用户实测报过：在根下的一级子目录里点"上级目录"就中招。
+    """
+
+    def test_root_with_trailing_slash_is_single_slash(self):
+        self.assertEqual(m.url_for_rel("", trailing_slash=True), "/")
+        self.assertEqual(m.url_for_rel("", trailing_slash=False), "/")
+
+    def test_never_double_slash(self):
+        for rel in ("", "/", "a", "a/", "a/b", "/a//b", "a//b", "a b/c d"):
+            for ts in (False, True):
+                url = m.url_for_rel(rel, trailing_slash=ts)
+                self.assertFalse(url.startswith("//"),
+                                 "%r (trailing_slash=%s) 拼出了 %r" % (rel, ts, url))
+                self.assertTrue(url.startswith("/"), url)
+
+    def test_parent_link_href_for_top_level_dir(self):
+        """一级子目录的上级必须是 `/`，不是 `//`。"""
+        html = m.Handler._parent_link("guide")
+        self.assertIn('href="/"', html)
+        self.assertNotIn('href="//"', html)
+
+    def test_parent_link_nested(self):
+        self.assertIn('href="/guide/"', m.Handler._parent_link("guide/sub"))
+
+    def test_parent_link_empty_at_root(self):
+        self.assertEqual(m.Handler._parent_link(""), "")
+
+
 class TestPathAndFileKind(unittest.TestCase):
     """路径夹紧（含符号链接）与常规文件判定（B5/B6/B8）。"""
 
