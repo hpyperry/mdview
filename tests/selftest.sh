@@ -47,6 +47,17 @@ serve_temp() {
 
 SERVER_PID="$(serve_temp "$PORT" "$LOG")"
 
+# 指定任意 root 起临时实例：serve_root <端口> <root> [额外参数...]
+serve_root() {
+  local port="$1" root="$2"; shift 2
+  python3 "$ROOT/mdview.py" --root "$root" --port "$port" --host 127.0.0.1 "$@" \
+      >/dev/null 2>&1 &
+  local pid=$!
+  PIDS="$PIDS $pid"
+  wait_ready "$port"
+  printf '%s' "$pid"
+}
+
 pass=0; fail=0; failed_names=""
 chk() { # 名称 内容 期望子串
   if printf '%s' "$2" | grep -qF -- "$3"; then
@@ -207,6 +218,31 @@ chk "根目录选错时给出 --root 提示" "$(cat "$LOG.alt")" "python3 mdview
 chk "默认根下 /media 为 404（语义明确）" \
     "$(code "http://127.0.0.1:$((PORT+5))/media/logo.svg")" '404'
 chk "改用 --root docs 后 /media 为 200"  "$(code "$BASE/media/logo.svg")" '200'
+
+echo "== 源码/配置类文件按 UTF-8 文本发送（中文不能乱码） =="
+SRCDIR="$(mktemp -d -t mdview-src)"
+printf '# 中文注释\nname = "中文"\n'  > "$SRCDIR/code.py"
+printf '# 中文注释\n'                   > "$SRCDIR/code.sh"
+printf '// 中文注释\n'                  > "$SRCDIR/code.ts"
+printf '# 中文注释\n'                   > "$SRCDIR/code.go"
+printf '中文日志\n'                     > "$SRCDIR/code.log"
+printf '[s]\nk=中文\n'                 > "$SRCDIR/code.ini"
+printf '# 中文\nall:\n\techo 中文\n'  > "$SRCDIR/Makefile"
+printf '\x89PNG\r\n\x1a\n\xff'      > "$SRCDIR/pic.png"
+SRC_PID="$(serve_root "$((PORT+6))" "$SRCDIR")"
+SRCB="http://127.0.0.1:$((PORT+6))"
+for f in code.py code.sh code.ts code.go code.log code.ini Makefile; do
+  chk "源码文本带 charset: $f" "$(curl -s -o /dev/null -w '%{content_type}' "$SRCB/$f")" 'charset=utf-8'
+done
+chk ".ts 判为文本而不是视频" "$(curl -s -o /dev/null -w '%{content_type}' "$SRCB/code.ts")" 'text/plain'
+nchk ".ts 不能是 video"      "$(curl -s -o /dev/null -w '%{content_type}' "$SRCB/code.ts")" 'video/'
+chk "二进制仍是图片类型"     "$(curl -s -o /dev/null -w '%{content_type}' "$SRCB/pic.png")" 'image/png'
+# 声明的只是头：字节必须原样
+PY_LOCAL="$(python3 -c "import hashlib;print(hashlib.sha256(open('$SRCDIR/code.py','rb').read()).hexdigest())")"
+PY_SERVED="$(curl -s "$SRCB/code.py" | python3 -c "import hashlib,sys;print(hashlib.sha256(sys.stdin.buffer.read()).hexdigest())")"
+chk "源码文件字节原样"       "$PY_SERVED" "$PY_LOCAL"
+{ kill "$SRC_PID" 2>/dev/null; wait "$SRC_PID" 2>/dev/null; }
+rm -rf "$SRCDIR"
 
 echo "== 参数开关（另起临时实例） =="
 { kill "$SERVER_PID" 2>/dev/null; wait "$SERVER_PID" 2>/dev/null; } ; sleep 0.3

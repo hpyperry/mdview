@@ -141,6 +141,8 @@ python3 mdview.py                  # ❌ 在 md-preview/ 下启动，/media/logo
 | `/path/doc.md` | 渲染为 HTML，`Cache-Control: no-store`（改了 md 刷新即见） |
 | `/path/doc.md?raw=1` | 返回原始 Markdown，`Content-Type: text/markdown; charset=utf-8` |
 | `/path/img.png` | 原样返回图片，正确的 `Content-Type` |
+| `/path/*.py` 等源码/配置类 | 按 `text/plain; charset=utf-8` 发送（**保证中文不乱码**）：`.py .sh .c .cpp .h .hpp .cs .java .go .rs .ts .tsx .jsx .rb .php .pl .lua .sql .ini .cfg .conf .properties .log .diff .patch .env .mk .bat .ps1 .vue .svelte .tsv .rst .tex`，以及 `Makefile`/`Dockerfile`/`.gitignore` 这类无扩展名文件 |
+| `/path/*.ts` | 刻意当 **TypeScript** 文本，而不是标准库认定的 `video/mp2t`（MPEG 传输流） |
 | `/search?q=…` | 全文搜索：只扫 `.md`，大小写不敏感子串匹配，文件名命中与正文命中分两块，正文命中带上下文行与 `#L<行号>` 跳转 |
 | 其他任意文件 | 原样返回（`--safe` 下则 404） |
 | 目录缺少结尾 `/` | `301` 补斜杠 |
@@ -202,7 +204,7 @@ md-preview/
 ├─ sync_nav.py        # 重新生成 mdview.py 顶部的 SECTION 行号导航
 ├─ README.md          # 本文
 ├─ SELFTEST.md        # 端到端验证结果（可复查）
-├─ selftest.sh        # 端到端测试脚本（108 项断言，自己起服务自己关）
+├─ selftest.sh        # 端到端测试脚本（119 项断言，自己起服务自己关）
 ├─ tests_render.py    # 渲染器回归测试（45 项，纯 unittest）
 └─ docs/              # 示例语料：表格/任务列表/嵌套列表/代码块/相对链接/图片
 ```
@@ -213,7 +215,7 @@ md-preview/
 
 ```bash
 python3 tests/tests_render.py      # 渲染器单元测试：45 项
-bash tests/selftest.sh             # 端到端 HTTP 验证：108 项断言
+bash tests/selftest.sh             # 端到端 HTTP 验证：119 项断言
 python3 tests/sync_nav.py --check  # 校验顶部导航行号与代码一致
 ```
 

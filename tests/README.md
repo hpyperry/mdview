@@ -6,7 +6,7 @@
 | 文件 | 作用 | 命令 |
 |------|------|------|
 | `tests_render.py` | 渲染器回归测试（45 项，纯 `unittest`，不联网不起服务） | `python3 tests/tests_render.py` |
-| `selftest.sh` | 端到端 HTTP 冒烟测试（108 项断言，自己起临时服务、跑完自清理） | `bash tests/selftest.sh` |
+| `selftest.sh` | 端到端 HTTP 冒烟测试（119 项断言，自己起临时服务、跑完自清理） | `bash tests/selftest.sh` |
 | `sync_nav.py` | 重新生成 `mdview.py` 顶部导航的**真实行号**（生成物，需可校验） | `python3 tests/sync_nav.py` |
 
 ## 一套跑完
@@ -14,7 +14,7 @@
 ```bash
 # 在仓库根执行
 python3 tests/tests_render.py      # 45 项单元测试
-bash tests/selftest.sh             # 108 项端到端断言
+bash tests/selftest.sh             # 119 项端到端断言
 python3 tests/sync_nav.py --check  # 导航行号与代码是否一致（不一致退出码 1）
 ```
 
@@ -23,6 +23,8 @@ python3 tests/sync_nav.py --check  # 导航行号与代码是否一致（不一�
 ## 各自覆盖什么
 
 **`tests_render.py`** —— 纯渲染层，不起服务：
+源码/配置类扩展名必须判为文本（含 `.ts` 不能被误判成视频）、无扩展名的
+`Makefile`/`Dockerfile`/`.gitignore` 也要按文本发、二进制类型不受影响；
 强调 flanking 规则（中文/词内/三连/相邻/未配对）、转义与行内码混排的占位符泄漏、
 代码块内 HTML 必须转义（XSS 回归）、Dockerfile/Compose 指令大小写、数字边界
 （`C.UTF-8`、`v1.2.3` 不被切）、无语言围栏必须素色、链接与图片重写、路径夹紧、

@@ -19,15 +19,15 @@
 
 SECTION 导航（本文件按功能分块；行号由 python3 sync_nav.py 生成）:
     [1 ] 常量与配置                CONSTANTS                  mdview.py:57
-    [2 ] 内联 CSS               CSS                        mdview.py:104
-    [3 ] HTML 模板              TEMPLATES                  mdview.py:210
-    [4 ] 语法高亮器                HIGHLIGHTER                mdview.py:266
-    [5 ] 内联解析                 INLINE                     mdview.py:480
-    [6 ] 链接/图片重写              URL REWRITE                mdview.py:919
-    [7 ] 块级解析                 BLOCKS                     mdview.py:1046
-    [8 ] 目录索引 / 搜索页           DIRECTORY & SEARCH         mdview.py:1408
-    [9 ] HTTP 处理器             HANDLER                    mdview.py:1594
-    [10] CLI 与启动              CLI                        mdview.py:1843
+    [2 ] 内联 CSS               CSS                        mdview.py:142
+    [3 ] HTML 模板              TEMPLATES                  mdview.py:248
+    [4 ] 语法高亮器                HIGHLIGHTER                mdview.py:304
+    [5 ] 内联解析                 INLINE                     mdview.py:518
+    [6 ] 链接/图片重写              URL REWRITE                mdview.py:957
+    [7 ] 块级解析                 BLOCKS                     mdview.py:1084
+    [8 ] 目录索引 / 搜索页           DIRECTORY & SEARCH         mdview.py:1446
+    [9 ] HTTP 处理器             HANDLER                    mdview.py:1632
+    [10] CLI 与启动              CLI                        mdview.py:1885
 
 已知行为（写在代码里而不是靠口头约定）:
     * 裸 HTML 全部转义，不透传 —— 100% 消除 .md 作为 XSS 载体。
@@ -98,6 +98,44 @@ MIME = {
     ".avif": "image/avif",
     ".pdf": "application/pdf",
 }
+
+# 源码与配置类扩展名：一律按 UTF-8 文本发送。
+#
+# 为什么需要这张表（而不是把一切交给标准库 mimetypes）：
+#   * `.py` 等被推断成 `text/x-python`，**不带 charset** -> 浏览器猜编码 -> 中文乱码；
+#   * `.ts` 在 mimetypes 里是 `video/mp2t`（MPEG 传输流）-> TypeScript 被当视频；
+#   * `.go`/`.rs`/`.ini`/`.log`/`.lua` 等干脆未收录 -> 回落 octet-stream -> 点开就下载。
+# 所以这里的判定优先于 mimetypes：命中即按文本发（`.ts` 当 TypeScript 是刻意的）。
+TEXT_MIME_DEFAULT = "text/plain; charset=utf-8"
+TEXT_EXT = {
+    # 脚本与源码
+    ".py", ".pyw", ".pyi", ".sh", ".bash", ".zsh", ".fish", ".bat", ".cmd", ".ps1",
+    ".c", ".h", ".cc", ".cpp", ".cxx", ".hpp", ".hh", ".cs", ".java", ".kt", ".scala",
+    ".go", ".rs", ".ts", ".tsx", ".jsx", ".rb", ".php", ".pl", ".pm", ".lua", ".r",
+    ".swift", ".m", ".mm", ".dart", ".ex", ".exs", ".erl", ".hs", ".clj", ".groovy",
+    # 配置与数据
+    ".ini", ".cfg", ".conf", ".properties", ".env", ".toml", ".yaml", ".yml",
+    ".sql", ".graphql", ".proto", ".mk", ".cmake", ".gradle", ".sbt",
+    # 文本类文档与其他
+    ".log", ".diff", ".patch", ".rst", ".tex", ".tsv", ".vue", ".svelte", ".txt",
+}
+
+# 没有扩展名但明显是文本的常见文件名（比对时去掉前导点、转小写）
+TEXT_FILENAMES = {
+    "makefile", "gnumakefile", "dockerfile", "containerfile", "vagrantfile",
+    "gemfile", "rakefile", "procfile", "jenkinsfile", "readme", "license",
+    "licence", "notice", "authors", "changelog", "contributing", "todo",
+    "gitignore", "gitattributes", "gitmodules", "dockerignore", "editorconfig",
+    "env", "npmrc", "yarnrc", "babelrc", "eslintrc", "prettierrc", "flake8",
+}
+
+
+def _is_textual(path):
+    """扩展名或文件名是否属于「源码/配置类文本」。"""
+    ext = os.path.splitext(path)[1].lower()
+    if ext:
+        return ext in TEXT_EXT
+    return os.path.basename(path).lstrip(".").lower() in TEXT_FILENAMES
 
 
 # ============================================================================
@@ -1647,9 +1685,13 @@ class Handler(BaseHTTPRequestHandler):
 
     def _send_file(self, path):
         ext = os.path.splitext(path)[1].lower()
-        ctype = MIME.get(ext)
-        if ctype is None:
-            ctype = "application/octet-stream"
+        if _is_textual(path):
+            # 源码/配置类：显式按 UTF-8 文本发送（优先于 MIME 表里的 image/pdf 等）
+            ctype = MIME.get(ext, TEXT_MIME_DEFAULT)
+        else:
+            ctype = MIME.get(ext)
+            if ctype is None:
+                ctype = "application/octet-stream"
         try:
             size = os.path.getsize(path)
             fh = open(path, "rb")

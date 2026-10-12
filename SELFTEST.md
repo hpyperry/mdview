@@ -6,7 +6,7 @@
 | 项目 | 命令 | 结果 |
 |------|------|------|
 | 渲染器单元测试 | `python3 tests/tests_render.py` | **45 项全部通过**（`Ran 45 tests ... OK`） |
-| 端到端 HTTP 验证 | `bash tests/selftest.sh` | **108 项断言全部通过**（`PASS=108 FAIL=0`） |
+| 端到端 HTTP 验证 | `bash tests/selftest.sh` | **119 项断言全部通过**（`PASS=119 FAIL=0`） |
 | 语法兼容性 | `ast` 扫描 | 无 walrus / `match` / 3.9+ 独有语法 → 3.6+ 可运行 |
 | `--safe` | 见下 §3 | 只放行 `.md` 与图片，其余 404 |
 | `--no-search` | 见下 §3 | 路由与界面搜索框同时消失 |
@@ -35,7 +35,7 @@ OK
 
 ---
 
-## 2. 端到端 HTTP 验证（`bash tests/selftest.sh`，108 项）
+## 2. 端到端 HTTP 验证（`bash tests/selftest.sh`，119 项）
 
 脚本自己在 `127.0.0.1:8731` 起临时实例，跑完自动关闭。关键断言与实测：
 
@@ -125,7 +125,7 @@ OK
   ok   端口占用自动回退                  "端口 8739 不可用（Address already in use），尝试 8740…"
   ok   回退后端口可用                    http://127.0.0.1:8740/ -> 200
 
-PASS=108 FAIL=0
+PASS=119 FAIL=0
 全部通过 ✔
 ```
 
@@ -214,7 +214,7 @@ $ curl -s 'http://127.0.0.1:8731/../../../../etc/passwd' | grep -c 'root:'
 ```bash
 cd /Users/hpy/Documents/deepseek-harness/md-preview
 python3 tests/tests_render.py      # 45 项
-bash tests/selftest.sh             # 108 项（自动起停临时服务）
+bash tests/selftest.sh             # 119 项（自动起停临时服务）
 python3 tests/sync_nav.py --check  # 导航行号与代码一致
 ```
 
@@ -283,4 +283,29 @@ md-preview/
 
 三个脚本都改为**从自身位置推出仓库根**（`selftest.sh` 新增 `ROOT`，`sync_nav.py` 新增
 `ROOT`，`tests_render.py` 的 `sys.path` 指向上一层），因此从任何目录执行都可以 ——
-已实测在仓库根与 `/tmp` 下分别执行 `tests/selftest.sh`，均为 `PASS=108 FAIL=0`。
+已实测在仓库根与 `/tmp` 下分别执行 `tests/selftest.sh`，均为 `PASS=119 FAIL=0`。
+
+---
+
+## 10. 源码类文件中文乱码（真实用户报告）
+
+用户现象：**打开 `.py` 文件，里面的中文变成错误文字**。定位结果是撤销掉的
+`8f0859c` 引入的：
+
+| 项 | 撤销前（手写 MIME 表） | `8f0859c` 之后（stdlib mimetypes） |
+|----|----------------------|-----------------------------------|
+| `.py` | `text/plain; charset=utf-8` | `text/x-python`（**无 charset**）→ 浏览器猜编码 → 中文乱码 |
+| `.ts` | 未收录 | `video/mp2t`（MPEG 传输流）→ TypeScript 被当视频 |
+| `.sh/.c/.cpp/.go/.rs/.java/.sql/.ini/.log` 等 17 种 | 未收录 | 未收录 → `application/octet-stream` → 点开即下载 |
+
+修法（**不碰 Markdown 路径，也不动图片/PDF 等二进制表项**）：新增
+`TEXT_EXT` / `TEXT_FILENAMES` 两张表，命中即按 `text/plain; charset=utf-8` 发送，
+优先级高于 mimetypes：
+
+- `.ts` 刻意当 TypeScript（覆盖 stdlib 的 `video/mp2t`）
+- `Makefile` / `Dockerfile` / `.gitignore` 等无扩展名文件按文件名判定
+- 图片（`.png/.svg/.jpg`）、`.pdf`、压缩包等仍走原 MIME 表，行为不变
+
+验证：单元测试 50 项（+5：源码扩展名判定、`.ts` 非视频、无扩展名文件名、
+二进制仍为二进制、二进制表项未被影响）；端到端 119 项（+11：
+7 种源码文件的 charset、`.ts` 非视频、图片类型、字节 sha256 原样）。

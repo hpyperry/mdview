@@ -269,6 +269,48 @@ class TestRewrites(unittest.TestCase):
         self.assertIn('href="#锚"', r("[x](#锚)"))
 
 
+class TestTextExtensions(unittest.TestCase):
+    """源码/配置类文件必须按 UTF-8 文本发送，否则中文乱码或直接下载。
+
+    回归背景：`.py` 曾被发成不带 charset 的 `text/x-python`，浏览器猜编码 ->
+    中文注释变乱码。同批还有 `.ts`（stdlib 认成 video/mp2t）、以及 `.go`/`.rs`/
+    `.ini`/`.log` 等未收录扩展名（回落 octet-stream -> 点开即下载）。
+    """
+
+    def test_source_extensions_are_textual(self):
+        for ext in ("py", "pyw", "sh", "bash", "zsh", "c", "h", "cc", "cpp", "hpp",
+                    "cs", "java", "go", "rs", "ts", "tsx", "jsx", "rb", "php", "pl",
+                    "lua", "sql", "ini", "cfg", "conf", "properties", "log", "diff",
+                    "patch", "env", "mk", "bat", "ps1", "vue", "svelte", "tsv",
+                    "rst", "tex"):
+            self.assertTrue(m._is_textual("x." + ext), ".%s 应判为文本" % ext)
+
+    def test_typescript_is_not_video(self):
+        """stdlib 把 .ts 认成 video/mp2t；这里必须当文本，否则 TypeScript 变视频。"""
+        import mimetypes
+        self.assertEqual(mimetypes.guess_type("x.ts")[0], "video/mp2t")
+        self.assertTrue(m._is_textual("x.ts"))
+        # 命中文本表 -> 实际发送的类型必须带 charset
+        self.assertIn("charset", m.MIME.get(".ts", m.TEXT_MIME_DEFAULT))
+
+    def test_extensionless_text_filenames(self):
+        for name in ("Makefile", "Dockerfile", ".gitignore", "LICENSE", "README",
+                     "docker-compose.yml", "Jenkinsfile"):
+            self.assertTrue(m._is_textual("/tmp/" + name), "%s 应判为文本" % name)
+
+    def test_binary_stays_binary(self):
+        for name in ("a.zip", "a.png", "a.jpg", "a.pdf", "a.docx", "a.mp4",
+                     "a.gz", "a.unknownext", "a.bin"):
+            self.assertFalse(m._is_textual("/tmp/" + name), "%s 不应判为文本" % name)
+
+    def test_binary_mime_table_untouched(self):
+        """图片/PDF 的类型不能被文本判定影响。"""
+        for ext, want in ((".png", "image/png"), (".svg", "image/svg+xml"),
+                          (".pdf", "application/pdf"), (".jpg", "image/jpeg")):
+            self.assertEqual(m.MIME.get(ext), want)
+            self.assertFalse(m._is_textual("x" + ext))
+
+
 class TestRoutingHelpers(unittest.TestCase):
     def test_resolve_stays_in_root(self):
         root = os.path.abspath(os.sep + "tmp")
