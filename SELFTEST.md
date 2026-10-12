@@ -5,8 +5,8 @@
 
 | 项目 | 命令 | 结果 |
 |------|------|------|
-| 渲染器单元测试 | `python3 tests/tests_render.py` | **61 项全部通过**（`Ran 61 tests ... OK`） |
-| 端到端 HTTP 验证 | `bash tests/selftest.sh` | **135 项断言全部通过**（`PASS=135 FAIL=0`） |
+| 渲染器单元测试 | `python3 tests/tests_render.py` | **66 项全部通过**（`Ran 66 tests ... OK`） |
+| 端到端 HTTP 验证 | `bash tests/selftest.sh` | **153 项断言全部通过**（`PASS=153 FAIL=0`） |
 | 语法兼容性 | `ast` 扫描 | 无 walrus / `match` / 3.9+ 独有语法 → 3.6+ 可运行 |
 | `--safe` | 见下 §3 | 只放行 `.md` 与图片，其余 404 |
 | `--no-search` | 见下 §3 | 路由与界面搜索框同时消失 |
@@ -35,7 +35,7 @@ OK
 
 ---
 
-## 2. 端到端 HTTP 验证（`bash tests/selftest.sh`，135 项）
+## 2. 端到端 HTTP 验证（`bash tests/selftest.sh`，153 项）
 
 脚本自己在 `127.0.0.1:8731` 起临时实例，跑完自动关闭。关键断言与实测：
 
@@ -124,7 +124,7 @@ OK
   ok   端口占用自动回退                  "端口 8739 不可用（Address already in use），尝试 8740…"
   ok   回退后端口可用                    http://127.0.0.1:8740/ -> 200
 
-PASS=135 FAIL=0
+PASS=153 FAIL=0
 全部通过 ✔
 ```
 
@@ -212,8 +212,8 @@ $ curl -s 'http://127.0.0.1:8731/../../../../etc/passwd' | grep -c 'root:'
 
 ```bash
 cd /Users/hpy/Documents/deepseek-harness/md-preview
-python3 tests/tests_render.py      # 61 项
-bash tests/selftest.sh             # 135 项（自动起停临时服务）
+python3 tests/tests_render.py      # 66 项
+bash tests/selftest.sh             # 153 项（自动起停临时服务）
 ```
 
 `tests/selftest.sh` 支持 `PORT=9000 bash tests/selftest.sh` 换端口；结束时打印
@@ -411,3 +411,35 @@ padding:9px 14px`、复制按钮无边框、继承字色、悬停变蓝。本实
 
 验证：单元测试 61 项（+4：scroll-margin 兜底、显式 scrollTo、只在 L 锚点生效、
 上下夹紧与防重复滚动、源码视图确实每行带 id）；端到端 135 项（+6）。
+
+---
+
+## 14. 渲染样例总览（docs/preview）
+
+用户要求：把「当前支持在浏览器里渲染的所有文件」放进 docs 目录，看实际效果。
+
+新增 `docs/preview/`：一个总览页 + 36 个样例文件，覆盖三条内联路径：
+
+| 路径 | 样例 |
+|------|------|
+| `TEXT_EXT`（源码/配置） | .py .sh .c .cpp .h .java .go .rs .ts .jsx .sql .ini .properties .env |
+| MIME 表 | .yaml .toml .json .xml .txt .csv .tsv .rst .log .diff .patch |
+| 文件名判定 | Makefile / Dockerfile / .gitignore / README |
+| 图片 | png / bmp / gif（两帧动图）/ ico / svg |
+
+外加两个**边界样例**：`text/empty.txt`（0 字节）与 `text/gbk-encoded.txt`
+（故意非 UTF-8，用来验证编码兜底）。
+
+### 图片是纯标准库构造的真文件
+
+不提交"看起来像图片"的占位文本：`make_preview_samples.py` 用 struct/zlib 直接
+拼出合法 PNG（IHDR+IDAT+IEND+CRC）、24 位 BMP、两帧 LZW 动画 GIF、含 AND 掩码的 ICO。
+**已在 Chrome 里验证解码**（`naturalWidth/naturalHeight` 全部正确：120×120、64×64），
+单元测试另校验魔数，端到端校验可访问性与 Content-Type。
+
+`.jpg/.webp/.avif` 在支持列表里但**没有样例**：有损/复杂格式纯标准库造不出有意义的内容，
+已在总览页注明。
+
+验证：单元测试 66 项（+5：目录存在、索引链接全部可解析、图片魔数、
+GBK 文件确实非 UTF-8、两条文本路径都覆盖）；端到端 153 项（+17：
+38 个样例全部 200、逐类型 Content-Type、PNG/GIF 魔数、空文件、GBK 声明）。

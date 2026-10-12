@@ -131,6 +131,7 @@ plain {a: 1, b: "two"}   // 数字与字符串仍然有色
 
 下一步：
 
+- [**preview/** —— 支持哪些文件能在浏览器里直接看（渲染效果总览）](preview/index.md)
 - [install.md](guide/install.md) —— 相对路径、根路径与图片
 - [advanced.md](guide/advanced.md) —— 会被渲染 / 刻意不渲染的边界
 - [code-blocks.md](guide/code-blocks.md) —— **代码块专项测试**（12 种语言 + 全部围栏变体）

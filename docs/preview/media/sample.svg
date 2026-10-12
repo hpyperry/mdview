@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="160" height="120" viewBox="0 0 160 120">
+  <rect width="160" height="120" rx="10" fill="#0d1117" stroke="#3d444d"/>
+  <circle cx="40" cy="40" r="18" fill="#4493f8"/>
+  <rect x="70" y="26" width="70" height="10" rx="5" fill="#9198a1"/>
+  <rect x="70" y="46" width="50" height="10" rx="5" fill="#3d444d"/>
+  <text x="20" y="92" font-family="monospace" font-size="13" fill="#e6edf3">SVG 中文</text>
+</svg>

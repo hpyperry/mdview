@@ -269,6 +269,45 @@ chk "居中只在 L 锚点生效"       "$RAW2" "charAt(1) !== \"L\""
 chk "上下边界做了夹紧"          "$RAW2" 'if (y > max) y = max;'
 chk "已居中则不重复滚动"        "$RAW2" 'replaceState'
 
+echo "== 渲染样例（docs/preview）全部可访问且类型正确 =="
+# 逐个请求索引页里链接的样例文件，任何一个不是 200 就算失败
+PREV="$(curl -s "$BASE/preview/index.md")"
+SAMPLE_FAIL=0; SAMPLE_N=0
+for target in $(printf '%s' "$PREV" | grep -oE 'href="/preview/[^"#?]*"' \
+                | sed -E 's/^href="//; s/"$//' | sort -u); do
+  SAMPLE_N=$((SAMPLE_N+1))
+  st="$(code "$BASE$target")"
+  if [ "$st" != "200" ]; then
+    printf '  \033[31mFAIL\033[0m %s -> HTTP %s\n' "$target" "$st"
+    SAMPLE_FAIL=$((SAMPLE_FAIL+1))
+  fi
+done
+if [ "$SAMPLE_FAIL" -eq 0 ]; then
+  printf '  \033[32mok\033[0m   %d 个样例文件全部 200\n' "$SAMPLE_N"; pass=$((pass+1))
+else
+  fail=$((fail+1)); failed_names="$failed_names 样例文件"
+fi
+# 逐类型核对 Content-Type（这是"能否内联显示"的决定因素）
+chk "样例 .py 为文本"        "$(curl -s -o /dev/null -w '%{content_type}' "$BASE/preview/code/sample.py")" 'text/plain; charset=utf-8'
+chk "样例 .ts 不是视频"      "$(curl -s -o /dev/null -w '%{content_type}' "$BASE/preview/code/sample.ts")" 'text/plain'
+nchk "样例 .ts 不含 video"   "$(curl -s -o /dev/null -w '%{content_type}' "$BASE/preview/code/sample.ts")" 'video/'
+chk "样例 .ini 为文本"       "$(curl -s -o /dev/null -w '%{content_type}' "$BASE/preview/config/sample.ini")" 'text/plain'
+chk "样例 .log 为文本"       "$(curl -s -o /dev/null -w '%{content_type}' "$BASE/preview/text/sample.log")" 'text/plain'
+chk "无扩展名 Makefile"      "$(curl -s -o /dev/null -w '%{content_type}' "$BASE/preview/Makefile")" 'text/plain'
+chk "点文件 .gitignore"      "$(curl -s -o /dev/null -w '%{content_type}' "$BASE/preview/.gitignore")" 'text/plain'
+chk "样例 .png"              "$(curl -s -o /dev/null -w '%{content_type}' "$BASE/preview/media/sample.png")" 'image/png'
+chk "样例 .gif"              "$(curl -s -o /dev/null -w '%{content_type}' "$BASE/preview/media/sample.gif")" 'image/gif'
+chk "样例 .bmp"              "$(curl -s -o /dev/null -w '%{content_type}' "$BASE/preview/media/sample.bmp")" 'image/bmp'
+chk "样例 .ico"              "$(curl -s -o /dev/null -w '%{content_type}' "$BASE/preview/media/sample.ico")" 'image/x-icon'
+chk "样例 .svg"              "$(curl -s -o /dev/null -w '%{content_type}' "$BASE/preview/media/sample.svg")" 'image/svg'
+# 图片必须是真文件（校验魔数），不能是占位文本
+PNG_MAGIC="$(curl -s "$BASE/preview/media/sample.png" | head -c 8 | od -An -tx1 | tr -d ' \n')"
+chk "PNG 魔数正确"           "$PNG_MAGIC" '89504e470d0a1a0a'
+GIF_MAGIC="$(curl -s "$BASE/preview/media/sample.gif" | head -c 6)"
+chk "GIF 魔数正确"           "$GIF_MAGIC" 'GIF89a'
+chk "空文件可访问"           "$(code "$BASE/preview/text/empty.txt")" '200'
+chk "GBK 文件声明了编码"     "$(curl -s -o /dev/null -w '%{content_type}' "$BASE/preview/text/gbk-encoded.txt")" 'charset='
+
 echo "== 参数开关（另起临时实例） =="
 { kill "$SERVER_PID" 2>/dev/null; wait "$SERVER_PID" 2>/dev/null; } ; sleep 0.3
 

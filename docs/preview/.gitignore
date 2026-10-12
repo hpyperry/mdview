@@ -1,0 +1,4 @@
+# 中文注释：.gitignore（点文件，按文件名判定为文本）
+__pycache__/
+*.pyc
+.DS_Store

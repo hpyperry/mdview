@@ -1,0 +1,9 @@
+# 中文注释：TOML
+[server]
+host = "0.0.0.0"
+port = 8000
+中文键 = "中文值"
+
+[features]
+search = true
+highlight = true

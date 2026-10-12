@@ -331,6 +331,75 @@ class TestCopyButton(unittest.TestCase):
         self.assertIn("justify-content:space-between", page)
 
 
+class TestPreviewSamples(unittest.TestCase):
+    """docs/preview 下的渲染样例必须真实可用。
+
+    图片是纯标准库构造的，容易写出"看起来像图片、浏览器解不开"的假文件，
+    所以这里校验魔数，并在端到端里校验可访问性。
+    """
+
+    ROOT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                        "docs", "preview")
+
+    def test_preview_dir_exists(self):
+        self.assertTrue(os.path.isdir(self.ROOT), "docs/preview 应存在")
+        self.assertTrue(os.path.isfile(os.path.join(self.ROOT, "index.md")))
+        self.assertTrue(os.path.isfile(
+            os.path.join(self.ROOT, "make_preview_samples.py")))
+
+    def test_index_links_all_resolve(self):
+        """索引页里的每个相对链接都必须在磁盘上存在。"""
+        idx = os.path.join(self.ROOT, "index.md")
+        with open(idx, encoding="utf-8") as fh:
+            text = fh.read()
+        links = [l for l in re.findall(r"\]\(([^)#][^)]*)\)", text)
+                 if not l.startswith("http")]
+        self.assertTrue(links, "索引页应当有链接")
+        for link in links:
+            target = os.path.normpath(os.path.join(self.ROOT, link))
+            self.assertTrue(os.path.exists(target),
+                            "链接指向的文件不存在: %s" % link)
+
+    def test_image_files_have_real_magic(self):
+        """图片样例必须是真图（魔数正确），不能是占位文本。"""
+        magic = {
+            "sample.png": b"\x89PNG\r\n\x1a\n",
+            "sample.gif": b"GIF89a",
+            "sample.bmp": b"BM",
+            "sample.ico": b"\x00\x00\x01\x00",
+            "sample.svg": b"<svg",
+        }
+        for name, head in magic.items():
+            path = os.path.join(self.ROOT, "media", name)
+            self.assertTrue(os.path.isfile(path), "%s 应存在" % name)
+            with open(path, "rb") as fh:
+                got = fh.read(len(head))
+            self.assertEqual(got, head, "%s 的头部不是合法图片" % name)
+
+    def test_gbk_sample_is_not_utf8(self):
+        """故意放一个非 UTF-8 文件，用来验证编码声明。"""
+        path = os.path.join(self.ROOT, "text", "gbk-encoded.txt")
+        with open(path, "rb") as fh:
+            raw = fh.read()
+        self.assertIn("中文".encode("gbk"), raw)
+        with self.assertRaises(UnicodeDecodeError):
+            raw.decode("utf-8")
+
+    def test_samples_cover_both_text_paths(self):
+        """样例要覆盖两条文本路径：TEXT_EXT 与 MIME 表。"""
+        # 路径一：源码/配置类扩展名表
+        for ext in (".py", ".sh", ".go", ".rs", ".ts", ".sql", ".ini", ".log"):
+            self.assertIn(ext, m.TEXT_EXT, "%s 应在 TEXT_EXT 里" % ext)
+        # 路径二：MIME 表（csv/json/xml/yaml/toml 等由表给出更精确的类型）
+        for ext in (".csv", ".json", ".xml", ".yaml", ".toml", ".txt"):
+            self.assertIn(ext, m.MIME, "%s 应在 MIME 表里" % ext)
+            self.assertIn("charset", m.MIME[ext], "%s 应带 charset" % ext)
+        # 路径三：无扩展名 / 点文件按文件名判定
+        for name in ("Makefile", "Dockerfile", ".gitignore", "README"):
+            self.assertTrue(m._is_textual(os.path.join(self.ROOT, name)),
+                            "%s 应判为文本" % name)
+
+
 class TestSearchJumpCentering(unittest.TestCase):
     """搜索跳转的落点要竖向居中，而不是贴到视口最上沿。
 
