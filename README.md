@@ -105,6 +105,7 @@ CJK 文件名），**正文哈希与响应头全部一致**；`--help` 与错误
 | 代码块复制 | 顶部条右侧的「复制」按钮：纯原生 JS、无依赖、内联进页面（不发额外请求）。按钮**由脚本注入**，禁用 JS 时不会出现点了没反应的死按钮；`http://` 下没有 `navigator.clipboard` 时自动回落到 `execCommand` |
 | 下载按钮 | 目录索引里**每个文件**右侧有「⬇ 下载」按钮（目录没有）。走服务端 `?download=1`，因此对任何类型都有效、且**保留准确类型**；`.md` 点下载拿到的是**原始 Markdown** 而不是渲染后的页面 |
 | 预览上限 | 单文件超过 **20 MiB**（可调）就不再把整个文件塞进浏览器，改为**下载**。实测 20 MiB 文本会让 Chrome 卡 **13.7 秒、占 2.5 GiB 内存**，50 MiB 要 34 秒 / 5.9 GiB —— 所以默认值刻意压在 20 MiB（详见 SELFTEST §16） |
+| 生态白名单 | 前端（`yarn.lock`/`bun.lock`/`pnpm-lock.yaml`/`.npmrc`/`.nvmrc`/`.browserslistrc`/`rollup.config.mjs`…）、Java（`pom.xml`/`build.gradle(.kts)`/`gradlew`/`mvnw`/`MANIFEST.MF`）、Go（`go.mod`/`go.sum`）、Rust（`Cargo.lock`）、.NET（`.csproj`/`.sln`/`.props`/`.targets`/`.resx`）、autotools（`Makefile.in`/`configure.ac`）、Xcode/Swift（`.pbxproj`/`Package.resolved`）等常见文本文件**都能预览**。共 94 个扩展名 + 55 个无扩展名文件名 |
 | 无扩展名嗅探 | `.git/HEAD` 这类没有扩展名的文件，按**开头 512 字节有无 NUL** 判文本还是二进制：文本内联预览，二进制下载。与 VS Code 的判定方式同源（它也是只看前 512 字节） |
 | 代码高亮 | 内置 **23 种**（每种都实测能着色）：Python / JavaScript / TypeScript / Go / Rust / Java / C / C++ / Shell / SQL / JSON / YAML / TOML / INI / Makefile / Dockerfile / Docker Compose / Containerfile / CSS / HTML / XML / Markdown / Properties。**只有带语言标识的围栏才高亮**；标识未知时退化为通用规则（注释/字符串/数字着色）；不写语言或写 `text`/`plaintext`/`txt` 则整块素色。Dockerfile、Makefile、INI 按**大小写不敏感**匹配 |
 | 列表 | 有序/无序，任意层级嵌套；有序列表支持 `start`（`4.` 开头就输出 `<ol start="4">`） |
@@ -243,8 +244,8 @@ md-preview/
 ├─ README.md            # 本文
 ├─ SELFTEST.md          # 验证结果与缺陷修复台账
 ├─ tests/               # 测试（见 tests/README.md）
-│  ├─ tests_render.py   #   渲染器回归测试（116 项，纯 unittest）
-│  └─ selftest.sh       #   端到端 HTTP 冒烟测试（245 项断言）
+│  ├─ tests_render.py   #   渲染器回归测试（119 项，纯 unittest）
+│  └─ selftest.sh       #   端到端 HTTP 冒烟测试（249 项断言）
 ├─ tools/minify.py      #   生成运行版（去注释/docstring/空行）
 ├─ dist/mdview.min.py   #   ★ 压缩运行版（82 KB，可单独拿去运行）
 └─ docs/                # 示例语料
@@ -258,8 +259,8 @@ md-preview/
 ## 8. 测试
 
 ```bash
-python3 tests/tests_render.py      # 渲染器单元测试：116 项
-bash tests/selftest.sh             # 端到端 HTTP 验证：245 项断言
+python3 tests/tests_render.py      # 渲染器单元测试：119 项
+bash tests/selftest.sh             # 端到端 HTTP 验证：249 项断言
 ```
 
 三者都是零依赖、可重复执行的。`tests/selftest.sh` 会在 `127.0.0.1:8731` 起一个临时实例，

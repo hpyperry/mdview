@@ -152,6 +152,16 @@ TEXT_EXT = {
     # 配置与数据
     ".ini", ".cfg", ".conf", ".properties", ".env", ".toml", ".yaml", ".yml",
     ".sql", ".graphql", ".proto", ".mk", ".cmake", ".gradle", ".sbt",
+    # 包管理与锁文件（前端 / Java / 其他生态）
+    #   注意**不要**收 ".lockb" —— bun.lockb 是二进制格式；bun.lock（文本）由 .lock 覆盖
+    ".lock", ".sum", ".kts", ".am", ".mf", ".cjs", ".hcl", ".config",
+    # autotools / Xcode / Swift / 现代 JS
+    #   .in 覆盖 Makefile.in 与 Makefile.am.in；.mod 覆盖 go.mod（有意的取舍：
+    #   音频领域的 .mod 会被当文本，但本工具面向代码与文档，go.mod 出现频率高得多）
+    ".in", ".ac", ".mod", ".mjs", ".pbxproj", ".resolved", ".user", ".csproj.user",
+    # .NET / NuGet 工程文件（都是 XML 文本）
+    ".csproj", ".vbproj", ".fsproj", ".vcxproj", ".vcproj", ".xproj",
+    ".sln", ".props", ".targets", ".resx", ".nuspec", ".ruleset",
     # 文本类文档与其他
     ".log", ".diff", ".patch", ".rst", ".tex", ".tsv", ".vue", ".svelte", ".txt",
 }
@@ -163,6 +173,15 @@ TEXT_FILENAMES = {
     "licence", "notice", "authors", "changelog", "contributing", "todo",
     "gitignore", "gitattributes", "gitmodules", "dockerignore", "editorconfig",
     "env", "npmrc", "yarnrc", "babelrc", "eslintrc", "prettierrc", "flake8",
+    # 无扩展名的 Java 构建文件（Gradle/Maven 生态里很常见）
+    "manifest", "maven.config", "jvm.config", "gradlew", "mvnw",
+    "settings.gradle", "build.gradle", "gradle.properties",
+    # 前端生态里无扩展名的 rc 文件
+    "browserslistrc", "stylelintrc", "lintstagedrc", "nvmrc", "huskyrc",
+    "swcrc", "commitlintrc", "markdownlintrc", "npmignore", "yarnclean",
+    # 其他常见无扩展名文本
+    "pipfile", "pipfile.lock", "cmakelists.txt", "meson.build",
+    "codeowners", "mailmap", "golangci.yml", "procfile.windows",
 }
 
 

@@ -63,6 +63,10 @@ TEXT_EXT = {
     ".swift", ".m", ".mm", ".dart", ".ex", ".exs", ".erl", ".hs", ".clj", ".groovy",
     ".ini", ".cfg", ".conf", ".properties", ".env", ".toml", ".yaml", ".yml",
     ".sql", ".graphql", ".proto", ".mk", ".cmake", ".gradle", ".sbt",
+    ".lock", ".sum", ".kts", ".am", ".mf", ".cjs", ".hcl", ".config",
+    ".in", ".ac", ".mod", ".mjs", ".pbxproj", ".resolved", ".user", ".csproj.user",
+    ".csproj", ".vbproj", ".fsproj", ".vcxproj", ".vcproj", ".xproj",
+    ".sln", ".props", ".targets", ".resx", ".nuspec", ".ruleset",
     ".log", ".diff", ".patch", ".rst", ".tex", ".tsv", ".vue", ".svelte", ".txt",
 }
 TEXT_FILENAMES = {
@@ -71,6 +75,12 @@ TEXT_FILENAMES = {
     "licence", "notice", "authors", "changelog", "contributing", "todo",
     "gitignore", "gitattributes", "gitmodules", "dockerignore", "editorconfig",
     "env", "npmrc", "yarnrc", "babelrc", "eslintrc", "prettierrc", "flake8",
+    "manifest", "maven.config", "jvm.config", "gradlew", "mvnw",
+    "settings.gradle", "build.gradle", "gradle.properties",
+    "browserslistrc", "stylelintrc", "lintstagedrc", "nvmrc", "huskyrc",
+    "swcrc", "commitlintrc", "markdownlintrc", "npmignore", "yarnclean",
+    "pipfile", "pipfile.lock", "cmakelists.txt", "meson.build",
+    "codeowners", "mailmap", "golangci.yml", "procfile.windows",
 }
 def _is_textual(path):
     ext = os.path.splitext(path)[1].lower()

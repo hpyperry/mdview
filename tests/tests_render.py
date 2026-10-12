@@ -949,6 +949,78 @@ class TestSearchJumpCentering(unittest.TestCase):
         self.assertIn("srcline", src)
 
 
+class TestEcosystemWhitelist(unittest.TestCase):
+    """前端 / Java / .NET 等生态的常见文本文件要能预览。
+
+    这些文件大多没有扩展名（或扩展名很冷门），曾经一律走 octet-stream 下载。
+    """
+
+    NEW = [
+        # 前端包管理与锁文件
+        "yarn.lock", "bun.lock", "Pipfile.lock", "poetry.lock", "Cargo.lock",
+        "Gemfile.lock", "mix.lock", "pubspec.lock", "Package.resolved",
+        "pnpm-lock.yaml", "package.json", ".npmrc", ".nvmrc", ".yarnrc",
+        ".browserslistrc", ".stylelintrc", ".lintstagedrc", ".swcrc",
+        ".commitlintrc", ".markdownlintrc", ".pnpmfile.cjs",
+        "rollup.config.mjs", "vite.config.ts", "webpack.config.js",
+        # Java / Gradle / Maven
+        "pom.xml", "build.gradle", "settings.gradle", "gradle.properties",
+        "build.gradle.kts", "settings.gradle.kts", "gradlew", "mvnw",
+        "MANIFEST.MF", "Manifest.mf", "jvm.config", "maven.config",
+        # Go / Rust / autotools / Xcode / Swift
+        "go.mod", "go.sum", "Makefile.am", "Makefile.in", "configure.ac",
+        "project.pbxproj", "Podfile", "Podfile.lock", "Package.swift",
+        # .NET / NuGet
+        "App.csproj", "proj.sln", "Directory.Build.props", "app.targets",
+        "res.resx", "pkg.nuspec", "packages.config", "NuGet.Config",
+        "Directory.Packages.props", "App.csproj.user",
+        # 其他
+        ".terraform.lock.hcl", "CMakeLists.txt", ".editorconfig",
+    ]
+
+    def test_all_preview_as_text(self):
+        d = tempfile.mkdtemp()
+        try:
+            for name in self.NEW:
+                path = os.path.join(d, name.replace("/", "_"))
+                with open(path, "wb") as fh:
+                    fh.write(b"text content\n")
+                ctype, download = m.resolve_ctype(path)
+                self.assertFalse(download, "%s 不该被要求下载" % name)
+                self.assertNotEqual(ctype, m.BINARY_MIME,
+                                    "%s 仍被判为二进制（会下载）" % name)
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
+
+    def test_bun_lockb_stays_binary(self):
+        """bun.lockb 是二进制锁文件，**不能**因为收了 .lock 就被带成文本。"""
+        self.assertNotIn(".lockb", m.TEXT_EXT)
+        d = tempfile.mkdtemp()
+        try:
+            path = os.path.join(d, "bun.lockb")
+            with open(path, "wb") as fh:
+                fh.write(b"bun-lockb\x01" + b"\x00" * 40)
+            ctype, _ = m.resolve_ctype(path)
+            self.assertEqual(ctype, m.BINARY_MIME)
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
+
+    def test_real_binaries_still_binary(self):
+        """扩容不能把真二进制放进来。"""
+        for ext in (".zip", ".png", ".pdf", ".mp4", ".docx", ".so", ".dylib",
+                    ".exe", ".lockb", ".wasm", ".woff2"):
+            d = tempfile.mkdtemp()
+            try:
+                path = os.path.join(d, "x" + ext)
+                with open(path, "wb") as fh:
+                    fh.write(b"\x00\x01\x02")
+                ctype, _ = m.resolve_ctype(path)
+                self.assertNotEqual(ctype, m.TEXT_MIME_DEFAULT,
+                                    "%s 不该被当成文本" % ext)
+            finally:
+                shutil.rmtree(d, ignore_errors=True)
+
+
 class TestTextExtensions(unittest.TestCase):
     """源码/配置类文件必须按 UTF-8 文本发送，否则中文乱码或直接下载。
 

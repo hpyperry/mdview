@@ -522,6 +522,44 @@ nchk "目录页无 // 链接"      "$(for d in / /lvl1/ /lvl1/lvl2/; do curl -s 
 { kill "$PLPID" 2>/dev/null; wait "$PLPID" 2>/dev/null; }
 rm -rf "$PL"
 
+echo "== 生态白名单（前端/Java/.NET 常见文件）=="
+ECO="$(mktemp -d -t mdview-eco)"
+for f in yarn.lock bun.lock Pipfile.lock poetry.lock Cargo.lock go.sum go.mod \
+         build.gradle settings.gradle gradle.properties build.gradle.kts \
+         settings.gradle.kts gradlew mvnw Makefile.in configure.ac \
+         rollup.config.mjs project.pbxproj Package.resolved; do
+  printf 'text\n' > "$ECO/$f"
+done
+printf 'text\n' > "$ECO/MANIFEST.MF"; printf 'text\n' > "$ECO/App.csproj"
+printf 'text\n' > "$ECO/proj.sln"; printf 'text\n' > "$ECO/Directory.Build.props"
+printf 'text\n' > "$ECO/props.resx"; printf 'text\n' > "$ECO/.pnpmfile.cjs"
+printf 'text\n' > "$ECO/.terraform.lock.hcl"
+# 反例：bun.lockb 是二进制锁文件，必须仍然下载
+printf 'bun-lockb\x01\x00\x00\x00\x00\x00' > "$ECO/bun.lockb"
+ECOPID="$(serve_root "$((PORT+12))" "$ECO")"; ECOB="http://127.0.0.1:$((PORT+12))"
+ECOBAD=0
+for f in yarn.lock bun.lock Pipfile.lock poetry.lock Cargo.lock go.sum go.mod \
+         build.gradle settings.gradle gradle.properties build.gradle.kts \
+         settings.gradle.kts gradlew mvnw Makefile.in configure.ac \
+         rollup.config.mjs project.pbxproj Package.resolved \
+         MANIFEST.MF App.csproj proj.sln Directory.Build.props props.resx \
+         .pnpmfile.cjs .terraform.lock.hcl; do
+  ct="$(curl -s -o /dev/null -w '%{content_type}' "$ECOB/$f")"
+  if [ "$ct" != "text/plain; charset=utf-8" ]; then
+    printf '  \033[31mFAIL\033[0m %s -> %s\n' "$f" "$ct"; ECOBAD=$((ECOBAD+1))
+  fi
+done
+if [ "$ECOBAD" -eq 0 ]; then
+  printf '  \033[32mok\033[0m   26 个生态文件均为文本\n'; pass=$((pass+1))
+else
+  fail=$((fail+1)); failed_names="$failed_names 生态白名单"
+fi
+chk "bun.lockb 仍是二进制"    "$(curl -s -o /dev/null -w '%{content_type}' "$ECOB/bun.lockb")" 'application/octet-stream'
+chk "package.json 仍是 JSON"  "$(printf '{}' > "$ECO/package.json"; curl -s -o /dev/null -w '%{content_type}' "$ECOB/package.json")" 'application/json; charset=utf-8'
+chk "pom.xml 仍是 XML"        "$(printf '<a/>' > "$ECO/pom.xml"; curl -s -o /dev/null -w '%{content_type}' "$ECOB/pom.xml")" 'application/xml; charset=utf-8'
+{ kill "$ECOPID" 2>/dev/null; wait "$ECOPID" 2>/dev/null; }
+rm -rf "$ECO"
+
 echo "== 参数开关（另起临时实例） =="
 
 { kill "$SERVER_PID" 2>/dev/null; wait "$SERVER_PID" 2>/dev/null; } ; sleep 0.3

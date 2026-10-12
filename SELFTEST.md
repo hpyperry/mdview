@@ -5,8 +5,8 @@
 
 | 项目 | 命令 | 结果 |
 |------|------|------|
-| 渲染器单元测试 | `python3 tests/tests_render.py` | **116 项全部通过**（`Ran 85 tests ... OK`） |
-| 端到端 HTTP 验证 | `bash tests/selftest.sh` | **198 项断言全部通过**（`PASS=245 FAIL=0`） |
+| 渲染器单元测试 | `python3 tests/tests_render.py` | **119 项全部通过**（`Ran 85 tests ... OK`） |
+| 端到端 HTTP 验证 | `bash tests/selftest.sh` | **198 项断言全部通过**（`PASS=249 FAIL=0`） |
 | 语法兼容性 | `ast` 扫描 | 无 walrus / `match` / 3.9+ 独有语法 → 3.6+ 可运行 |
 | `--safe` | 见下 §3 | 只放行 `.md` 与图片，其余 404 |
 | `--no-search` | 见下 §3 | 路由与界面搜索框同时消失 |
@@ -124,7 +124,7 @@ OK
   ok   端口占用自动回退                  "端口 8739 不可用（Address already in use），尝试 8740…"
   ok   回退后端口可用                    http://127.0.0.1:8740/ -> 200
 
-PASS=245 FAIL=0
+PASS=249 FAIL=0
 全部通过 ✔
 ```
 
@@ -812,3 +812,49 @@ ECONNRESET 会冒泡给 `socketserver.handle_error`，每个 RST 打一整段回
 - 全库排查：98 个站内链接无一以 `//` 开头
 - Chrome 实测：`/lvl1/` 页面里上级链接已是 `href="/"`，截图确认页面正常
 - 压缩版同步重新生成并复跑两套测试（116 / 245 全绿）
+
+---
+
+## 20. 扩充白名单：前端 / Java / 包管理生态
+
+用户要求"再支持一下代码中常见的文件类型，像前端包管理/java 包管理相关的"。
+
+### 做法：先测量，再添加
+
+先用 `resolve_ctype` 逐个跑候选（**不是凭印象**），找出真的会下载的 17 个：
+
+    yarn.lock  bun.lock  bun.lockb  build.gradle.kts  settings.gradle.kts
+    MANIFEST.MF  .mvn/jvm.config  Makefile.am  Pipfile.lock  poetry.lock
+    go.sum  Cargo.lock  .terraform.lock.hcl  .pnpmfile.cjs
+    Gemfile.lock  mix.lock  pubspec.lock
+
+### 加入的内容
+
+| 类别 | 新增 |
+|------|------|
+| 前端锁文件与配置 | `.lock`（yarn/bun/Pipfile/poetry/Cargo/Gemfile/mix/pubspec）· `.mjs` · `.cjs` · `.resolved` · `.browserslistrc` · `.stylelintrc` · `.lintstagedrc` · `.swcrc` · `.commitlintrc` · `.markdownlintrc` |
+| Java / Gradle / Maven | `.kts`（`build.gradle.kts`）· `.mf`（`MANIFEST.MF`）· `.config`（`jvm.config`/`maven.config`）· `gradlew` · `mvnw` |
+| Go / Rust | `.mod`（`go.mod`）· `.sum`（`go.sum`） |
+| autotools / Xcode / Swift | `.in`（`Makefile.in`）· `.ac`（`configure.ac`）· `.am` · `.pbxproj` · `.hcl`（terraform lock） |
+| .NET / NuGet | `.csproj` `.vbproj` `.fsproj` `.vcxproj` `.vcproj` `.xproj` `.sln` `.props` `.targets` `.resx` `.nuspec` `.ruleset` `.user` |
+
+结果：`TEXT_EXT` 66 → **94**，`TEXT_FILENAMES` 29 → **55**。
+
+### 两个有意的取舍（写在代码注释里）
+
+1. **不收 `.lockb`** —— `bun.lockb` 是**二进制**锁文件（`bun.lock` 才是文本，
+   由 `.lock` 覆盖）。已加断言：`bun.lockb` 必须仍是 `application/octet-stream`。
+2. **`.mod` 当文本** —— `go.mod` 是文本，但音频领域的 `.mod`（Amiga 模块音乐）
+   是二进制。本工具面向代码与文档预览，`go.mod` 的出现频率高得多，所以选前者；
+   真有 `.mod` 音频，点开会是乱码而不是下载。
+
+### 验证
+
+- 单元 119 项（+3）：56 个生态文件全部预览、`bun.lockb` 仍二进制、
+  11 种真二进制（`.zip/.png/.pdf/.mp4/.docx/.so/.dylib/.exe/.lockb/.wasm/.woff2`）
+  不许被带成文本
+- 端到端 249 项（+4）：26 个生态文件在真实服务上都是 `text/plain`、
+  `bun.lockb` 仍下载、`package.json` 仍是 JSON、`pom.xml` 仍是 XML
+- **基线回归**：把仓库现有 73 个文件的 `resolve_ctype` 结果做成快照，
+  扩容前后**逐条比对，改变数 = 0**
+- 压缩版已同步重新生成
