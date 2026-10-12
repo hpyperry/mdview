@@ -414,7 +414,7 @@ run:
 	$(PY) mdview.py --root docs --port $(PORT)
 
 test:
-	$(PY) tests_render.py && bash selftest.sh
+	$(PY) tests/tests_render.py && bash tests/selftest.sh
 
 ifeq ($(OS),Darwin)
 open-browser:

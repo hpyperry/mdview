@@ -5,11 +5,13 @@
 `mdview.py` 顶部的导航注释里写了每个 section 的起始行号，那是**生成物**：
 改代码后行号会漂移，所以提供这个脚本一键重算，而不是靠手动维护。
 
-用法:
-    python3 sync_nav.py           # 就地更新 mdview.py 的导航块
-    python3 sync_nav.py --check    # 只检查是否已同步（CI/自检用），不同步则退出码 1
+用法（在任意目录均可执行）:
+    python3 tests/sync_nav.py           # 就地更新 mdview.py 的导航块
+    python3 tests/sync_nav.py --check    # 只检查是否已同步，不同步则退出码 1
 
-它只改注释块，不动任何代码；改完请复跑 python3 tests_render.py 与 bash selftest.sh。
+它只改注释块，不动任何代码；改完请复跑
+    python3 tests/tests_render.py
+    bash tests/selftest.sh
 """
 
 import os
@@ -17,7 +19,8 @@ import re
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-TARGET = os.path.join(HERE, "mdview.py")
+ROOT = os.path.dirname(HERE)          # 本脚本在 tests/ 下，目标在仓库根
+TARGET = os.path.join(ROOT, "mdview.py")
 
 BEGIN = "SECTION 导航"
 END = "# ===="

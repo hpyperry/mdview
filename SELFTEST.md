@@ -5,8 +5,8 @@
 
 | 项目 | 命令 | 结果 |
 |------|------|------|
-| 渲染器单元测试 | `python3 tests_render.py` | **45 项全部通过**（`Ran 45 tests ... OK`） |
-| 端到端 HTTP 验证 | `bash selftest.sh` | **108 项断言全部通过**（`PASS=108 FAIL=0`） |
+| 渲染器单元测试 | `python3 tests/tests_render.py` | **45 项全部通过**（`Ran 45 tests ... OK`） |
+| 端到端 HTTP 验证 | `bash tests/selftest.sh` | **108 项断言全部通过**（`PASS=108 FAIL=0`） |
 | 语法兼容性 | `ast` 扫描 | 无 walrus / `match` / 3.9+ 独有语法 → 3.6+ 可运行 |
 | `--safe` | 见下 §3 | 只放行 `.md` 与图片，其余 404 |
 | `--no-search` | 见下 §3 | 路由与界面搜索框同时消失 |
@@ -21,7 +21,7 @@
 ## 1. 渲染器单元测试
 
 ```console
-$ python3 tests_render.py
+$ python3 tests/tests_render.py
 ...
 ----------------------------------------------------------------------
 Ran 45 tests in 0.014s
@@ -35,7 +35,7 @@ OK
 
 ---
 
-## 2. 端到端 HTTP 验证（`bash selftest.sh`，108 项）
+## 2. 端到端 HTTP 验证（`bash tests/selftest.sh`，108 项）
 
 脚本自己在 `127.0.0.1:8731` 起临时实例，跑完自动关闭。关键断言与实测：
 
@@ -203,7 +203,7 @@ $ curl -s 'http://127.0.0.1:8731/../../../../etc/passwd' | grep -c 'root:'
 | 20 | 带行内码的标题锚点粘连（`pythonpython`） | `slugify` 直接把 HTML 标签删掉，`Python` 与 `<code>python</code>` 粘成一个词 | 标签替换为分隔符，锚点变为 `11-python-python-py` |
 | 19 | 文档里的 `/media/xxx` 在「默认根」启动时 404 | 根相对路径按服务根解析，只有 `--root` 恰好等于文档库根才对 | 不改语义（同一 URL 必须指向同一文件），改为启动时检测「根下无 .md 但子目录有」并提示该用的 `--root`；文档补前置条件说明；自检新增断链检查 |
 
-配套：`tests_render.py` 的期望值也按 CommonMark 规则逐条复核过，
+配套：`tests/tests_render.py` 的期望值也按 CommonMark 规则逐条复核过，
 原先写错的期望（`中文__粗__中文`、`中*插*文`、`**粗体 **内**`、多测试用例）已改正，
 而不是让实现去迁就错误的断言。
 
@@ -213,12 +213,14 @@ $ curl -s 'http://127.0.0.1:8731/../../../../etc/passwd' | grep -c 'root:'
 
 ```bash
 cd /Users/hpy/Documents/deepseek-harness/md-preview
-python3 tests_render.py     # 45 项
-bash selftest.sh            # 108 项（自动起停临时服务）
+python3 tests/tests_render.py      # 45 项
+bash tests/selftest.sh             # 108 项（自动起停临时服务）
+python3 tests/sync_nav.py --check  # 导航行号与代码一致
 ```
 
-`selftest.sh` 支持 `PORT=9000 bash selftest.sh` 换端口；结束时打印 `PASS=.. FAIL=..`，
-非零退出码表示有失败项及失败清单。
+`tests/selftest.sh` 支持 `PORT=9000 bash tests/selftest.sh` 换端口；结束时打印
+`PASS=.. FAIL=..`，非零退出码表示有失败项及失败清单。测试与开发工具全部隔离在
+[`tests/`](tests/README.md) 目录，仓库根只留 `mdview.py` 与文档。
 
 ---
 
@@ -232,7 +234,7 @@ bash selftest.sh            # 108 项（自动起停临时服务）
 | # | 发现 | 处理 |
 |---|------|------|
 | S1 | `SECTION 8` 分隔带不存在，而 README 与代码注释都声称有 10 段 | 在目录/搜索代码真正起点补上分隔带，现为 10 段 |
-| S2 | README 称"行号级导航"，代码注释却写"行号会漂移、请用关键字搜索" | 改为 **`sync_nav.py` 生成的真实行号**（`--check` 可校验），并新增该脚本 |
+| S2 | README 称"行号级导航"，代码注释却写"行号会漂移、请用关键字搜索" | 改为 **`tests/sync_nav.py` 生成的真实行号**（`--check` 可校验），并新增该脚本 |
 | S3 | README 的测试计数陈旧（98 项 vs 实测） | 全量修正为实测值 |
 | S4 | `SELFTEST.md` 残留"39 项" | 修正 |
 | S5 | 死代码：`_DELIM_RE_CACHE`、`parse_emphasis_inner`、`_restore`、`_find_md_root`、`Config.raw_ok`、`--no-wait`、恒真的 `same_slot` | 全部删除 |
@@ -240,7 +242,7 @@ bash selftest.sh            # 108 项（自动起停临时服务）
 | S7 | href 拼装 5 处、`depth_nav` 3 处重复 | 抽出 `url_for_rel()` 与 `depth_nav_html()` |
 | S8 | `Handler._dir_page` 一函数多职责 | 拆为 `_dir_page` / `_resolve_depth` / `_tree_view` / `_list_view` / `_parent_link` / `_index_title` |
 | S9 | `--no-wait` 是空转开关 | 删除（同 S5） |
-| S10 | `selftest.sh` 起服务循环复制 5 份、缺 `local`、头部硬编码绝对路径 | 抽出 `serve_temp()` / `wait_ready()`，补 `local`，去掉硬编码路径 |
+| S10 | `tests/selftest.sh` 起服务循环复制 5 份、缺 `local`、头部硬编码绝对路径 | 抽出 `serve_temp()` / `wait_ready()`，补 `local`，去掉硬编码路径 |
 | S11 | 魔法数：缓存上限、端口重试次数、资源目录名 | 提升为 `RENDER_CACHE_MAX` / `PORT_TRIES` / `ASSET_DIRS`；端口重试并暴露为 `--port-tries N` |
 
 ### 6.2 Spec 轴（8 条）
@@ -260,4 +262,25 @@ bash selftest.sh            # 108 项（自动起停临时服务）
 
 - 单元测试 45 项（新增：仅文件名命中、无语言围栏素色）
 - 端到端 108 项（新增：源码视图行锚点与内容一致性、搜索分栏计数、仅文件名命中）
-- 新增 `sync_nav.py`（生成/校验导航行号），`python3 sync_nav.py --check` 可纳入自检
+- 新增 `tests/sync_nav.py`（生成/校验导航行号），`python3 tests/sync_nav.py --check` 可纳入自检
+
+---
+
+## 7. 目录整理：测试与源码分离
+
+早期版本把 `mdview.py`、两份测试、一个维护脚本、两份文档、示例语料与截图全部平铺在
+仓库根，交付物与开发物料混在一起。现已分离：
+
+```
+md-preview/
+├─ mdview.py          # 唯一可交付源码
+├─ README.md
+├─ SELFTEST.md
+├─ tests/             # 测试 + 开发工具（含自己的 README）
+│  ├─ tests_render.py   selftest.sh   sync_nav.py
+└─ docs/              # 示例语料（含 media/）
+```
+
+三个脚本都改为**从自身位置推出仓库根**（`selftest.sh` 新增 `ROOT`，`sync_nav.py` 新增
+`ROOT`，`tests_render.py` 的 `sys.path` 指向上一层），因此从任何目录执行都可以 ——
+已实测在仓库根与 `/tmp` 下分别执行 `tests/selftest.sh`，均为 `PASS=108 FAIL=0`。

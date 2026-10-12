@@ -212,13 +212,14 @@ md-preview/
 ## 8. 测试
 
 ```bash
-python3 tests_render.py       # 渲染器单元测试：45 项
-bash selftest.sh              # 端到端 HTTP 验证：108 项断言
-python3 sync_nav.py --check   # 校验顶部导航行号与代码一致
+python3 tests/tests_render.py      # 渲染器单元测试：45 项
+bash tests/selftest.sh             # 端到端 HTTP 验证：108 项断言
+python3 tests/sync_nav.py --check  # 校验顶部导航行号与代码一致
 ```
 
-两者都是零依赖、可重复执行的。`selftest.sh` 会在 `127.0.0.1:8731` 起一个临时实例，
-跑完全部断言后自动关闭，不污染你的环境。验证结果记录在 [`SELFTEST.md`](SELFTEST.md)。
+三者都是零依赖、可重复执行的。`tests/selftest.sh` 会在 `127.0.0.1:8731` 起一个临时实例，
+跑完全部断言后自动关闭，不污染你的环境。测试目录自身的说明见 [`tests/README.md`](tests/README.md)；
+验证结果记录在 [`SELFTEST.md`](SELFTEST.md)。
 
 ---
 
@@ -237,6 +238,7 @@ python3 sync_nav.py --check   # 校验顶部导航行号与代码一致
 | 想加的东西 | 落点 |
 |------------|------|
 | 新语言高亮 | `SECTION 4` 的 `LANG_KEYWORDS` 加一组关键字（大小写不敏感就登记到 `LANG_ICASE`，显示名加到 `LANG_LABEL`） |
+| 改完代码必做 | `python3 tests/sync_nav.py` → `python3 tests/tests_render.py` → `bash tests/selftest.sh` |
 | 语法高亮以外的新行内语法 | `SECTION 5` 的 `parse_inline`：先 stash 成 token，再在还原前处理 |
 | 新块级语法 | `SECTION 7` 的 `render_blocks`：加一个分支并同步更新 `_starts_block` |
 | 新路由 | `SECTION 9` 的 `Handler._route` |

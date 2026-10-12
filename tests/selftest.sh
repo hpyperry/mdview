@@ -1,14 +1,17 @@
 #!/usr/bin/env bash
 # selftest.sh —— mdview 端到端冒烟测试
 #
-#   bash selftest.sh          # 从本目录执行
-#   PORT=9000 bash selftest.sh # 换一组临时端口
+#   bash tests/selftest.sh            # 在仓库根执行
+#   PORT=9000 bash tests/selftest.sh  # 换一组临时端口
+#
+# 脚本从自身位置推出仓库根（ROOT），所以从任何目录执行都可以。
 #
 # 自己起一个 127.0.0.1 的临时服务，跑完所有断言后关闭。
 # 全部通过才算可用；失败项会打印期望值。
 set -u
 
-HERE="$(cd "$(dirname "$0")" && pwd)"
+HERE="$(cd "$(dirname "$0")" && pwd)"        # tests/
+ROOT="$(cd "$HERE/.." && pwd)"               # 仓库根：mdview.py 与 docs/ 在这里
 PORT="${PORT:-8731}"
 BASE="http://127.0.0.1:${PORT}"
 LOG="$(mktemp -t mdview-selftest)"
@@ -34,7 +37,7 @@ wait_ready() {
 # 把实例 PID 登记进 PIDS，EXIT 时统一回收（否则会留下孤儿进程）。
 serve_temp() {
   local port="$1" log="$2"; shift 2
-  python3 "$HERE/mdview.py" --root "$HERE/docs" --port "$port" --host 127.0.0.1 "$@" \
+  python3 "$ROOT/mdview.py" --root "$ROOT/docs" --port "$port" --host 127.0.0.1 "$@" \
       >"$log" 2>&1 &
   local pid=$!
   PIDS="$PIDS $pid"
@@ -108,7 +111,7 @@ chk "行锚点覆盖到文末"     "$RAW" 'id="L30"'
 chk "高亮当前行的样式"     "$RAW" '.srcline:target'
 chk "可从源码视图回到渲染" "$RAW" '看渲染结果'
 # 行号必须与源文件真实行一致（取第 5 行核对）
-LINE5_SRC="$(sed -n '5p' "$HERE/docs/index.md")"
+LINE5_SRC="$(sed -n '5p' "$ROOT/docs/index.md")"
 chk "第 5 行锚点内容与源文件一致" "$RAW" "$LINE5_SRC"
 
 echo "== 子目录与图片 =="
@@ -140,7 +143,7 @@ chk "空查询提示"          "$(curl -s "$BASE/search")" '输入关键词'
 chk "搜索结果指向源码行锚点" "$S" 'href="/index.md?raw=1#L'
 chk "搜索分栏带计数"        "$S" '正文命中（'
 # 仅文件名命中：临时造一个「名字含关键词、正文不含」的文件
-UNI="$HERE/docs/guide/zzz-selftest-unicorn.md"
+UNI="$ROOT/docs/guide/zzz-selftest-unicorn.md"
 printf '# 与关键词无关\n\n正文不提那个词。\n' > "$UNI"
 SU="$(curl -s --get --data-urlencode 'q=unicorn' "$BASE/search")"
 chk "仅文件名命中也会列出"  "$SU" 'zzz-selftest-unicorn.md'
@@ -194,8 +197,8 @@ chk "code-blocks: 语言标签 Compose"     "$CB" 'Docker Compose</span>'
 chk "code-blocks: UTF-8 未切数字"       "$(printf '%s' "$CB" | grep -c 'UTF-<span class="num">' || true)" '0'
 
 # 根目录选错时（用上层目录启动）必须给出可操作的 --root 提示。
-# 场景：以 md-preview 的上一层为根，此时根下没有 .md，但 docs/ 里有。
-python3 "$HERE/mdview.py" --root "$HERE/.." --port $((PORT+5)) --host 127.0.0.1 \
+# 场景：以 md-preview 的上一层为根，此时根下没有 .md，但 md-preview/docs 里有。
+python3 "$ROOT/mdview.py" --root "$ROOT/.." --port $((PORT+5)) --host 127.0.0.1 \
     >"$LOG.alt" 2>&1 &
 ALT_PID=$!; PIDS="$PIDS $ALT_PID"
 wait_ready $((PORT+5))
@@ -225,7 +228,7 @@ nchk "no-search: 文档页也无" "$(curl -s "$NSB/index.md")" 'name="q"'
 
 # 端口占用自动回退
 P1="$(serve_temp $((PORT+3)) /dev/null)"
-python3 "$HERE/mdview.py" --root "$HERE/docs" --port $((PORT+3)) --host 127.0.0.1 \
+python3 "$ROOT/mdview.py" --root "$ROOT/docs" --port $((PORT+3)) --host 127.0.0.1 \
     >"$LOG.fallback" 2>&1 &
 P2=$!; PIDS="$PIDS $P2"
 wait_ready $((PORT+4))

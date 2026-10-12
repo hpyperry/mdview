@@ -21,6 +21,8 @@ env/
 *.swp
 *~
 
-# 测试脚本产生的临时文件（selftest.sh 用 $TMPDIR，这里兜底）
+# 测试产生的临时文件。tests/selftest.sh 的日志都写到 $TMPDIR，
+# 正常不会落到仓库里；这里只兜底手工调试时留下的痕迹。
 /tmp-*
-*.log
+/tests/*.log
+/tests/tmp-*

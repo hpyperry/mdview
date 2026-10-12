@@ -12,7 +12,8 @@ import re
 import sys
 import unittest
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# mdview.py 在仓库根（本文件位于 tests/），把它加入 sys.path
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import mdview as m  # noqa: E402
 
 

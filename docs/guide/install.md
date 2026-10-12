@@ -45,16 +45,22 @@
 
 ```text
 md-preview/
-├─ mdview.py
+├─ mdview.py            # 唯一可交付源码
 ├─ README.md
-├─ tests_render.py
-└─ docs/
+├─ SELFTEST.md
+├─ tests/               # 测试与开发工具
+│  ├─ tests_render.py
+│  ├─ selftest.sh
+│  └─ sync_nav.py
+└─ docs/                # 就是本目录
    ├─ index.md
    ├─ guide/
    │  ├─ install.md    <- 就是本篇
-   │  └─ advanced.md
+   │  ├─ advanced.md
+   │  └─ code-blocks.md
    └─ media/
-      └─ logo.svg
+      ├─ logo.svg
+      └─ screenshot-*.png
 ```
 
 ## 返回
