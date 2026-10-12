@@ -183,6 +183,8 @@ class TestBlocks(unittest.TestCase):
     def test_code_fence_and_highlight(self):
         out = r('```python\ndef f(x):\n    return "s"\n```')
         self.assertIn('class="language-python"', out)
+        self.assertIn('class="codebanner"', out)          # 语言条与代码区两段叠放
+        self.assertIn('<span class="lang">Python</span>', out)
         self.assertIn('<span class="kw">def</span>', out)
         self.assertIn('<span class="str">"s"</span>', out)
         # 无语言标识 -> 素色（决定 5：只高亮带语言标识的围栏）
@@ -284,6 +286,18 @@ class TestCopyButton(unittest.TestCase):
         self.assertIn('createElement("button")', page)
         self.assertIn('className = "copybtn"', page)
 
+    def test_button_goes_into_banner(self):
+        """按钮追加到语言条右侧（DSH 式两段叠放），无语言块由 JS 补条。"""
+        page = m._page("t", "")
+        self.assertIn('querySelector(".codebanner")', page)
+        self.assertIn("banner.appendChild(btn)", page)
+        self.assertIn("insertBefore(banner, block.firstChild)", page)
+
+    def test_banner_only_when_labeled(self):
+        """有语言 -> 渲染语言条；无语言 -> 不留空白带（JS 需要时再补）。"""
+        self.assertIn('class="codebanner"', r("```python\nx=1\n```"))
+        self.assertNotIn('class="codebanner"', r("```\nx=1\n```"))
+
     def test_clipboard_paths_covered(self):
         """必须同时有 Clipboard API 与 http 场景的 execCommand 兜底。"""
         page = m._page("t", "")
@@ -303,6 +317,9 @@ class TestCopyButton(unittest.TestCase):
         page = m._page("t", "")
         self.assertIn(".copybtn", page)
         self.assertIn(".codeblock:hover .copybtn", page)
+        # 顶部条是 flex + space-between（左侧语言名、右侧复制按钮）
+        self.assertIn(".codeblock .codebanner{display:flex", page)
+        self.assertIn("justify-content:space-between", page)
         self.assertIn("@media (hover:none)", page)   # 触屏无 hover，需要常显
         self.assertIn("@media print{.copybtn{display:none}}", page)
 

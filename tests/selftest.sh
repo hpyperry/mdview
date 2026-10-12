@@ -195,7 +195,7 @@ CB="$(curl -s "$BASE/guide/code-blocks.md")"
 for lang in python javascript typescript go rust java c cpp bash sql json yaml toml ini makefile dockerfile docker-compose brainfuck text markdown; do
   chk "code-blocks: $lang 块" "$CB" "language-$lang"
 done
-chk "code-blocks: 无语言块无空标题栏" "$CB" 'class="codeblock"><pre><code>'
+chk "code-blocks: 无语言块不留空白带" "$CB" 'class="codeblock"><pre><code>' 
 chk "code-blocks: 围栏内 HTML 被转义"  "$CB" '&lt;div&gt;'
 chk "code-blocks: 围栏内 div 未被当标签" "$(printf '%s' "$CB" | grep -c '<div>这不是' || true)" '0'
 chk "code-blocks: 行内码保护星号"      "$CB" '<code>**不是粗体**</code>'
@@ -250,6 +250,9 @@ chk "页面内联了脚本"            "$CB2" 'createElement("button")'
 chk "有 Clipboard API 路径"     "$CB2" 'navigator.clipboard'
 chk "有 http 下的兜底路径"      "$CB2" 'execCommand'
 chk "有悬停显示样式"            "$CB2" '.codeblock:hover .copybtn'
+chk "顶部条为 flex 两端布局"    "$CB2" '.codebanner{display:flex'
+chk "按钮注入到顶部条"          "$CB2" 'banner.appendChild(btn)'
+chk "语言名在顶部条左侧"        "$CB2" '<span class="lang">'
 chk "触屏常显规则"              "$CB2" '@media (hover:none)'
 # 关键：按钮不能出现在 HTML 里（否则禁用 JS 时是个点了没反应的死按钮）
 nchk "HTML 里没有硬编码按钮"    "$CB2" 'class="copybtn"'

@@ -151,14 +151,14 @@ CSS = """
   --bg:#ffffff; --fg:#1f2328; --muted:#59636e; --line:#d1d9e0; --soft:#f6f8fa;
   --accent:#0969da; --mark:#fff3bf; --markfg:#1f2328;
   --t-kw:#cf222e; --t-str:#0a3069; --t-com:#6e7781; --t-num:#0550ae;
-  --t-fn:#8250df; --t-op:#cf222e;
+  --t-fn:#8250df; --t-op:#cf222e; --banner:#eaeef2;
 }
 @media (prefers-color-scheme: dark){
   :root{
     --bg:#0d1117; --fg:#e6edf3; --muted:#9198a1; --line:#3d444d; --soft:#151b23;
     --accent:#4493f8; --mark:#5c4b00; --markfg:#f0f6fc;
     --t-kw:#ff7b72; --t-str:#a5d6ff; --t-com:#8b949e; --t-num:#79c0ff;
-    --t-fn:#d2a8ff; --t-op:#ff7b72;
+    --t-fn:#d2a8ff; --t-op:#ff7b72; --banner:#1c2128;
   }
 }
 html{-webkit-text-size-adjust:100%}
@@ -206,23 +206,24 @@ tr:nth-child(2n) td{background:var(--soft)}
 img{max-width:100%;height:auto}
 hr{border:0;border-top:1px solid var(--line);margin:26px 0}
 mark{background:var(--mark);color:var(--markfg);border-radius:3px;padding:0 2px}
-.codeblock{border:1px solid var(--line);border-radius:8px;overflow:hidden;margin:0 0 16px}
-.codeblock .codehdr{background:var(--soft);border-bottom:1px solid var(--line);
-  padding:5px 13px;font-size:12px;color:var(--muted);
-  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
-.codeblock .codehdr:empty{display:none}
+/* 代码块：顶部条 + 代码区「两段叠放」，顶部条自带上方圆角（对齐 DSH 的 code block） */
+.codeblock{position:relative;margin:0 0 16px;background:var(--soft);
+  border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.codeblock .codebanner{display:flex;align-items:center;justify-content:space-between;
+  gap:12px;padding:9px 14px;background:var(--banner,var(--bg2,var(--soft)));
+  border-bottom:1px solid var(--line);
+  font:11px/18px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+.codeblock .codebanner .lang{color:var(--muted)}
 .codeblock pre{margin:0;border:0;border-radius:0;background:var(--soft)}
 .codeblock pre code{background:none;border:0;padding:0;font-size:.86em}
-/* 复制按钮：由 JS 注入，所以基线（禁用 JS）下页面上不会出现死按钮 */
-.codeblock{position:relative}
-.copybtn{position:absolute;top:6px;right:6px;z-index:1;
-  background:var(--soft);color:var(--muted);border:1px solid var(--line);
-  border-radius:6px;padding:2px 9px;font-size:12px;line-height:1.7;cursor:pointer;
-  font-family:inherit;opacity:0;transition:opacity .12s}
-.codeblock:hover .copybtn,.copybtn:focus{opacity:1}
-.copybtn.done{color:#1a7f37;border-color:#1a7f37}
-.copybtn.bad{color:var(--t-kw);border-color:var(--t-kw)}
-@media (hover:none){.copybtn{opacity:1}}     /* 触屏没有 hover，常显 */
+/* 复制按钮：由 JS 注入到顶部条里；无 JS 时顶部条只剩语言名，没有死按钮 */
+.copybtn{flex:none;background:none;border:0;padding:2px 4px;margin:0;cursor:pointer;
+  color:var(--muted);font:11px/18px inherit;opacity:0;transition:opacity .12s,color .12s}
+.codeblock:hover .copybtn,.copybtn:focus-visible{opacity:1}
+.copybtn:hover{color:var(--accent)}
+.copybtn.done{color:#1a7f37;opacity:1}
+.copybtn.bad{color:var(--t-kw);opacity:1}
+@media (hover:none){.copybtn{opacity:1}}         /* 触屏没有 hover，常显 */
 @media print{.copybtn{display:none}}
 .kw{color:var(--t-kw)} .str{color:var(--t-str)} .com{color:var(--t-com);font-style:italic}
 .num{color:var(--t-num)} .fn{color:var(--t-fn)} .op{color:var(--t-op)}
@@ -300,11 +301,17 @@ COPY_JS = """
     }
   });
   document.querySelectorAll(".codeblock").forEach(function (block) {
+    var banner = block.querySelector(".codebanner");
+    if (!banner) {                        // 兜底：没有顶部条就补一个
+      banner = document.createElement("div");
+      banner.className = "codebanner";
+      block.insertBefore(banner, block.firstChild);
+    }
     var btn = document.createElement("button");
     btn.type = "button"; btn.className = "copybtn";
     btn.textContent = LABEL;
     btn.setAttribute("aria-label", "\u590d\u5236\u4ee3\u7801");
-    block.appendChild(btn);
+    banner.appendChild(btn);              // 放在语言名右侧，与 DSH 一致
   });
 })();
 """
@@ -1264,16 +1271,19 @@ def render_blocks(lines, ctx):
             lang = _lang_of(info)
             label = LANG_LABEL.get(lang, lang)
             cls = ' class="language-%s"' % html.escape(lang, quote=True) if lang else ""
-            hdr = ('<div class="codehdr"><span class="meta">%s</span></div>'
-                   % html.escape(label)) if label else ""
             # 语法高亮只给「带语言标识」的围栏（决定 5）：
             # 不写语言、或写成 text/plaintext，都输出素色代码块。
             if lang and lang not in PLAIN_LANGS:
                 body = highlight(code, info)
             else:
                 body = html.escape(code, quote=False)
+            # 顶部条只在有语言标识时渲染（视觉上语言条与代码区「两段叠放」）。
+            # 无语言的块不渲染空条，避免禁用 JS 时多出一条空白带；
+            # 需要复制按钮时由 JS 自行补一条（见 COPY_JS 的兜底分支）。
+            banner = ('<div class="codebanner"><span class="lang">%s</span></div>'
+                      % html.escape(label)) if label else ''
             out.append('<div class="codeblock">%s<pre><code%s>%s</code></pre></div>'
-                       % (hdr, cls, body))
+                       % (banner, cls, body))
             continue
 
         # --- ATX 标题 ---------------------------------------------------

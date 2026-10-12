@@ -5,8 +5,8 @@
 
 | 项目 | 命令 | 结果 |
 |------|------|------|
-| 渲染器单元测试 | `python3 tests/tests_render.py` | **55 项全部通过**（`Ran 55 tests ... OK`） |
-| 端到端 HTTP 验证 | `bash tests/selftest.sh` | **126 项断言全部通过**（`PASS=126 FAIL=0`） |
+| 渲染器单元测试 | `python3 tests/tests_render.py` | **57 项全部通过**（`Ran 57 tests ... OK`） |
+| 端到端 HTTP 验证 | `bash tests/selftest.sh` | **129 项断言全部通过**（`PASS=129 FAIL=0`） |
 | 语法兼容性 | `ast` 扫描 | 无 walrus / `match` / 3.9+ 独有语法 → 3.6+ 可运行 |
 | `--safe` | 见下 §3 | 只放行 `.md` 与图片，其余 404 |
 | `--no-search` | 见下 §3 | 路由与界面搜索框同时消失 |
@@ -35,7 +35,7 @@ OK
 
 ---
 
-## 2. 端到端 HTTP 验证（`bash tests/selftest.sh`，126 项）
+## 2. 端到端 HTTP 验证（`bash tests/selftest.sh`，129 项）
 
 脚本自己在 `127.0.0.1:8731` 起临时实例，跑完自动关闭。关键断言与实测：
 
@@ -125,7 +125,7 @@ OK
   ok   端口占用自动回退                  "端口 8739 不可用（Address already in use），尝试 8740…"
   ok   回退后端口可用                    http://127.0.0.1:8740/ -> 200
 
-PASS=126 FAIL=0
+PASS=129 FAIL=0
 全部通过 ✔
 ```
 
@@ -213,8 +213,8 @@ $ curl -s 'http://127.0.0.1:8731/../../../../etc/passwd' | grep -c 'root:'
 
 ```bash
 cd /Users/hpy/Documents/deepseek-harness/md-preview
-python3 tests/tests_render.py      # 55 项
-bash tests/selftest.sh             # 126 项（自动起停临时服务）
+python3 tests/tests_render.py      # 57 项
+bash tests/selftest.sh             # 129 项（自动起停临时服务）
 ```
 
 `tests/selftest.sh` 支持 `PORT=9000 bash tests/selftest.sh` 换端口；结束时打印
@@ -327,6 +327,7 @@ md-preview/
 | 文本取自 `pre > code` 的 `innerText` | 复制的是渲染后文本：不带高亮标签，也不含按钮自身文字（浏览器实测确认） |
 | `navigator.clipboard` + `execCommand` 双路径 | 内网多为 `http://`，非安全上下文没有 Clipboard API，必须兜底 |
 | 悬停显现、触屏常显、打印隐藏 | 不干扰阅读；`@media (hover:none)` 与 `@media print` 分别处理 |
+| 语言条 + 代码区**两段叠放**（对齐 DSH 的 code block 形态） | 顶部条 flex 两端布局：左语言名、右复制按钮；顶部条只有上方圆角，视觉上像叠在代码区之上 |
 | 带 `aria-label` | 可访问性 |
 
 验证：
@@ -337,5 +338,19 @@ md-preview/
 - 无代码块的页面（目录索引、搜索结果）执行脚本无运行时错误，页面正常
 - 单元测试 55 项（+5：脚本只注入一次、HTML 无硬编码按钮、双剪贴板路径、
   文本取法、悬停/触屏/打印样式）
-- 端到端 126 项（+7：内联脚本、Clipboard 路径、兜底路径、悬停样式、
-  触屏规则、HTML 无死按钮、目录索引仍正常）
+- 端到端 129 项（+10：内联脚本、Clipboard 路径、兜底路径、悬停样式、
+  触屏规则、HTML 无死按钮、目录索引仍正常、顶部条 flex 两端布局、
+  按钮注入到顶部条、语言名在左侧）
+
+### 样式调整（用户要求对齐 DSH）
+
+用户要求把按钮改成"两个块叠在一起"的形态。我**没有凭印象画**，而是从
+`/Applications/DeepSeek Harness.app/.../app.asar` 里解出 DSH 的实际样式：
+
+    dsh-client-ui-primitives/lib/markdown/MarkdownText.module.css
+    dsh-web-frontend/dist/assets/index-BPHePDI_.css
+
+其中 `._block_7gxqk_4` / `._banner_7gxqk_24` / `._copyButton_1fs6g_139` 三条规则
+给出了确切参数：容器圆角 + 底色、顶部条 `display:flex; justify-content:space-between;
+padding:9px 14px`、复制按钮无边框、继承字色、悬停变蓝。本实现按此对齐，
+并使用自己的 CSS 变量（`--banner`）而非 DSH 的设计 token。
