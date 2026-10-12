@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # selftest.sh —— mdview 端到端冒烟测试
 #
-#   bash /Users/hpy/Documents/deepseek-harness/md-preview/selftest.sh
+#   bash selftest.sh          # 从本目录执行
+#   PORT=9000 bash selftest.sh # 换一组临时端口
 #
 # 自己起一个 127.0.0.1 的临时服务，跑完所有断言后关闭。
 # 全部通过才算可用；失败项会打印期望值。
@@ -20,12 +21,28 @@ cleanup() {
 }
 trap cleanup EXIT
 
-python3 "$HERE/mdview.py" --root "$HERE/docs" --port "$PORT" --host 127.0.0.1 >"$LOG" 2>&1 &
-SERVER_PID=$!; PIDS="$PIDS $SERVER_PID"
-for _ in $(seq 1 30); do
-  curl -s -o /dev/null "$BASE/" && break
-  sleep 0.2
-done
+# 等某个端口上的服务就绪（最多 6 秒）
+wait_ready() {
+  local port="$1" i
+  for i in $(seq 1 30); do
+    curl -s -o /dev/null "http://127.0.0.1:$port/" && break
+    sleep 0.2
+  done
+}
+
+# 起一个临时实例并等它就绪；用法: serve_temp <端口> <日志文件> [额外参数...]
+# 把实例 PID 登记进 PIDS，EXIT 时统一回收（否则会留下孤儿进程）。
+serve_temp() {
+  local port="$1" log="$2"; shift 2
+  python3 "$HERE/mdview.py" --root "$HERE/docs" --port "$port" --host 127.0.0.1 "$@" \
+      >"$log" 2>&1 &
+  local pid=$!
+  PIDS="$PIDS $pid"
+  wait_ready "$port"
+  printf '%s' "$pid"
+}
+
+SERVER_PID="$(serve_temp "$PORT" "$LOG")"
 
 pass=0; fail=0; failed_names=""
 chk() { # 名称 内容 期望子串
@@ -82,12 +99,17 @@ chk "样式内联"            "$MD" '<style>'
 nchk "无外部样式表请求"   "$MD" '<link rel="stylesheet"'
 nchk "无外部脚本请求"     "$MD" '<script src='
 
-echo "== ?raw=1 原文 =="
-RAW_HDR="$(curl -s -D - -o /tmp/mdview-raw.$$ "$BASE/index.md?raw=1")"
-chk "Content-Type 为 text/markdown" "$RAW_HDR" 'text/markdown'
-chk "返回原始 Markdown"   "$(cat /tmp/mdview-raw.$$)" '# mdview 示例文档'
-nchk "原文不含渲染标签"   "$(cat /tmp/mdview-raw.$$)" '<strong>'
-rm -f /tmp/mdview-raw.$$
+echo "== ?raw=1 源码视图（每行带锚点，供搜索跳转）=="
+RAW="$(curl -s "$BASE/index.md?raw=1")"
+chk "返回原始 Markdown 文本" "$RAW" '# mdview 示例文档'
+nchk "源码视图不做 Markdown 渲染" "$RAW" '<strong>'
+chk "每行都有行锚点 id=\"L1\"" "$RAW" 'id="L1"'
+chk "行锚点覆盖到文末"     "$RAW" 'id="L30"'
+chk "高亮当前行的样式"     "$RAW" '.srcline:target'
+chk "可从源码视图回到渲染" "$RAW" '看渲染结果'
+# 行号必须与源文件真实行一致（取第 5 行核对）
+LINE5_SRC="$(sed -n '5p' "$HERE/docs/index.md")"
+chk "第 5 行锚点内容与源文件一致" "$RAW" "$LINE5_SRC"
 
 echo "== 子目录与图片 =="
 G="$(curl -s "$BASE/guide/install.md")"
@@ -115,7 +137,15 @@ chk "大小写不敏感"        "$S2" '<mark>mdview</mark>'
 chk "文件名命中分区"      "$S2" '文件名命中'
 chk "无结果提示"          "$(curl -s "$BASE/search?q=zzz不存在的词")" '没有命中'
 chk "空查询提示"          "$(curl -s "$BASE/search")" '输入关键词'
-chk "搜索结果指向 .md"    "$S" 'href="/index.md#L'
+chk "搜索结果指向源码行锚点" "$S" 'href="/index.md?raw=1#L'
+chk "搜索分栏带计数"        "$S" '正文命中（'
+# 仅文件名命中：临时造一个「名字含关键词、正文不含」的文件
+UNI="$HERE/docs/guide/zzz-selftest-unicorn.md"
+printf '# 与关键词无关\n\n正文不提那个词。\n' > "$UNI"
+SU="$(curl -s --get --data-urlencode 'q=unicorn' "$BASE/search")"
+chk "仅文件名命中也会列出"  "$SU" 'zzz-selftest-unicorn.md'
+chk "标注「仅文件名命中」"  "$SU" '仅文件名命中'
+rm -f "$UNI"
 
 echo "== 错误处理与安全 =="
 chk "不存在返回 404"      "$(code "$BASE/nope.md")" '404'
@@ -168,7 +198,7 @@ chk "code-blocks: UTF-8 未切数字"       "$(printf '%s' "$CB" | grep -c 'UTF-
 python3 "$HERE/mdview.py" --root "$HERE/.." --port $((PORT+5)) --host 127.0.0.1 \
     >"$LOG.alt" 2>&1 &
 ALT_PID=$!; PIDS="$PIDS $ALT_PID"
-for _ in $(seq 1 25); do curl -s -o /dev/null "http://127.0.0.1:$((PORT+5))/" && break; sleep 0.2; done
+wait_ready $((PORT+5))
 chk "根目录选错时给出 --root 提示" "$(cat "$LOG.alt")" "python3 mdview.py --root md-preview/docs"
 # 服务根绝对路径（/media/...）按定义依赖 --root 指向文档库根：这里明确断言其行为
 chk "默认根下 /media 为 404（语义明确）" \
@@ -179,20 +209,14 @@ echo "== 参数开关（另起临时实例） =="
 { kill "$SERVER_PID" 2>/dev/null; wait "$SERVER_PID" 2>/dev/null; } ; sleep 0.3
 
 # --safe：只放行 .md 与图片
-python3 "$HERE/mdview.py" --root "$HERE/docs" --port $((PORT+1)) --host 127.0.0.1 --safe \
-    >/dev/null 2>&1 &
-SAFE_PID=$!; PIDS="$PIDS $SAFE_PID"
-for _ in $(seq 1 25); do curl -s -o /dev/null "http://127.0.0.1:$((PORT+1))/" && break; sleep 0.2; done
+SAFE_PID="$(serve_temp $((PORT+1)) /dev/null --safe)"
 chk "safe: .md 仍可读"    "$(code "http://127.0.0.1:$((PORT+1))/index.md")" '200'
 chk "safe: 图片仍可读"    "$(code "http://127.0.0.1:$((PORT+1))/media/logo.svg")" '200'
 chk "safe: 其他文件 404"  "$(code "http://127.0.0.1:$((PORT+1))/../mdview.py")" '404'
 { kill "$SAFE_PID" 2>/dev/null; wait "$SAFE_PID" 2>/dev/null; } ; sleep 0.3
 
 # --no-search：搜索路由与界面搜索框都要消失
-python3 "$HERE/mdview.py" --root "$HERE/docs" --port $((PORT+2)) --host 127.0.0.1 --no-search \
-    >/dev/null 2>&1 &
-NS_PID=$!; PIDS="$PIDS $NS_PID"
-for _ in $(seq 1 25); do curl -s -o /dev/null "http://127.0.0.1:$((PORT+2))/" && break; sleep 0.2; done
+NS_PID="$(serve_temp $((PORT+2)) /dev/null --no-search)"
 NSB="http://127.0.0.1:$((PORT+2))"
 chk "no-search: /search 404" "$(code "$NSB/search?q=x")" '404'
 nchk "no-search: 无搜索框"   "$(curl -s "$NSB/")" 'name="q"'
@@ -200,13 +224,11 @@ nchk "no-search: 文档页也无" "$(curl -s "$NSB/index.md")" 'name="q"'
 { kill "$NS_PID" 2>/dev/null; wait "$NS_PID" 2>/dev/null; } ; sleep 0.3
 
 # 端口占用自动回退
-python3 "$HERE/mdview.py" --root "$HERE/docs" --port $((PORT+3)) --host 127.0.0.1 >/dev/null 2>&1 &
-P1=$!; PIDS="$PIDS $P1"
-for _ in $(seq 1 25); do curl -s -o /dev/null "http://127.0.0.1:$((PORT+3))/" && break; sleep 0.2; done
+P1="$(serve_temp $((PORT+3)) /dev/null)"
 python3 "$HERE/mdview.py" --root "$HERE/docs" --port $((PORT+3)) --host 127.0.0.1 \
     >"$LOG.fallback" 2>&1 &
 P2=$!; PIDS="$PIDS $P2"
-for _ in $(seq 1 25); do curl -s -o /dev/null "http://127.0.0.1:$((PORT+4))/" && break; sleep 0.2; done
+wait_ready $((PORT+4))
 chk "端口占用自动回退"    "$(cat "$LOG.fallback")" "尝试 $((PORT+4))"
 chk "回退后端口可用"      "$(code "http://127.0.0.1:$((PORT+4))/")" '200'
 { kill "$P1" "$P2" 2>/dev/null; wait "$P1" "$P2" 2>/dev/null; }

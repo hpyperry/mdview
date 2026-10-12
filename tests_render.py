@@ -184,8 +184,10 @@ class TestBlocks(unittest.TestCase):
         self.assertIn('class="language-python"', out)
         self.assertIn('<span class="kw">def</span>', out)
         self.assertIn('<span class="str">"s"</span>', out)
+        # 无语言标识 -> 素色（决定 5：只高亮带语言标识的围栏）
         out = r("```\nx = 1\n```")
-        self.assertIn('<span class="num">1</span>', out)
+        self.assertNotIn("<span", out)
+        self.assertIn("x = 1", out)
 
     def test_dockerfile_highlighting(self):
         """Dockerfile 指令大小写都着色，且镜像标签/区域设置里的数字不被切。"""
@@ -296,6 +298,20 @@ class TestRoutingHelpers(unittest.TestCase):
         out = m.highlight("plain text", "")
         self.assertIn("plain text", out)
 
+    def test_plain_fences_are_not_highlighted(self):
+        """不写语言、或声明 text/plaintext/txt 的围栏都必须素色。
+
+        注意：语言标签本身是 <span class="meta">，所以这里检测的是
+        **token 类**（kw/str/com/num/fn/op），不是任意 span。
+        """
+        token = re.compile(r'<span class="(?:kw|str|com|num|fn|op)">')
+        for opener in ("```", "```text", "```plaintext", "```txt"):
+            out = r(opener + "\nplain 123 # hash\n```")
+            self.assertIsNone(token.search(out), "%r 不该产生 token 着色" % opener)
+            self.assertIn("plain 123 # hash", out)
+        # 声明了语言（哪怕未知）仍然走通用规则
+        self.assertIsNotNone(token.search(r("```brainfuck\nx = 1\n```")))
+
     def test_mark_highlight(self):
         self.assertIn("<mark>ab</mark>", m._mark("xabcy", "ab"))
         self.assertIn("<mark>AB</mark>", m._mark("xABy", "ab"))
@@ -312,21 +328,37 @@ class TestSearch(unittest.TestCase):
                 f.write("# 另一个\n")
             with open(os.path.join(d, "b.txt"), "w", encoding="utf-8") as f:
                 f.write("关键词\n")
-            results, scanned, truncated = m.search_markdown(d, "关键词")
-            rels = {x[0] for x in results}
-            self.assertIn("a.md", rels)
-            self.assertNotIn("b.txt", rels)      # 只扫 .md
-            self.assertIn("a.md", rels)
+            body_hits, name_hits, scanned, truncated = m.search_markdown(d, "关键词")
+            rels = {x[0] for x in body_hits} | set(name_hits)
+            self.assertIn("a.md", rels)              # 正文命中
+            self.assertIn("关键词.md", rels)          # 仅文件名命中也要出现
+            self.assertNotIn("b.txt", rels)          # 只扫 .md
             self.assertEqual(scanned, 2)
             self.assertFalse(truncated)
+
+    def test_search_filename_only_hit(self):
+        """名字里含关键词、正文完全不含的文件也必须列出（回归：曾整个消失）。"""
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            os.makedirs(os.path.join(d, "sub"))
+            with open(os.path.join(d, "sub", "zzz-unicorn-guide.md"), "w",
+                      encoding="utf-8") as f:
+                f.write("# 完全无关的标题\n\n正文里没有任何关键词。\n")
+            with open(os.path.join(d, "other.md"), "w", encoding="utf-8") as f:
+                f.write("# 另一个\n\n这里也没提到那个词。\n")
+            body_hits, name_hits, scanned, _trunc = m.search_markdown(d, "unicorn")
+            self.assertEqual(body_hits, [], "正文不该命中")
+            self.assertEqual(name_hits, ["sub/zzz-unicorn-guide.md"],
+                             "仅文件名命中的文件必须出现")
+            self.assertEqual(scanned, 2)
 
     def test_search_case_insensitive(self):
         import tempfile
         with tempfile.TemporaryDirectory() as d:
             with open(os.path.join(d, "a.md"), "w", encoding="utf-8") as f:
                 f.write("Hello World\n")
-            results, _, _ = m.search_markdown(d, "hello")
-            self.assertEqual(len(results), 1)
+            body_hits, _name, _scanned, _trunc = m.search_markdown(d, "hello")
+            self.assertEqual(len(body_hits), 1)
 
     def test_search_skips_hidden_dirs(self):
         import tempfile
@@ -334,8 +366,9 @@ class TestSearch(unittest.TestCase):
             os.makedirs(os.path.join(d, ".git"))
             with open(os.path.join(d, ".git", "x.md"), "w", encoding="utf-8") as f:
                 f.write("needle\n")
-            results, scanned, _ = m.search_markdown(d, "needle")
-            self.assertEqual(results, [])
+            body_hits, name_hits, scanned, _trunc = m.search_markdown(d, "needle")
+            self.assertEqual(body_hits, [])
+            self.assertEqual(name_hits, [])
             self.assertEqual(scanned, 0)
 
 

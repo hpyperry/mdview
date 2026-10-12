@@ -5,8 +5,8 @@
 
 | 项目 | 命令 | 结果 |
 |------|------|------|
-| 渲染器单元测试 | `python3 tests_render.py` | **43 项全部通过**（`Ran 43 tests ... OK`） |
-| 端到端 HTTP 验证 | `bash selftest.sh` | **101 项断言全部通过**（`PASS=101 FAIL=0`） |
+| 渲染器单元测试 | `python3 tests_render.py` | **45 项全部通过**（`Ran 45 tests ... OK`） |
+| 端到端 HTTP 验证 | `bash selftest.sh` | **108 项断言全部通过**（`PASS=108 FAIL=0`） |
 | 语法兼容性 | `ast` 扫描 | 无 walrus / `match` / 3.9+ 独有语法 → 3.6+ 可运行 |
 | `--safe` | 见下 §3 | 只放行 `.md` 与图片，其余 404 |
 | `--no-search` | 见下 §3 | 路由与界面搜索框同时消失 |
@@ -24,7 +24,7 @@
 $ python3 tests_render.py
 ...
 ----------------------------------------------------------------------
-Ran 43 tests in 0.012s
+Ran 45 tests in 0.014s
 
 OK
 ```
@@ -35,7 +35,7 @@ OK
 
 ---
 
-## 2. 端到端 HTTP 验证（`bash selftest.sh`，101 项）
+## 2. 端到端 HTTP 验证（`bash selftest.sh`，108 项）
 
 脚本自己在 `127.0.0.1:8731` 起临时实例，跑完自动关闭。关键断言与实测：
 
@@ -125,7 +125,7 @@ OK
   ok   端口占用自动回退                  "端口 8739 不可用（Address already in use），尝试 8740…"
   ok   回退后端口可用                    http://127.0.0.1:8740/ -> 200
 
-PASS=101 FAIL=0
+PASS=108 FAIL=0
 全部通过 ✔
 ```
 
@@ -213,9 +213,51 @@ $ curl -s 'http://127.0.0.1:8731/../../../../etc/passwd' | grep -c 'root:'
 
 ```bash
 cd /Users/hpy/Documents/deepseek-harness/md-preview
-python3 tests_render.py     # 39 项
-bash selftest.sh            # 101 项（自动起停临时服务）
+python3 tests_render.py     # 45 项
+bash selftest.sh            # 108 项（自动起停临时服务）
 ```
 
 `selftest.sh` 支持 `PORT=9000 bash selftest.sh` 换端口；结束时打印 `PASS=.. FAIL=..`，
 非零退出码表示有失败项及失败清单。
+
+---
+
+## 6. 一轮正式代码评审后的修复（19 条全部处理）
+
+以**空树为固定点**做过一次双轴评审（Standards：文档化标准 + smell 基线；Spec：立项时
+锁定的 23 条决定 + 3 条追加需求）。评审发现 19 条，全部修完；下表是它们与本轮的对应关系。
+
+### 6.1 Standards 轴（11 条）
+
+| # | 发现 | 处理 |
+|---|------|------|
+| S1 | `SECTION 8` 分隔带不存在，而 README 与代码注释都声称有 10 段 | 在目录/搜索代码真正起点补上分隔带，现为 10 段 |
+| S2 | README 称"行号级导航"，代码注释却写"行号会漂移、请用关键字搜索" | 改为 **`sync_nav.py` 生成的真实行号**（`--check` 可校验），并新增该脚本 |
+| S3 | README 的测试计数陈旧（98 项 vs 实测） | 全量修正为实测值 |
+| S4 | `SELFTEST.md` 残留"39 项" | 修正 |
+| S5 | 死代码：`_DELIM_RE_CACHE`、`parse_emphasis_inner`、`_restore`、`_find_md_root`、`Config.raw_ok`、`--no-wait`、恒真的 `same_slot` | 全部删除 |
+| S6 | `SKIP_DIRS` 语义三份拷贝且已漂移 | 统一引用模块常量 `SKIP_DIRS` |
+| S7 | href 拼装 5 处、`depth_nav` 3 处重复 | 抽出 `url_for_rel()` 与 `depth_nav_html()` |
+| S8 | `Handler._dir_page` 一函数多职责 | 拆为 `_dir_page` / `_resolve_depth` / `_tree_view` / `_list_view` / `_parent_link` / `_index_title` |
+| S9 | `--no-wait` 是空转开关 | 删除（同 S5） |
+| S10 | `selftest.sh` 起服务循环复制 5 份、缺 `local`、头部硬编码绝对路径 | 抽出 `serve_temp()` / `wait_ready()`，补 `local`，去掉硬编码路径 |
+| S11 | 魔法数：缓存上限、端口重试次数、资源目录名 | 提升为 `RENDER_CACHE_MAX` / `PORT_TRIES` / `ASSET_DIRS`；端口重试并暴露为 `--port-tries N` |
+
+### 6.2 Spec 轴（8 条）
+
+| # | 发现 | 处理 |
+|---|------|------|
+| P1 | 搜索的 `#L51` 是死链（渲染页没有行锚点） | `?raw=1` 改为**源码视图，每行带 `id="L<n>"`**，搜索链接指向它；自检核对"第 5 行内容与源文件一致" |
+| P2 | 仅文件名命中的文件整个消失（与决定 11 矛盾） | `search_markdown` 改为返回 `(body_hits, name_hits, …)` 两栏并集；新增单元测试与端到端断言 |
+| P3 | install.md 的根路径图片在默认根下 404 | 保留标准语义（同一 URL 指向同一文件），改文档写清前置条件 + 启动横幅提示该用的 `--root` |
+| P4 | 决定 5 说 6–8 种语言，实为 17 种 | 保留（Dockerfile 是你要求的），在 README 明确列出并说明 |
+| P5 | 启动自动探测文档根属未被要求的新功能 | 保留（你在"全部修复"里确认了它的价值），此处登记为已授权范围 |
+| P6 | 决定 5 说"只高亮带语言标识的围栏"，实现却给无标识块也着色 | 无标识围栏改为**整块素色**；`text`/`plaintext`/`txt`/`none`/`raw` 同样素色（此前 `text` 与 `plaintext` 行为还不一致） |
+| P7 | CJK 强调偏离 GFM 常用子集 | 保留行为（中文可用性优先），在 README §4 新增**偏离对照表**并给出改回严格 GFM 的方法 |
+| P8 | `bind_server(tries=10)` 是未声明的隐藏上限 | 暴露为 `--port-tries N`（默认 10） |
+
+### 6.3 本轮新增/变更的验证
+
+- 单元测试 45 项（新增：仅文件名命中、无语言围栏素色）
+- 端到端 108 项（新增：源码视图行锚点与内容一致性、搜索分栏计数、仅文件名命中）
+- 新增 `sync_nav.py`（生成/校验导航行号），`python3 sync_nav.py --check` 可纳入自检

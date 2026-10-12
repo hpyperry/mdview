@@ -17,17 +17,17 @@
     * 路径穿越防护：解决后的路径必须仍在 root 内，否则 403。
     * 虚拟主机名不参与路由；所有 .md 一律渲染，?raw=1 返回纯文本。
 
-SECTION 导航（本文件按功能分块，行号会随修改漂移，用关键字搜索定位）:
-    [1] 常量与配置          SECTION 1  CONSTANTS
-    [2] 内联 CSS            SECTION 2  CSS
-    [3] HTML 模板           SECTION 3  TEMPLATES
-    [4] 语法高亮器          SECTION 4  HIGHLIGHTER
-    [5] 内联解析            SECTION 5  INLINE
-    [6] 链接/图片重写       SECTION 6  URL REWRITE
-    [7] 块级解析            SECTION 7  BLOCKS
-    [8] 目录索引 / 搜索页   SECTION 8  DIRECTORY & SEARCH
-    [9] HTTP 处理器         SECTION 9  HANDLER
-    [10] CLI 与启动         SECTION 10 CLI
+SECTION 导航（本文件按功能分块；行号由 python3 sync_nav.py 生成）:
+    [1 ] 常量与配置                CONSTANTS                  mdview.py:57
+    [2 ] 内联 CSS               CSS                        mdview.py:104
+    [3 ] HTML 模板              TEMPLATES                  mdview.py:210
+    [4 ] 语法高亮器                HIGHLIGHTER                mdview.py:266
+    [5 ] 内联解析                 INLINE                     mdview.py:480
+    [6 ] 链接/图片重写              URL REWRITE                mdview.py:919
+    [7 ] 块级解析                 BLOCKS                     mdview.py:1046
+    [8 ] 目录索引 / 搜索页           DIRECTORY & SEARCH         mdview.py:1408
+    [9 ] HTTP 处理器             HANDLER                    mdview.py:1594
+    [10] CLI 与启动              CLI                        mdview.py:1843
 
 已知行为（写在代码里而不是靠口头约定）:
     * 裸 HTML 全部转义，不透传 —— 100% 消除 .md 作为 XSS 载体。
@@ -62,8 +62,14 @@ IMAGE_EXT = {".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".bmp", ".ico", "
 # 简写式引用链接 [ref]：必须放在完整式/折叠式替换之后，且排除紧跟 ( [ 的情况
 _REF_SHORT_RE = re.compile(r"\[([^\[\]]+)\](?![\(\[(])")
 SAFE_EXT = {MD_EXT} | IMAGE_EXT
+# 索引与搜索时跳过的目录（一处定义，所有遍历/探测都引用它）
 SKIP_DIRS = {".git", ".svn", ".hg", ".idea", ".vscode", "node_modules", "__pycache__",
              ".venv", "venv", ".tox", "dist", "build"}
+# 目录下出现这些名字时，该目录更像「文档库根」（用于 --root 建议打分）
+ASSET_DIRS = {"media", "images", "image", "img", "assets", "static", "attachments"}
+# 渲染结果缓存上限（条）；端口占用时的重试次数
+RENDER_CACHE_MAX = 512
+PORT_TRIES = 10
 MD_SEARCH_CAP = 400          # 单次搜索最多返回多少条命中行
 SEARCH_CONTEXT = 2           # 每条命中上下各带几行
 
@@ -186,6 +192,10 @@ mark{background:var(--mark);color:var(--markfg);border-radius:3px;padding:0 2px}
 .tree>ul{padding-left:0}
 .tree li{padding:2px 0}
 .esc{border-bottom:1px dashed var(--line);padding-bottom:1px}
+pre.rawsrc{margin:0;white-space:pre-wrap;overflow-wrap:anywhere;font-size:13px;line-height:1.55}
+pre.rawsrc .srcline{display:block}
+pre.rawsrc .srcline:target{background:var(--mark);color:var(--markfg);
+  outline:2px solid var(--accent);border-radius:3px}
 .bad{color:var(--t-kw)}
 @media print{
   header.bar,.crumbs,.note{display:none}
@@ -229,7 +239,7 @@ def _crumbs(rel_path):
         if i == len(parts) - 1:
             out.append(html.escape(p))
         else:
-            href = "/" + "/".join(quote_seg(x) for x in upto) + "/"
+            href = url_for_rel("/".join(upto), trailing_slash=True)
             out.append('<a href="%s">%s</a>' % (href, html.escape(p)))
     return '<p class="crumbs">%s</p>' % " / ".join(out)
 
@@ -388,6 +398,9 @@ LANG_KEYWORDS["properties"] = LANG_KEYWORDS["ini"]
 LANG_KEYWORDS["plaintext"] = set()
 LANG_KEYWORDS["text"] = set()
 LANG_KEYWORDS[""] = set()
+
+# 声明为「纯文本」的语言：整块素色输出，不做任何 token 着色
+PLAIN_LANGS = {"text", "plaintext", "txt", "none", "raw"}
 
 # 这些语言的关键字匹配忽略大小写（Dockerfile 里 run/RUN 都合法）
 LANG_ICASE = {"dockerfile", "docker", "containerfile", "docker-compose", "compose",
@@ -747,9 +760,6 @@ def _delim_re():
     return _DELIM_RUN_RE
 
 
-_DELIM_RE_CACHE = None
-
-
 def parse_emphasis(text):
     """强调解析：定界符 run 扫描 + 从右往左的最近配对。
 
@@ -806,19 +816,11 @@ def parse_emphasis(text):
                     and len(opener) >= 2 and len(closer) >= 2)
         return opener[0] == closer[0] and len(opener) == len(closer)
 
-    def same_slot(i, j):
-        """当前不做块位次约束（只保留逐块 flanking）。
-
-        曾经试过「同一次 run 的第 i 块只配第 i 块」，但会把普通 ** 与 **** 里的
-        ** 也隔开，导致 **a****b** 退化成 <strong>a****b</strong>，得不偿失。
-        """
-        return True
-
-    def nearest_closer(start, frm, sym, opener_idx):
+    def nearest_closer(start, frm, sym):
+        """从 frm 起找最近的、能关闭 sym 的定界符。"""
         for j in range(max(start, frm), len(nodes)):
             kind, other = nodes[j][0], nodes[j][1]
-            if kind in ("close", "both") and can_match(sym, other) \
-                    and same_slot(opener_idx, j):
+            if kind in ("close", "both") and can_match(sym, other):
                 return j
         return None
 
@@ -840,8 +842,7 @@ def parse_emphasis(text):
             if other[0] != sym[0] or not can_match(sym, other):
                 continue
             for j in range(k + 1, b):
-                if nodes[j][0] in ("close", "both") and can_match(other, nodes[j][1]) \
-                        and same_slot(k, j):
+                if nodes[j][0] in ("close", "both") and can_match(other, nodes[j][1]):
                     return True
         return False
 
@@ -852,7 +853,7 @@ def parse_emphasis(text):
         hit = None
         j = i + 1
         while True:
-            j = nearest_closer(i + 1, j, sym, i)
+            j = nearest_closer(i + 1, j, sym)
             if j is None:
                 break
             if j in closer.values():
@@ -914,21 +915,26 @@ def _wrap_tag(sym, inner):
     return "<em>%s</em>" % inner
 
 
-def parse_emphasis_inner(text):
-    """兼容旧调用：强调内部同样走扫描器。"""
-    return parse_emphasis(text)
-
-
-def _restore(s, tokens):
-    return re.sub(r"\x00MK(\d+)\x00", lambda m: tokens[int(m.group(1))], s)
-
-
 # ============================================================================
 # SECTION 6  URL REWRITE
 # ============================================================================
 
 def quote_seg(seg):
     return urllib.parse.quote(seg, safe="")
+
+
+def url_for_rel(rel, trailing_slash=False):
+    """站内相对路径 -> 根相对 URL（逐段百分号编码）。全库唯一一处拼装逻辑。"""
+    parts = [quote_seg(x) for x in rel.split("/") if x]
+    url = "/" + "/".join(parts)
+    return url + "/" if trailing_slash else url
+
+
+def depth_nav_html(rel):
+    """顶栏的当前路径标签；根目录返回空串。"""
+    if not rel:
+        return ""
+    return '<span class="brand">%s</span>' % html.escape(rel)
 
 
 def _split_target(href):
@@ -1160,8 +1166,14 @@ def render_blocks(lines, ctx):
             cls = ' class="language-%s"' % html.escape(lang, quote=True) if lang else ""
             hdr = ('<div class="codehdr"><span class="meta">%s</span></div>'
                    % html.escape(label)) if label else ""
+            # 语法高亮只给「带语言标识」的围栏（决定 5）：
+            # 不写语言、或写成 text/plaintext，都输出素色代码块。
+            if lang and lang not in PLAIN_LANGS:
+                body = highlight(code, info)
+            else:
+                body = html.escape(code, quote=False)
             out.append('<div class="codeblock">%s<pre><code%s>%s</code></pre></div>'
-                       % (hdr, cls, highlight(code, info)))
+                       % (hdr, cls, body))
             continue
 
         # --- ATX 标题 ---------------------------------------------------
@@ -1392,6 +1404,11 @@ def _dedent_item(item_lines, parent_indent=0):
     for ln in item_lines[1:]:
         out.append(ln[pad:] if ln.strip() else "")
     return out
+# ============================================================================
+# SECTION 8  DIRECTORY & SEARCH
+# ============================================================================
+
+
 def list_entries(abs_dir, rel_dir):
     """返回 [(is_dir, name, size, mtime)]，目录在前，名称大小写不敏感排序。"""
     entries = []
@@ -1417,8 +1434,7 @@ def render_dir_listing(abs_dir, rel_dir):
         return '<p class="note">这个目录是空的。</p>'
     rows = []
     for is_dir, name, size, mtime in entries:
-        href = "/" + "/".join(quote_seg(x) for x in (rel_dir.split("/") if rel_dir else [])
-                              + [name])
+        href = url_for_rel("/".join(([rel_dir] if rel_dir else []) + [name]))
         if is_dir:
             href += "/"
             icon, cls, meta = "📁", "d", "目录"
@@ -1447,7 +1463,7 @@ def render_tree(abs_dir, rel_dir, depth_left):
         if is_dir and name in SKIP_DIRS:
             continue
         child_rel = (rel_dir + "/" + name) if rel_dir else name
-        href = "/" + "/".join(quote_seg(x) for x in child_rel.split("/"))
+        href = url_for_rel(child_rel)
         if is_dir:
             href += "/"
             out.append('<li>📁 <a href="%s">%s</a>%s</li>' % (
@@ -1472,13 +1488,21 @@ def iter_markdown(abs_root):
 
 
 def search_markdown(abs_root, query, cap=MD_SEARCH_CAP, context=SEARCH_CONTEXT):
-    """返回 (results, scanned, truncated)。results: [(rel, lineno, [(n, line, hit)])]"""
+    """全文搜索。
+
+    返回 (body_hits, name_hits, scanned, truncated)：
+      body_hits: [(rel, lineno, [(行号, 文本, 是否命中)])]  —— 正文逐行命中
+      name_hits: [rel]                                     —— 仅文件名命中
+
+    两栏是**并集**关系：名字里含关键词但正文一次都没出现的文件也会列出来
+    （早先的实现只从正文命中里筛文件名，这类文件会整个消失）。
+    """
     needle = query.lower()
-    results = []
+    body_hits, name_hits = [], []
     scanned = 0
     truncated = False
     for path in iter_markdown(abs_root):
-        if len(results) >= cap:
+        if len(body_hits) >= cap:
             truncated = True
             break
         try:
@@ -1488,35 +1512,36 @@ def search_markdown(abs_root, query, cap=MD_SEARCH_CAP, context=SEARCH_CONTEXT):
             continue
         scanned += 1
         rel = os.path.relpath(path, abs_root).replace(os.sep, "/")
+        if needle in posixpath.basename(rel).lower():
+            name_hits.append(rel)
         for idx, line in enumerate(lines):
             if needle in line.lower():
                 lo = max(0, idx - context)
                 hi = min(len(lines), idx + context + 1)
                 block = [(k + 1, lines[k], needle in lines[k].lower()) for k in range(lo, hi)]
-                results.append((rel, idx + 1, block))
-                if len(results) >= cap:
+                body_hits.append((rel, idx + 1, block))
+                if len(body_hits) >= cap:
                     truncated = True
                     break
-    return results, scanned, truncated
+    return body_hits, name_hits, scanned, truncated
 
 
-def render_search_page(query, results, scanned, truncated):
+def render_search_page(query, body_hits, name_hits, scanned, truncated):
     if not query:
         body = ('<h1>搜索</h1>\n<p class="note">输入关键词后在全部 Markdown 文件里做'
-                '大小写不敏感的子串匹配；文件名命中与正文命中分两块展示。</p>')
+                '大小写不敏感的子串匹配；文件名命中与正文命中分两块展示（取并集，'
+                '只命中文件名的文件也会列出）。</p>')
         return _page("搜索", body)
 
-    name_hits = [r for r in results if query.lower() in posixpath.basename(r[0]).lower()]
-    body_hits = [r for r in results if r not in name_hits]
-
     html_parts = ["<h1>搜索：%s</h1>" % html.escape(query)]
-    html_parts.append('<p class="note">正文命中 %d 处，文件名命中 %d 处；扫描了 %d 个 '
+    html_parts.append('<p class="note">正文命中 %d 处，文件名命中 %d 个；扫描了 %d 个 '
                       'Markdown 文件。%s</p>' % (
                           len(body_hits), len(name_hits), scanned,
                           "结果已达上限，请细化关键词。" if truncated else ""))
 
-    def block(rel, lineno, lines, show_ctx=True):
-        href = "/" + "/".join(quote_seg(x) for x in rel.split("/"))
+    def hit_block(rel, lineno, lines, show_ctx=True):
+        # 行号锚点在源码视图里；?raw=1 的每一行都有 id="L<n>"
+        href = url_for_rel(rel) + "?raw=1"
         rows = []
         if show_ctx:
             for lno, text, is_hit in lines:
@@ -1529,15 +1554,20 @@ def render_search_page(query, results, scanned, truncated):
                     html.escape(href, quote=True), lineno, html.escape(rel), lineno,
                     "\n".join(rows)))
 
+    def name_block(rel):
+        return ('<div class="hit"><div class="where">📝 <a href="%s">%s</a>'
+                '（仅文件名命中）</div></div>'
+                % (html.escape(url_for_rel(rel), quote=True), html.escape(rel)))
+
     if name_hits:
-        html_parts.append("<h2>文件名命中</h2>")
-        for rel, lineno, lines in name_hits[:60]:
-            html_parts.append(block(rel, lineno, lines, show_ctx=False))
+        html_parts.append("<h2>文件名命中（%d）</h2>" % len(name_hits))
+        for rel in name_hits[:60]:
+            html_parts.append(name_block(rel))
     if body_hits:
-        html_parts.append("<h2>正文命中</h2>")
+        html_parts.append("<h2>正文命中（%d）</h2>" % len(body_hits))
         for rel, lineno, lines in body_hits:
-            html_parts.append(block(rel, lineno, lines))
-    if not results:
+            html_parts.append(hit_block(rel, lineno, lines))
+    if not body_hits and not name_hits:
         html_parts.append('<p class="note">没有命中。换一个关键词试试。</p>')
     return _page("搜索：%s" % query, "\n".join(html_parts), search_q=query)
 
@@ -1570,7 +1600,6 @@ class Config(object):
         self.safe = False
         self.depth = 0
         self.search = True
-        self.raw_ok = True
 
 
 CFG = Config()
@@ -1673,11 +1702,11 @@ class Handler(BaseHTTPRequestHandler):
                 return
             query = (qs.get("q") or [""])[0].strip()
             if not query:
-                self._send(HTTPStatus.OK, render_search_page("", [], 0, False))
+                self._send(HTTPStatus.OK, render_search_page("", [], [], 0, False))
                 return
-            results, scanned, truncated = search_markdown(CFG.root, query)
+            body_hits, name_hits, scanned, truncated = search_markdown(CFG.root, query)
             self._send(HTTPStatus.OK,
-                       render_search_page(query, results, scanned, truncated))
+                       render_search_page(query, body_hits, name_hits, scanned, truncated))
             return
 
         if os.path.isdir(abs_path):
@@ -1704,35 +1733,88 @@ class Handler(BaseHTTPRequestHandler):
         if ext == MD_EXT and not raw:
             self._send(HTTPStatus.OK, self._markdown_page(abs_path, rel))
             return
+        if ext == MD_EXT and raw:
+            self._send(HTTPStatus.OK, self._raw_page(abs_path, rel))
+            return
         self._send_file(abs_path)
 
     def _dir_page(self, abs_dir, rel, qs):
-        depth = CFG.depth
-        try:
-            if "depth" in qs:
-                depth = max(0, int((qs.get("depth") or ["0"])[0]))
-        except ValueError:
-            depth = CFG.depth
-        title = "索引 " + ("/" + rel if rel else "/")
-        parts = [_crumbs(rel)] if rel else []
-        if rel:
-            parts.append('<p><a href="%s">../ 上级目录</a></p>' %
-                         ("/" + "/".join(quote_seg(x) for x in rel.split("/")[:-1]) + "/"
-                          if "/" in rel else "/"))
+        """目录页：解析 ?depth= 后分派到「树视图」或「列表视图」。"""
+        depth = self._resolve_depth(qs)
         if depth > 0:
-            parts.append('<p class="note">已展开 %d 层目录树。'
-                         '去掉 URL 里的 <code>?depth=</code> 可回到分层浏览。</p>' % depth)
-            tree = render_tree(abs_dir, rel, depth)
-            body = "\n".join(parts) + '<div class="tree">%s</div>' % (tree or "<p>空目录。</p>")
-        else:
-            tree_nav = '<a class="btn" href="?depth=3">展开 3 层树</a>'
-            body = "\n".join(parts) + render_dir_listing(abs_dir, rel)
-            return _page(title, body, nav_right=tree_nav, show_search=CFG.search,
-                         depth_nav=('<span class="brand">%s</span>' % html.escape(rel))
-                         if rel else "")
-        return _page(title, body, show_search=CFG.search,
-                     depth_nav=('<span class="brand">%s</span>' % html.escape(rel))
-                     if rel else "")
+            return self._tree_view(abs_dir, rel, depth)
+        return self._list_view(abs_dir, rel)
+
+    def _resolve_depth(self, qs):
+        """?depth= 优先于 --depth；非法值回落到 --depth。"""
+        if "depth" not in qs:
+            return CFG.depth
+        try:
+            return max(0, int((qs.get("depth") or ["0"])[0]))
+        except ValueError:
+            return CFG.depth
+
+    @staticmethod
+    def _parent_link(rel):
+        """『../ 上级目录』链接；已在根目录时返回空串。"""
+        if not rel:
+            return ""
+        parent = "/".join(rel.split("/")[:-1])
+        return '<p><a href="%s">../ 上级目录</a></p>' % url_for_rel(parent, trailing_slash=True)
+
+    def _tree_view(self, abs_dir, rel, depth):
+        note = ('<p class="note">已展开 %d 层目录树。'
+                '去掉 URL 里的 <code>?depth=</code> 可回到分层浏览。</p>' % depth)
+        tree = render_tree(abs_dir, rel, depth)
+        head = [x for x in (_crumbs(rel) if rel else "",
+                            self._parent_link(rel), note) if x]
+        body = "\n".join(head) + '<div class="tree">%s</div>' % (tree or "<p>空目录。</p>")
+        return _page(self._index_title(rel), body,
+                     show_search=CFG.search, depth_nav=depth_nav_html(rel))
+
+    def _list_view(self, abs_dir, rel):
+        head = [x for x in (_crumbs(rel) if rel else "", self._parent_link(rel)) if x]
+        body = "\n".join(head) + render_dir_listing(abs_dir, rel)
+        return _page(self._index_title(rel), body,
+                     nav_right='<a class="btn" href="?depth=3">展开 3 层树</a>',
+                     show_search=CFG.search, depth_nav=depth_nav_html(rel))
+
+    @staticmethod
+    def _index_title(rel):
+        return "索引 " + ("/" + rel if rel else "/")
+
+    def _raw_page(self, abs_path, rel):
+        """?raw=1：源码视图，**每一行都带 id="L<n>"**。
+
+        搜索结果是 ...?raw=1#L51 形式，点击能精确落到那一行；渲染视图只有
+        标题锚点，没法给任意行挂号，所以把「按行跳转」交给源码视图。
+        """
+        text = self._read_text(abs_path)
+        if text is None:
+            self._send(HTTPStatus.NOT_FOUND, _error_page("404", "无法读取文件", rel))
+            return
+        raw_url = url_for_rel(rel) + "?raw=1"
+        rows = []
+        for n, line in enumerate(text.split("\n"), 1):
+            safe = html.escape(line, quote=False)
+            rows.append('<span class="srcline" id="L%d">%s</span>' % (n, safe))
+        body = (_crumbs(rel) + '\n<p class="note">源码视图（每行带锚点，可从搜索直接跳转）。'
+                '<a href="%s">看渲染结果</a></p>\n<pre class="rawsrc">%s</pre>'
+                % (html.escape(url_for_rel(rel), quote=True), "\n".join(rows)))
+        self._send(HTTPStatus.OK, _page(posixpath.basename(rel) + "（源码）", body,
+                                        nav_right='<a class="btn" href="%s">渲染</a>'
+                                        % html.escape(url_for_rel(rel), quote=True),
+                                        show_search=CFG.search,
+                                        depth_nav=depth_nav_html(rel)))
+
+    @staticmethod
+    def _read_text(abs_path):
+        """读文本；解码失败与非 UTF-8 都退化为 errors=replace，绝不 500。"""
+        try:
+            with open(abs_path, "r", encoding="utf-8", errors="replace") as fh:
+                return fh.read()
+        except OSError:
+            return None
 
     def _markdown_page(self, abs_path, rel):
         st = os.stat(abs_path)
@@ -1740,15 +1822,13 @@ class Handler(BaseHTTPRequestHandler):
         with _CACHE_LOCK:
             cached = _RENDER_CACHE.get(key)
         if cached is None:
-            try:
-                with open(abs_path, "r", encoding="utf-8", errors="replace") as fh:
-                    text = fh.read()
-            except OSError:
+            text = self._read_text(abs_path)
+            if text is None:
                 self._send(HTTPStatus.NOT_FOUND, _error_page("404", "无法读取文件", rel))
                 return
             cached = render_markdown(text, rel)
             with _CACHE_LOCK:
-                if len(_RENDER_CACHE) > 512:
+                if len(_RENDER_CACHE) > RENDER_CACHE_MAX:
                     _RENDER_CACHE.clear()
                 _RENDER_CACHE[key] = cached
         title = posixpath.basename(rel)
@@ -1756,7 +1836,7 @@ class Handler(BaseHTTPRequestHandler):
                     % html.escape(quote_seg_path(self.path.split("?")[0]), quote=True))
         body = _crumbs(rel) + "\n" + cached
         return _page(title, body, nav_right=raw_link, show_search=CFG.search,
-                     depth_nav='<span class="brand">%s</span>' % html.escape(rel))
+                     depth_nav=depth_nav_html(rel))
 
 
 # ============================================================================
@@ -1774,7 +1854,7 @@ def local_ip_hint():
         return "127.0.0.1"
 
 
-def bind_server(host, port, tries=10):
+def bind_server(host, port, tries=PORT_TRIES):
     last = None
     for offset in range(tries):
         p = port + offset
@@ -1811,11 +1891,11 @@ def build_parser():
                    help="服务根目录（默认：启动时的当前工作目录）")
     p.add_argument("--depth", type=int, default=0,
                    help="目录索引首页展开层数（默认 0=分层浏览，3 左右比较合适）")
+    p.add_argument("--port-tries", type=int, default=PORT_TRIES, metavar="N",
+                   help="端口占用时向后尝试几个（默认 %d）" % PORT_TRIES)
     p.add_argument("--safe", action="store_true",
                    help="只服务 .md 与图片（png/jpg/gif/svg/webp/bmp/ico/avif），其余 404")
     p.add_argument("--no-search", action="store_true", help="关闭全文搜索页")
-    p.add_argument("--no-wait", action="store_true",
-                   help="启动时不打印 3 秒暂停（保留兼容，本版本默认不停顿）")
     p.add_argument("--version", action="version", version="mdview " + __version__)
     return p
 
@@ -1855,28 +1935,8 @@ def banner(host, port, cfg):
     sys.stdout.flush()
 
 
-_ASSET_DIRS = {"media", "images", "image", "img", "assets", "static", "attachments"}
-
-
-def _find_md_root(root, max_depth=3):
-    """在根目录下找一个「文档库根」，用于给出 --root 建议（相对路径或 None）。
-
-    同时含 .md 与资源目录（media/images/assets…）的目录最像文档库根 ——
-    文档里的 /media/xxx 正是在那一层才成立，所以优先选它。
-    """
-    skip = {".git", "node_modules", "__pycache__", ".venv", "venv", "dist", "build"}
-    for name in sorted(os.listdir(root) if os.path.isdir(root) else []):
-        if name.startswith(".") or name in skip:
-            continue
-        full = os.path.join(root, name)
-        if os.path.isdir(full) and _has_md(full, max_depth):
-            return name
-    return None
-
-
 def _docs_root_candidates(root):
     """返回候选的文档库根（相对路径），按「像文档库」的程度排序。"""
-    skip = {".git", "node_modules", "__pycache__", ".venv", "venv", "dist", "build"}
     scored = []
 
     def walk(rel, depth):
@@ -1888,14 +1948,14 @@ def _docs_root_candidates(root):
         except OSError:
             return
         has_md = any(n.lower().endswith(MD_EXT) for n in names)
-        has_asset = any(n.lower() in _ASSET_DIRS and
+        has_asset = any(n.lower() in ASSET_DIRS and
                         os.path.isdir(os.path.join(full, n)) for n in names)
         if has_md and has_asset:
             scored.append((0, rel))          # 最像文档库根
         elif has_md:
             scored.append((1, rel))
         for n in sorted(names):
-            if n.startswith(".") or n in skip:
+            if n.startswith(".") or n in SKIP_DIRS:
                 continue
             sub = os.path.join(full, n)
             if os.path.isdir(sub):
@@ -1931,7 +1991,7 @@ def main(argv=None):
     CFG.depth = max(0, args.depth)
     CFG.search = not args.no_search
 
-    httpd, port = bind_server(args.host, args.port)
+    httpd, port = bind_server(args.host, args.port, max(1, args.port_tries))
     banner(args.host, port, CFG)
     try:
         httpd.serve_forever()

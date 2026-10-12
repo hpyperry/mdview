@@ -55,6 +55,7 @@ python3 mdview.py --root docs --safe
 | `--depth N` | `0` | 首页展开 N 层目录树；`0` = 分层浏览（首页只列当前层） |
 | `--safe` | 关 | 只服务 `.md` + 图片（png/jpg/jpeg/gif/svg/webp/bmp/ico/avif），其余 404 |
 | `--no-search` | 关 | 关闭全文搜索页 |
+| `--port-tries N` | `10` | 端口被占用时向后尝试多少个（此前是硬编码隐藏值） |
 | `--version` | — | 打印版本 |
 
 `Ctrl-C` 干净退出（多线程为 daemon 线程）。
@@ -73,7 +74,7 @@ python3 mdview.py --root docs --safe
 | 行内代码 | 单反引号与多反引号定界（`` `a**b**c` `` 里的 `**` 不会被解析） |
 | 反斜杠转义 | `\*`、`` \` ``、`\[` 等，渲染为带虚线标记的字面字符 |
 | 围栏代码块 | ``` 与 ~~~，可带语言标识；内容一律不解析 Markdown |
-| 代码高亮 | 内置 **17 种**：Python / JS / TS / Go / Rust / Java / C / C++ / Shell / SQL / JSON / YAML / TOML / INI / Makefile / **Dockerfile** / **Docker Compose**；未知语言退化为通用规则。Dockerfile、Makefile、INI 等按**大小写不敏感**匹配 |
+| 代码高亮 | 内置 **17 种**：Python / JS / TS / Go / Rust / Java / C / C++ / Shell / SQL / JSON / YAML / TOML / INI / Makefile / **Dockerfile** / **Docker Compose**。**只有带语言标识的围栏才高亮**；标识未知时退化为通用规则（注释/字符串/数字着色）；不写语言或写 `text`/`plaintext`/`txt` 则整块素色。Dockerfile、Makefile、INI 按**大小写不敏感**匹配 |
 | 列表 | 有序/无序，任意层级嵌套；有序列表支持 `start`（`4.` 开头就输出 `<ol start="4">`） |
 | 任务列表 | `- [ ]` / `- [x]` → 禁用的 checkbox |
 | 引用 | `>`，支持嵌套与内部块结构 |
@@ -92,6 +93,24 @@ python3 mdview.py --root docs --safe
 | `文字` + `---` | 只当分隔线，不当 Setext 二级标题下划线 —— 真实文档里这几乎总是想要分隔线 |
 | `***a** b*` 这类 2/1 混排 | 三连定界符走预处理，极端混排不保证与 CommonMark 完全一致 |
 | 脚注、定义列表、数学公式、HTML 块 | 未实现；可按需扩展（见 §8） |
+
+### 一处有意偏离 GFM：中文之间的强调
+
+CommonMark 的 flanking 公式在「两侧都是 CJK」时会把 `*` 判成不可配对，于是
+`三*四*五` 按标准应输出**字面量**。本渲染器把 CJK 当作**标点类**处理，所以它会变成
+`三<em>四</em>五` —— 中文文档里 `中文*强调*中文` 这种写法极常见，按标准会全部失效。
+
+这是**刻意的偏离**，不是 bug，因为它与规格里的"GFM 常用子集"不完全一致，特此记录：
+
+| 输入 | 本渲染器 | 严格 CommonMark |
+|------|----------|-----------------|
+| `中文*强调*中文` | `中文<em>强调</em>中文` | 字面量 |
+| `三*四*五` | `三<em>四</em>五` | 字面量 |
+| `a*b` | 字面量 | 字面量 |
+| `2*3*4` | 字面量 | 字面量 |
+
+需要严格 GFM 行为时改 `mdview.py` 的 `_flanking`：把 `_ascii_word` 换成 `str.isalnum`
+即可回到标准判定（代价是中文强调基本失效）。
 
 ### 相对链接怎么解析
 
@@ -180,10 +199,11 @@ python3 mdview.py --root ./docs --safe --port 9000   # 要给同事看，但只�
 ```
 md-preview/
 ├─ mdview.py          # 服务端 + 渲染器（单文件）
+├─ sync_nav.py        # 重新生成 mdview.py 顶部的 SECTION 行号导航
 ├─ README.md          # 本文
 ├─ SELFTEST.md        # 端到端验证结果（可复查）
-├─ selftest.sh        # 端到端测试脚本（98 项断言，自己起服务自己关）
-├─ tests_render.py    # 渲染器回归测试（43 项，纯 unittest）
+├─ selftest.sh        # 端到端测试脚本（108 项断言，自己起服务自己关）
+├─ tests_render.py    # 渲染器回归测试（45 项，纯 unittest）
 └─ docs/              # 示例语料：表格/任务列表/嵌套列表/代码块/相对链接/图片
 ```
 
@@ -192,8 +212,9 @@ md-preview/
 ## 8. 测试
 
 ```bash
-python3 tests_render.py     # 渲染器单元测试：43 项
-bash selftest.sh            # 端到端 HTTP 验证：98 项断言
+python3 tests_render.py       # 渲染器单元测试：45 项
+bash selftest.sh              # 端到端 HTTP 验证：108 项断言
+python3 sync_nav.py --check   # 校验顶部导航行号与代码一致
 ```
 
 两者都是零依赖、可重复执行的。`selftest.sh` 会在 `127.0.0.1:8731` 起一个临时实例，
