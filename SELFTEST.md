@@ -5,7 +5,7 @@
 
 | 项目 | 命令 | 结果 |
 |------|------|------|
-| 渲染器单元测试 | `python3 tests/tests_render.py` | **66 项全部通过**（`Ran 66 tests ... OK`） |
+| 渲染器单元测试 | `python3 tests/tests_render.py` | **69 项全部通过**（`Ran 69 tests ... OK`） |
 | 端到端 HTTP 验证 | `bash tests/selftest.sh` | **153 项断言全部通过**（`PASS=153 FAIL=0`） |
 | 语法兼容性 | `ast` 扫描 | 无 walrus / `match` / 3.9+ 独有语法 → 3.6+ 可运行 |
 | `--safe` | 见下 §3 | 只放行 `.md` 与图片，其余 404 |
@@ -212,7 +212,7 @@ $ curl -s 'http://127.0.0.1:8731/../../../../etc/passwd' | grep -c 'root:'
 
 ```bash
 cd /Users/hpy/Documents/deepseek-harness/md-preview
-python3 tests/tests_render.py      # 66 项
+python3 tests/tests_render.py      # 69 项
 bash tests/selftest.sh             # 153 项（自动起停临时服务）
 ```
 
@@ -443,3 +443,50 @@ padding:9px 14px`、复制按钮无边框、继承字色、悬停变蓝。本实
 验证：单元测试 66 项（+5：目录存在、索引链接全部可解析、图片魔数、
 GBK 文件确实非 UTF-8、两条文本路径都覆盖）；端到端 153 项（+17：
 38 个样例全部 200、逐类型 Content-Type、PNG/GIF 魔数、空文件、GBK 声明）。
+
+---
+
+## 15. `.csv` 无法预览
+
+用户报告：`docs/preview/text/sample.csv` 点了没显示。
+
+### 定位：不是本服务的问题，是浏览器的硬行为
+
+先分层排除：
+
+| 检查 | 结果 |
+|------|------|
+| 服务响应 | `200`，`Content-Type: text/csv; charset=utf-8`，字节与磁盘 sha256 一致 |
+| 纯 `python3 -m http.server` | 同样发 `text/csv`，Chrome **同样下载**（DOM 0 字节） |
+| 浏览器行为 | `.txt`/`.tsv`/`.json`/`.xml` 都内联，只有 `.csv` 不显示 |
+
+然后做了对照实验，确认"到底什么决定内联还是下载"：
+
+| 端口 | Content-Type | Content-Disposition | 结果 |
+|------|--------------|---------------------|------|
+| 9311 | `text/csv` | 无 | ❌ 下载 |
+| 9312 | `text/csv` | `inline` | ❌ **仍下载** |
+| 9313 | `text/plain` | `inline` | ✅ 内联 |
+
+**结论：`Content-Disposition: inline` 完全无效，决定权只在 Content-Type。**
+
+再扫一遍哪些类型会被强制下载：
+
+    text/plain                      ✅ 内联
+    text/javascript / text/css      ✅ 内联
+    application/json / xml          ✅ 内联
+    text/csv                        ❌ 下载
+    text/tab-separated-values       ❌ 下载
+
+### 处理
+
+把 `MIME[".csv"]` 从 `text/csv` 改为 `text/plain; charset=utf-8`：
+**文件内容与字节完全不变**（有 sha256 断言），只是换个声明让浏览器肯显示。
+`.tsv` 本来就走 `TEXT_EXT` → `text/plain`，无需改动。
+
+代价：`.csv` 的语义类型（`text/csv`）被放弃，换回"能在浏览器里看"。
+标准库会发 `text/csv`，所以这一条**比 stdlib 更偏离**，但符合"能预览"的诉求。
+
+验证：单元测试 69 项（+3：csv 不能是 text/csv、表里不得再有会下载的文本类型、
+内联类型都要带 charset）；端到端 156 项（+3）；浏览器实测 DOM 233 字节、
+内容渲染正确、字节 sha256 未变。

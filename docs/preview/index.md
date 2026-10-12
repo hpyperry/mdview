@@ -37,6 +37,8 @@
 
 - [普通文本](text/sample.txt) `.txt`　[日志](text/sample.log) `.log`
 - [CSV](text/sample.csv) `.csv`　[TSV](text/sample.tsv) `.tsv`
+  ← 这两个**刻意声明为 `text/plain`**：Chrome 对 `text/csv` 一律下载、不内联，
+  且 `Content-Disposition: inline` 也拦不住，所以换声明换回内联显示
 - [reStructuredText](text/sample.rst) `.rst`（按纯文本显示，不做 RST 渲染）
 - [diff](text/sample.diff) `.diff`　[patch](text/sample.patch) `.patch`
 - [空文件](text/empty.txt) ← 0 字节，应当显示空白页而不是报错

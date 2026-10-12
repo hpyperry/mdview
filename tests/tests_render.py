@@ -331,6 +331,32 @@ class TestCopyButton(unittest.TestCase):
         self.assertIn("justify-content:space-between", page)
 
 
+class TestInlineDisplayableTypes(unittest.TestCase):
+    """Content-Type 必须让浏览器内联显示，而不是下载。
+
+    实测结论（Chrome）：决定内联还是下载的**只有 Content-Type** ——
+    `Content-Disposition: inline` 对 text/csv 完全无效。
+    只有 text/csv 与 text/tab-separated-values 会被强制下载，其余文本类都内联。
+    """
+
+    def test_csv_is_not_text_csv(self):
+        """text/csv 在 Chrome 里必被下载，所以刻意声明为 text/plain。"""
+        self.assertEqual(m.MIME[".csv"], "text/plain; charset=utf-8")
+        self.assertNotEqual(m.MIME[".csv"].split(";")[0], "text/csv")
+
+    def test_no_other_type_forces_download(self):
+        """表里不能再出现会让浏览器下载的文本类型。"""
+        banned = {"text/csv", "text/tab-separated-values"}
+        for ext, ctype in m.MIME.items():
+            self.assertNotIn(ctype.split(";")[0].strip(), banned,
+                             "%s 声明了会被下载的类型 %s" % (ext, ctype))
+
+    def test_inline_types_carry_charset(self):
+        """内联显示的文本类都要带 charset，否则中文会乱码。"""
+        for ext in (".csv", ".txt", ".json", ".xml", ".yaml", ".toml", ".js", ".css"):
+            self.assertIn("charset=utf-8", m.MIME[ext], "%s 缺 charset" % ext)
+
+
 class TestPreviewSamples(unittest.TestCase):
     """docs/preview 下的渲染样例必须真实可用。
 

@@ -84,7 +84,11 @@ MIME = {
     ".js": "text/javascript; charset=utf-8",
     ".json": "application/json; charset=utf-8",
     ".xml": "application/xml; charset=utf-8",
-    ".csv": "text/csv; charset=utf-8",
+    # 注意：Chrome 对 `text/csv` 一律下载、不内联显示，且 Content-Disposition: inline
+    # 也拦不住（实测：9311 无 disposition -> 下载；9312 inline -> 仍下载；
+    # 9313 改 text/plain -> 内联）。所以这里刻意声明为 text/plain —— 内容与字节
+    # 完全不变，只是让浏览器老老实实把它显示出来。
+    ".csv": "text/plain; charset=utf-8",
     ".py": "text/plain; charset=utf-8",
     ".yaml": "text/plain; charset=utf-8",
     ".yml": "text/plain; charset=utf-8",

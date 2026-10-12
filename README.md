@@ -202,7 +202,7 @@ md-preview/
 ├─ README.md            # 本文
 ├─ SELFTEST.md          # 验证结果与缺陷修复台账
 ├─ tests/               # 测试（见 tests/README.md）
-│  ├─ tests_render.py   #   渲染器回归测试（66 项，纯 unittest）
+│  ├─ tests_render.py   #   渲染器回归测试（69 项，纯 unittest）
 │  └─ selftest.sh       #   端到端 HTTP 冒烟测试（153 项断言）
 └─ docs/                # 示例语料
    ├─ index.md          #   表格/任务列表/嵌套列表/代码高亮/相对链接
@@ -215,7 +215,7 @@ md-preview/
 ## 8. 测试
 
 ```bash
-python3 tests/tests_render.py      # 渲染器单元测试：66 项
+python3 tests/tests_render.py      # 渲染器单元测试：69 项
 bash tests/selftest.sh             # 端到端 HTTP 验证：153 项断言
 ```
 
