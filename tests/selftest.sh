@@ -80,7 +80,6 @@ IDX="$(curl -s "$BASE/")"
 chk "列出 index.md"       "$IDX" 'index.md'
 chk "列出 guide/ 子目录"  "$IDX" 'guide/'
 chk "带搜索框"            "$IDX" 'action="/search"'
-chk "带展开树入口"        "$IDX" 'depth=3'
 chk "带返回上级"          "$(curl -s "$BASE/guide/")" '上级目录'
 
 echo "== Markdown 渲染 /index.md =="
@@ -133,13 +132,15 @@ chk "同级相对链接"        "$G" 'href="/guide/advanced.md"'
 chk "图片相对路径"        "$G" 'src="/media/logo.svg"'
 chk "svg Content-Type"    "$(curl -s -D - -o /dev/null "$BASE/media/logo.svg")" 'image/svg+xml'
 
-echo "== 目录跳转与深度树 =="
+echo "== 目录跳转 =="
 RED="$(curl -s -D - -o /dev/null "$BASE/guide")"
 chk "目录补斜杠 301"      "$RED" '301'
 chk "301 Location"        "$RED" 'Location: /guide/'
-TREE="$(curl -s "$BASE/?depth=3")"
-chk "树含深层文件"        "$TREE" 'advanced.md'
-chk "树含图片"            "$TREE" 'logo.svg'
+# 展开树功能已移除：入口与 ?depth= 都不该再出现
+nchk "首页无展开树入口"   "$IDX" 'depth=3'
+nchk "无 .tree 样式"      "$IDX" '\.tree'
+chk "?depth= 无害忽略"    "$(code "$BASE/?depth=3")" '200'
+chk "忽略时仍是普通列表"  "$(curl -s "$BASE/?depth=3")" 'dirlist'
 
 echo "== 全文搜索 =="
 S="$(curl -s --get --data-urlencode 'q=标准库' "$BASE/search")"

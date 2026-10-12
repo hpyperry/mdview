@@ -34,9 +34,6 @@ python3 mdview.py
 # 推荐姿势：只服务 docs/，本机访问
 python3 mdview.py --root docs --host 127.0.0.1
 
-# 首页直接展开 3 层目录树
-python3 mdview.py --root docs --depth 3
-
 # 收紧可读范围：只服务 .md 与图片，其余 404
 python3 mdview.py --root docs --safe
 ```
@@ -52,7 +49,6 @@ python3 mdview.py --root docs --safe
 | `--host` | `0.0.0.0` | 监听地址。只想自己看就填 `127.0.0.1` |
 | `--port` | `8000` | 端口；被占用时自动 +1 重试（最多 10 次）并打印真实 URL |
 | `--root` | 当前工作目录 | 服务根目录 |
-| `--depth N` | `0` | 首页展开 N 层目录树；`0` = 分层浏览（首页只列当前层） |
 | `--safe` | 关 | 只服务 `.md` + 图片（png/jpg/jpeg/gif/svg/webp/bmp/ico/avif），其余 404 |
 | `--no-search` | 关 | 关闭全文搜索页 |
 | `--port-tries N` | `10` | 端口被占用时向后尝试多少个（此前是硬编码隐藏值） |
@@ -138,8 +134,7 @@ python3 mdview.py                  # ❌ 在 md-preview/ 下启动，/media/logo
 
 | 路由 | 行为 |
 |------|------|
-| `/` | 目录索引：目录在前，逐个列出条目（名称 / 大小 / mtime），带面包屑、搜索框、`?depth=N` 与「展开 3 层树」入口 |
-| `/?depth=N` | 递归展开 N 层目录树 |
+| `/` | 目录索引：目录在前，逐个列出条目（名称 / 大小 / mtime），带面包屑与搜索框。**分层浏览**——每层只列当前目录，点进子目录继续看（无递归展开树） |
 | `/path/doc.md` | 渲染为 HTML，`Cache-Control: no-store`（改了 md 刷新即见） |
 | `/path/doc.md?raw=1` | 返回原始 Markdown，`Content-Type: text/markdown; charset=utf-8` |
 | `/path/img.png` | 原样返回图片，正确的 `Content-Type` |

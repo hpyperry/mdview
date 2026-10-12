@@ -5,7 +5,6 @@
 用法:
     python3 mdview.py                       # 默认 0.0.0.0:8000，根=当前目录
     python3 mdview.py --port 9000 --root ~/notes
-    python3 mdview.py --depth 3             # 首页展开 3 层目录树
     python3 mdview.py --safe                # 只服务 .md + 图片，其余 404
     python3 mdview.py --no-search           # 关闭全文搜索
 
@@ -240,9 +239,6 @@ mark{background:var(--mark);color:var(--markfg);border-radius:3px;padding:0 2px}
 .hit pre{margin:0;background:transparent;border:none;padding:0;font-size:13px;
   white-space:pre-wrap;overflow-wrap:anywhere}
 .hit .ln{color:var(--muted);user-select:none;display:inline-block;min-width:3.4em;text-align:right;margin-right:.9em}
-.tree ul{list-style:none;padding-left:1.2em;margin:.15em 0}
-.tree>ul{padding-left:0}
-.tree li{padding:2px 0}
 .esc{border-bottom:1px dashed var(--line);padding-bottom:1px}
 pre.rawsrc{margin:0;white-space:pre-wrap;overflow-wrap:anywhere;font-size:13px;line-height:1.55}
 pre.rawsrc .srcline{display:block}
@@ -1589,31 +1585,6 @@ def render_dir_listing(abs_dir, rel_dir):
     return '<ul class="dirlist">\n%s\n</ul>' % "\n".join(rows)
 
 
-def render_tree(abs_dir, rel_dir, depth_left):
-    entries = list_entries(abs_dir, rel_dir)
-    if not entries:
-        return ""
-    out = ["<ul>"]
-    for is_dir, name, size, mtime in entries:
-        if is_dir and name in SKIP_DIRS:
-            continue
-        child_rel = (rel_dir + "/" + name) if rel_dir else name
-        href = url_for_rel(child_rel)
-        if is_dir:
-            href += "/"
-            out.append('<li>📁 <a href="%s">%s</a>%s</li>' % (
-                html.escape(href, quote=True), html.escape(name),
-                render_tree(os.path.join(abs_dir, name), child_rel, depth_left - 1)
-                if depth_left > 1 else ""))
-        else:
-            ext = os.path.splitext(name)[1].lower()
-            icon = "📝" if ext == MD_EXT else ("🖼" if ext in IMAGE_EXT else "📄")
-            out.append('<li>%s <a href="%s">%s</a> <span class="meta">%s</span></li>' % (
-                icon, html.escape(href, quote=True), html.escape(name), _fmt_size(size)))
-    out.append("</ul>")
-    return "\n".join(out)
-
-
 def iter_markdown(abs_root):
     for dirpath, dirnames, filenames in os.walk(abs_root, followlinks=False):
         dirnames[:] = sorted(d for d in dirnames if d not in SKIP_DIRS)
@@ -1733,7 +1704,6 @@ class Config(object):
     def __init__(self):
         self.root = os.getcwd()
         self.safe = False
-        self.depth = 0
         self.search = True
 
 
@@ -1855,7 +1825,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_header("Content-Length", "0")
                 self.end_headers()
                 return
-            self._send(HTTPStatus.OK, self._dir_page(abs_path, rel, qs))
+            self._send(HTTPStatus.OK, self._dir_page(abs_path, rel))
             return
 
         if not os.path.exists(abs_path):
@@ -1877,21 +1847,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         self._send_file(abs_path)
 
-    def _dir_page(self, abs_dir, rel, qs):
-        """目录页：解析 ?depth= 后分派到「树视图」或「列表视图」。"""
-        depth = self._resolve_depth(qs)
-        if depth > 0:
-            return self._tree_view(abs_dir, rel, depth)
+    def _dir_page(self, abs_dir, rel):
+        """目录页：分层浏览 —— 列出当前层的目录与文件。"""
         return self._list_view(abs_dir, rel)
-
-    def _resolve_depth(self, qs):
-        """?depth= 优先于 --depth；非法值回落到 --depth。"""
-        if "depth" not in qs:
-            return CFG.depth
-        try:
-            return max(0, int((qs.get("depth") or ["0"])[0]))
-        except ValueError:
-            return CFG.depth
 
     @staticmethod
     def _parent_link(rel):
@@ -1901,21 +1859,10 @@ class Handler(BaseHTTPRequestHandler):
         parent = "/".join(rel.split("/")[:-1])
         return '<p><a href="%s">../ 上级目录</a></p>' % url_for_rel(parent, trailing_slash=True)
 
-    def _tree_view(self, abs_dir, rel, depth):
-        note = ('<p class="note">已展开 %d 层目录树。'
-                '去掉 URL 里的 <code>?depth=</code> 可回到分层浏览。</p>' % depth)
-        tree = render_tree(abs_dir, rel, depth)
-        head = [x for x in (_crumbs(rel) if rel else "",
-                            self._parent_link(rel), note) if x]
-        body = "\n".join(head) + '<div class="tree">%s</div>' % (tree or "<p>空目录。</p>")
-        return _page(self._index_title(rel), body,
-                     show_search=CFG.search, depth_nav=depth_nav_html(rel))
-
     def _list_view(self, abs_dir, rel):
         head = [x for x in (_crumbs(rel) if rel else "", self._parent_link(rel)) if x]
         body = "\n".join(head) + render_dir_listing(abs_dir, rel)
         return _page(self._index_title(rel), body,
-                     nav_right='<a class="btn" href="?depth=3">展开 3 层树</a>',
                      show_search=CFG.search, depth_nav=depth_nav_html(rel))
 
     @staticmethod
@@ -2015,7 +1962,6 @@ def build_parser():
         epilog="""示例:
   python3 mdview.py                          # 0.0.0.0:8000，服务当前目录
   python3 mdview.py --port 9000 --root ~/notes
-  python3 mdview.py --depth 3                # 首页直接展开 3 层目录树
   python3 mdview.py --safe                   # 只服务 .md + 图片，其余 404
   python3 mdview.py --no-search              # 关闭全文搜索
 
@@ -2028,8 +1974,6 @@ def build_parser():
                    help="监听端口（默认 8000，被占用时自动 +1 重试）")
     p.add_argument("--root", default=None,
                    help="服务根目录（默认：启动时的当前工作目录）")
-    p.add_argument("--depth", type=int, default=0,
-                   help="目录索引首页展开层数（默认 0=分层浏览，3 左右比较合适）")
     p.add_argument("--port-tries", type=int, default=PORT_TRIES, metavar="N",
                    help="端口占用时向后尝试几个（默认 %d）" % PORT_TRIES)
     p.add_argument("--safe", action="store_true",
@@ -2055,8 +1999,7 @@ def banner(host, port, cfg):
     print(" 服务根目录 : %s" % root)
     print(" 可读范围   : %s" % exposure)
     print(" 搜索       : %s" % ("开启" if cfg.search else "关闭"))
-    print(" 索引深度   : %s" % (("%d 层（首页展开树）" % cfg.depth) if cfg.depth
-                                else "分层浏览（首页只列当前层）"))
+    print(" 目录索引   : 分层浏览（首页只列当前层）")
     if not cfg.safe and host in ("0.0.0.0", "::", ""):
         print("-" * 68)
         print(" ⚠ 局域网内任何人都能读取上述目录下的全部文件（含隐藏文件）。")
@@ -2127,7 +2070,6 @@ def main(argv=None):
         raise SystemExit("--root 不是目录: %s" % root)
     CFG.root = root
     CFG.safe = args.safe
-    CFG.depth = max(0, args.depth)
     CFG.search = not args.no_search
 
     httpd, port = bind_server(args.host, args.port, max(1, args.port_tries))
