@@ -245,7 +245,7 @@ md-preview/
 ├─ README.md            # 本文
 ├─ SELFTEST.md          # 验证结果与缺陷修复台账
 ├─ tests/               # 测试（见 tests/README.md）
-│  ├─ tests_render.py   #   渲染器回归测试（127 项，纯 unittest）
+│  ├─ tests_render.py   #   渲染器回归测试（130 项，纯 unittest）
 │  └─ selftest.sh       #   端到端 HTTP 冒烟测试（274 项断言）
 ├─ tools/minify.py      #   生成运行版（去注释/docstring/空行）
 ├─ dist/mdview.min.py   #   ★ 压缩运行版（82 KB，可单独拿去运行）
@@ -260,7 +260,7 @@ md-preview/
 ## 8. 测试
 
 ```bash
-python3 tests/tests_render.py      # 渲染器单元测试：127 项
+python3 tests/tests_render.py      # 渲染器单元测试：130 项
 bash tests/selftest.sh             # 端到端 HTTP 验证：274 项断言
 ```
 

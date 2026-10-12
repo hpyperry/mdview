@@ -92,9 +92,25 @@ def _is_binary(path, nbytes=BINARY_SNIFF_BYTES):
         return True
     try:
         with open(path, "rb") as fh:
-            return b"\x00" in fh.read(nbytes)
+            head = fh.read(nbytes)
     except OSError:
         return False
+    has_zero = False
+    utf16le = utf16be = True
+    for i, byte in enumerate(head):
+        odd = (i % 2 == 1)
+        is_zero = (byte == 0)
+        if is_zero:
+            has_zero = True
+        if utf16le and ((odd and not is_zero) or (not odd and is_zero)):
+            utf16le = False
+        if utf16be and ((odd and is_zero) or (not odd and not is_zero)):
+            utf16be = False
+        if is_zero and not utf16le and not utf16be:
+            break
+    if not has_zero:
+        return False
+    return not (utf16le or utf16be)
 def resolve_ctype(path, force_download=False):
     ext = os.path.splitext(path)[1].lower()
     if _is_textual(path):

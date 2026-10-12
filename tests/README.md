@@ -5,14 +5,14 @@
 
 | 文件 | 作用 | 命令 |
 |------|------|------|
-| `tests_render.py` | 渲染器回归测试（127 项，纯 `unittest`，不联网不起服务） | `python3 tests/tests_render.py` |
+| `tests_render.py` | 渲染器回归测试（130 项，纯 `unittest`，不联网不起服务） | `python3 tests/tests_render.py` |
 | `selftest.sh` | 端到端 HTTP 冒烟测试（274 项断言，自己起临时服务、跑完自清理） | `bash tests/selftest.sh` |
 
 ## 一套跑完
 
 ```bash
 # 在仓库根执行
-python3 tests/tests_render.py      # 127 项单元测试
+python3 tests/tests_render.py      # 130 项单元测试
 bash tests/selftest.sh             # 274 项端到端断言
 ```
 

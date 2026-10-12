@@ -873,9 +873,14 @@ ECONNRESET 会冒泡给 `socketserver.handle_error`，每个 RST 打一整段回
 | 文件 | 前 512 字节有 NUL？ | 单靠嗅探 |
 |------|-------------------|---------|
 | `real.pdf`（真实 PDF） | **没有** | 判成文本 → 无法内联显示 PDF |
-| `doc.docx` / `sheet.xlsx` | 没有 | 判成文本 |
 | 纯 ASCII 头的 `backup.tar` | 没有 | 判成文本 |
 | 改名成 `.bak` 的 PNG | 没有 | 判成文本 |
+
+> **更正**：本节初版把 `docx`/`xlsx` 也列为"嗅探认不出的反例"，理由是"本质是 ZIP"。
+> 实测**这个结论是错的** —— 真实 Office 文件的 ZIP 本地文件头在**偏移 4-5 就有 NUL**，
+> 嗅探正确判为二进制。当时那个反例是我自己造的假样本
+> （`b"PK\x03\x04" + b"text"*n`，纯 ASCII，不是真 ZIP 结构）。已加
+> `test_real_office_files_are_binary` 钉住正确行为。
 
 `real.pdf` 是关键证据：**PDF 能正确内联，靠的是 MIME 表那条显式声明，不是嗅探。**
 
@@ -924,3 +929,62 @@ ECONNRESET 会冒泡给 `socketserver.handle_error`，每个 RST 打一整段回
   `.gif/.pdf/.svg/.css/.js/Makefile/Dockerfile` 的判定必须一字不变）
 - 过程中发现并修掉一处**自己的问题**：我一度加了一条 do-nothing 的
   "基线回归占位"断言（循环体是空的），那等于假测试，已替换为真实断言
+
+---
+
+## 22. 嗅探算法对齐 VS Code：加 NUL 的**对齐**判定
+
+用户问"VS Code 针对 docx 是如何处理"，我去**实测了本机安装的 VS Code**
+（`/Applications/Visual Studio Code.app` 的 bundle，19.4 MB）而不是凭记忆。
+
+### 找到的真实实现
+
+    function oze({buffer: s, bytesRead: o}, e, t) {
+      let i = rur(s, o), n = !1;
+      if (i !== g8 && i !== f8 && s) {
+        let r = !0, a = !0, c = !1;
+        for (let l = 0; l < o && l < tur; l++) {          // tur = 512
+          let u = l % 2 === 1, p = s.readUInt8(l) === 0;
+          if (p && (c = !0),
+              r && (u && !p || !u && p) && (r = !1),      // NUL 只在奇数位?
+              a && (u && p || !u && !p) && (a = !1),      // NUL 只在偶数位?
+              p && !r && !a) break;
+        }
+        c && (r ? i = f8 : a ? g8 : n = !0)               // 对不齐才算二进制
+      }
+      return {seemsBinary: n, encoding: i}
+    }
+
+常量 `tur = 512`、`iur = 512`、`our = 512*8`、`nur = 512*128` —— 与之前那份研究一致。
+
+### 结论：VS Code 不只是"看有没有 NUL"
+
+它还判断 NUL 的**偏移奇偶**：只出现在奇数位 -> UTF-16LE（文本）；只在偶数位 ->
+UTF-16BE（文本）；**对不齐才是二进制**。我们原来的实现是"有 NUL 即二进制"，
+会把 **ASCII 为主的 UTF-16 文本**判成二进制（每个字符后都跟 NUL）。
+
+已按它的算法重写 `_is_binary`。实测对比：
+
+| 文件 | 旧实现 | 新实现 |
+|------|--------|--------|
+| ASCII UTF-16LE / BE（无 BOM） | ❌ 二进制 | ✅ **文本** |
+| 真 `.docx` / `.xlsx` / `.pptx` / `.odt` | 二进制 | 二进制（不变）|
+| 真 PDF | 文本 | 文本（不变，靠 MIME 表内联）|
+| PNG / ZIP / 空文件 / GBK | 同 | 同 |
+
+**能力边界（如实记录）**：**CJK 开头的 UTF-16 认不出来** —— `中` 是 `2d 4e`，
+高位字节非 NUL，对齐立刻被破坏。VS Code 的实现同样如此（我复刻它的 `oze()`
+逐步验证过）。已加测试记录这个边界。
+
+### 顺带纠正我上一轮的一个错误结论
+
+上一轮我把 `.docx`/`.xlsx` 列为"嗅探会误判成文本"的例子，理由是"它们本质是 ZIP"。
+**实测不成立**：真实 Office 文件的 ZIP 本地文件头在偏移 4-5 就有 NUL，嗅探判对。
+那个"反例"是我自己造的假样本。已在 §21 与该测试里双重更正。
+
+### 验证
+
+- 单元 130 项（+3）：真实 Office/ODF 四种格式 × 两种压缩方式都必须判二进制、
+  ASCII UTF-16LE/BE 必须判文本、CJK UTF-16 的边界行为
+- 端到端 274 项全绿（`_is_binary` 改动未影响既有判定）
+- 压缩版同步重新生成

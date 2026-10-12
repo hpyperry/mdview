@@ -40,9 +40,10 @@ SECTION 导航（本文件按功能分块；每块的标题就是唯一标识，
     * 超过 --max-preview（默认 20 MiB）的文件不再预览，改为下载（对 .md、
       图片、PDF 等一切类型生效）；未超限的文本非 UTF-8 用 errors="replace" 解码。
     * 文件类型三层判定：白名单（源码/配置，不读文件）-> 内置 MIME 表（图片/PDF…）
-      -> 内容嗅探兜底（看开头 512 字节有无 NUL，与 VS Code 同法）。
-      所以**没登记过的文本文件也能预览**；代价是前 512 字节无 NUL 的二进制
-      （纯 ASCII 头的 tar、改名的 PNG、本质是 ZIP 的 docx）会显示乱码而不是下载。
+      -> 内容嗅探兜底（照搬 VS Code 的 oze()：扫前 512 字节的 NUL 字节**对齐**）。
+      所以**没登记过的文本文件也能预览**。代价是前 512 字节无 NUL 的二进制
+      （纯 ASCII 头的 tar、改名的 PNG）会显示乱码而不是下载。
+      真实 Office/ODF 文件不受影响 —— 它们的 ZIP 头在偏移 4-5 就有 NUL。
     * 强制下载时用 filename + filename* 双写给出文件名（RFC 6266/5987）。
     * 隐藏目录（.git / .svn / node_modules 等）不进索引与搜索，但仍可直接按 URL 访问。
     * 只有 .md 被特殊处理；源码/配置类文本按 text/plain; charset=utf-8 发送，
@@ -197,19 +198,51 @@ def _is_textual(path):
 
 
 def _is_binary(path, nbytes=BINARY_SNIFF_BYTES):
-    """看开头 nbytes 字节里有没有 NUL 字节，有则认为是二进制。
+    """判断是否二进制：看开头 nbytes 字节里的 NUL 字节**对齐方式**。
 
-    只看开头，不完整解码 —— 与 VS Code 的判定方式一致（它也只看前 512 字节）。
-    故意宽松：GBK 等非 UTF-8 文本不含 NUL，仍会被判为文本（可能显示乱码但不下载）。
+    规则照搬 VS Code 的 `oze()`（1.141 实测反编译）：
+      * 只扫前 512 字节；
+      * NUL 只出现在**奇数**偏移 -> UTF-16LE（文本）；
+      * NUL 只出现在**偶数**偏移 -> UTF-16BE（文本）；
+      * NUL 出现但对不齐 -> 二进制。
+
+    "只看有没有 NUL"太粗：ASCII 为主的 UTF-16 文本（如 `h\x00e\x00l\x00l\x00o`）
+    每个字符后都有 NUL，会被误判成二进制。加上对齐判断就能认出这类文本。
+
+    注意它的能力边界（实测）：**CJK 开头的 UTF-16 认不出来** ——
+    `中` 是 `2d 4e`、高位不是 NUL，对齐立刻被破坏，VS Code 同样如此。
+    所以这条只对"ASCII 为主的 UTF-16"有效。
+
+    另外两个有意的宽松处：
+      * GBK 等非 UTF-8 文本不含 NUL，仍判文本（可能显示乱码但不下载）；
+      * 前 512 字节无 NUL 的二进制（纯 ASCII 头的 tar、改名的 PNG）判成文本。
     """
     if not _is_regular_file(path):
         # 不能被 open 的东西（FIFO 会永久阻塞）一律当作二进制 -> 走下载分支
         return True
     try:
         with open(path, "rb") as fh:
-            return b"\x00" in fh.read(nbytes)
+            head = fh.read(nbytes)
     except OSError:
         return False
+    has_zero = False
+    utf16le = utf16be = True
+    for i, byte in enumerate(head):
+        odd = (i % 2 == 1)
+        is_zero = (byte == 0)
+        if is_zero:
+            has_zero = True
+        # 奇数位非 NUL 或偶数位是 NUL -> 不符合 UTF-16LE 的排布
+        if utf16le and ((odd and not is_zero) or (not odd and is_zero)):
+            utf16le = False
+        # 奇数位是 NUL 或偶数位非 NUL -> 不符合 UTF-16BE 的排布
+        if utf16be and ((odd and is_zero) or (not odd and not is_zero)):
+            utf16be = False
+        if is_zero and not utf16le and not utf16be:
+            break                                    # 两种对齐都破了 -> 二进制
+    if not has_zero:
+        return False                                 # 一个 NUL 都没有 -> 文本
+    return not (utf16le or utf16be)
 
 
 def resolve_ctype(path, force_download=False):

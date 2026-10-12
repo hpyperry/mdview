@@ -548,18 +548,60 @@ class TestSniffingFallback(unittest.TestCase):
     def test_known_tradeoff_ascii_headed_binary_displays_as_text(self):
         """前 512 字节无 NUL 的二进制会被判成文本（有意承担）。
 
-        例子：纯 ASCII 头的 tar、改名成 .bak 的 PNG、本质是 ZIP 的
-        .docx/.xlsx。它们会显示乱码而不是下载 —— 这是"未知文本自动可预览"
-        必须付的代价。
+        真实例子：纯 ASCII 头的 `.tar`、头 512 字节恰好没有 NUL 的二进制。
+
+        **曾经写错了这条**：我原先把 `.docx`/`.xlsx` 也列在这里，理由是
+        "它们本质是 ZIP"。实测**不成立** —— 真实 Office 文件的 ZIP 本地文件头
+        在**偏移 4-5 就有 NUL**，所以正确判为二进制。当时那个"反例"是我自己
+        用 `b"PK\x03\x04" + b"text"*n` 造的假样本（纯 ASCII，不是真 ZIP 结构）。
         """
         for name, data in (
             ("photo.png.bak", b"\x89PNG\r\n\x1a\n" + b"x" * 200),
             ("backup.tar", b"x" * 300),
-            ("doc.docx", b"PK\x03\x04" + b"word/document.xml" * 20),
         ):
             p = self._write(name, data)
             self.assertEqual(m.resolve_ctype(p)[0], m.TEXT_MIME_DEFAULT,
                              "前提变了：%s 现在不再被判为文本" % name)
+
+    def test_real_office_files_are_binary(self):
+        """真实 Office/ODF 文件必须判为二进制 —— 它们的 ZIP 头偏移 4-5 就有 NUL。
+
+        这条是对上面那个错误结论的纠正：不要因为"本质是 ZIP"就以为嗅探认不出。
+        """
+        for name, inner in (("real.docx", {"word/document.xml": "<w:document/>"}),
+                            ("real.xlsx", {"xl/worksheets/s1.xml": "<worksheet/>"}),
+                            ("real.pptx", {"ppt/presentation.xml": "<p/>"}),
+                            ("real.odt", {"content.xml": "<office/>"})):
+            import io as _io, zipfile as _zip
+            for comp in (_zip.ZIP_DEFLATED, _zip.ZIP_STORED):
+                buf = _io.BytesIO()
+                with _zip.ZipFile(buf, "w", comp) as z:
+                    for k, v in inner.items():
+                        z.writestr(k, v)
+                p = self._write(name, buf.getvalue())
+                self.assertTrue(m._is_binary(p),
+                                "%s(%s) 应当判为二进制" % (name, comp))
+                self.assertEqual(m.resolve_ctype(p)[0], m.BINARY_MIME)
+
+    def test_ascii_utf16_recognized_as_text(self):
+        """ASCII 为主的 UTF-16 无 BOM 文件要认成文本（VS Code 的对齐判定）。
+
+        旧实现"有 NUL 即二进制"会把 `h\x00e\x00l\x00l\x00o` 判成二进制。
+        """
+        for enc in ("utf-16-le", "utf-16-be"):
+            p = self._write("u16.txt", "hello world, ascii only\n".encode(enc))
+            self.assertFalse(m._is_binary(p), "%s 应当认作文本" % enc)
+
+    def test_cjk_utf16_is_a_known_boundary(self):
+        """CJK 开头的 UTF-16 认不出来 —— 高位字节非 NUL，对齐立刻被破坏。
+
+        VS Code 的实现同样如此（实测复刻过它的 oze()）。这条记录边界，
+        不是 bug：真要认出来需要完整的编码嗅探。
+        """
+        p = self._write("cjk16.txt", "中文文本".encode("utf-16-le"))
+        self.assertFalse(m._is_binary(p))          # 无 NUL -> 文本（碰巧对了）
+        p2 = self._write("cjk16b.txt", "中".encode("utf-16-be") + b"\x00" * 4)
+        self.assertTrue(m._is_binary(p2))          # 有了 NUL 但对不齐 -> 二进制
 
     def test_known_tradeoff_documented_in_module(self):
         """这个代价必须写在被测实现的 resolve_ctype docstring 里。
