@@ -5,7 +5,7 @@
 
 | 项目 | 命令 | 结果 |
 |------|------|------|
-| 渲染器单元测试 | `python3 tests/tests_render.py` | **85 项全部通过**（`Ran 85 tests ... OK`） |
+| 渲染器单元测试 | `python3 tests/tests_render.py` | **111 项全部通过**（`Ran 85 tests ... OK`） |
 | 端到端 HTTP 验证 | `bash tests/selftest.sh` | **198 项断言全部通过**（`PASS=198 FAIL=0`） |
 | 语法兼容性 | `ast` 扫描 | 无 walrus / `match` / 3.9+ 独有语法 → 3.6+ 可运行 |
 | `--safe` | 见下 §3 | 只放行 `.md` 与图片，其余 404 |
@@ -212,7 +212,7 @@ $ curl -s 'http://127.0.0.1:8731/../../../../etc/passwd' | grep -c 'root:'
 
 ```bash
 cd /Users/hpy/Documents/deepseek-harness/md-preview
-python3 tests/tests_render.py      # 85 项
+python3 tests/tests_render.py      # 111 项
 bash tests/selftest.sh             # 198 项（自动起停临时服务）
 ```
 
@@ -655,3 +655,124 @@ GBK 文件确实非 UTF-8、两条文本路径都覆盖）；端到端 153 项�
 - 浏览器实测：加 `?download=1` 三个类型全部下载（DOM 0 字节）；
   不加参数三个类型全部内联预览（对照）
 - 截图确认按钮位置（在文件大小/mtime 右侧）、目录行无按钮
+
+---
+
+## 18. 第二轮评审：四个真实缺陷（含一个存储型 XSS）
+
+用户要求"分析下有没有 bug"，三路独立审查 + 我自己的复现共找出 22 项。以下是
+**已复现并修复**的部分。所有断言都对**修复前的版本**反向验证过检出能力。
+
+### 18.1 B1 存储型 XSS（安全，最严重）
+
+README 与 docstring 都写着"裸 HTML 全部转义，**100% 消除 .md 作为 XSS 载体**"。
+这句话**不成立**：只挡住了原始 HTML，没挡链接目标。
+
+| 输入 | 修复前渲染 | 后果 |
+|------|-----------|------|
+| `<foo@bar.com"onmouseover="x>` | `<a href="mailto:foo@bar.com"onmouseover="x">` | 引号闭合属性，**注入活的事件处理器** |
+| `[x](javascript:a"onmouseover="x)` | `<a href="javascript:a"onmouseover="x">` | 同上 |
+| `[x](javascript:alert(1))` | 可点击的 `javascript:` 链接 | 点击执行 |
+
+审查者用真实 Chrome + CDP 验证：`typeof onmouseover === "function"`，派发
+`mouseover` 后 `document.title` 变成攻击者设定的值 —— **确认执行**。
+
+**根因**：`_autolink_sub` 的 mailto 分支既没转义 href 也没转义文本；
+scheme 分支把未转义的原始 target 写进 `href`；且**全库没有任何协议白名单**。
+
+**修法**：新增 `safe_href()`，两层防护 —— 协议白名单（`javascript:`/`data:`/
+`vbscript:` 一律返回空串、不产出属性）+ 属性转义；自动链接两个分支都转义 href
+与文本；引用式链接与图片共用同一条路径。
+
+**核心断言**：按 HTML 的引号规则解析标签，属性名必须落在白名单内。
+该断言对修复前版本能抓出 `{'onmouseover'}` / `{'onerror'}`（已反向验证）。
+
+### 18.2 B2 `?raw=1` 一个请求写三个响应（协议破坏）
+
+`_raw_page()` 自己发过响应又返回 `None`，调用处再交给 `_send(200, None)`
+→ `len(None)` 抛 `TypeError` → 兜底逻辑再发一个 500。服务端日志一个 GET 三行：
+
+    "GET /index.md?raw=1" 200 -
+    "GET /index.md?raw=1" 200 -
+    "GET /index.md?raw=1" 500 -
+
+原始 socket 可见：完整 200 + **没有 Content-Length 的残缺 200** + 完整 500。
+keep-alive 连接上同一连接的下一个请求会超时。**这是搜索结果与「源」按钮走的路径**。
+
+**修法**：`_raw_page` / `_markdown_page` 统一改为返回 `(status, body)`，
+由路由唯一发送响应。同源问题（`.md` 不可读时 404 + 残缺 200 + 500）一并修掉。
+
+### 18.3 B3 `Location` 与「源」按钮双重百分号编码
+
+`quote_seg_path(path)` 对**已经编码过**的路径再编码：`%` → `%25`。
+`/my%20dir` → `Location: /my%2520dir/` → 跟随后 404；中文目录同样全挂，
+且中文名文件的「源」按钮是坏的（`href="/my%2520note.md?raw=1"`）。
+**修法**：改用已解码的 `rel` 重新编码。
+
+### 18.4 B4 监听 backlog 默认 5
+
+从未设置 `request_queue_size`，stdlib 默认 5。A/B 对照（只改这一个值）：
+默认 backlog 下 30 并发有 9 个被内核直接拒连（ECONNREFUSED），改成 128 后 30/30 成功。
+**浏览器打开一个页面就会并发 6 个连接**，所以这不是理论值。**修法**：设为 128。
+
+### 18.5 B5 FIFO / 设备文件挂死线程
+
+`open(path, "rb")` 对 FIFO **阻塞到有写者为止**（单独验证：线程 6 秒不返回），
+每个请求永久吃掉一个线程（ThreadingHTTPServer 每连接一线程）。指向 `/dev/zero`
+的链接更糟：`getsize()` 返回 0 却无限吐数据，`Content-Length` 与实际不符。
+**修法**：新增 `_is_regular_file()`（`S_ISREG`），文件服务、嗅探、`_read_text`
+三处入口全部先判类型；FIFO 现在立即 404（<1ms）。
+
+### 18.6 B6 符号链接逃出 `--root`
+
+`_resolve()` 只做字符串夹紧，**从不解析符号链接**。root 内一个指向 `/etc/passwd`
+的链接就能把 9350 字节原样读出来；`--safe` 也挡不住。README 声称的
+"路径穿越被夹紧在 root 内"对符号链接不成立。
+**修法**：加 `realpath` 二次校验（解析后仍须在 root 内），越界返回 403。
+
+### 18.7 B7 `/search` 无视 `--max-preview`
+
+25 MB 的 `.md` 直接 GET 是下载，但 `/search` 照样整个读进内存 ——
+小请求放大到"最大的那个 .md"，一个超大文件就能把服务端内存打满。
+**修法**：搜索与预览共用同一条大小闸门，并跳过非常规文件。
+
+### 18.8 B8 `--root /` 时全部 403
+
+`root + os.sep` 拼成 `//`，`startswith` 永不成立。**修法**：抽 `_inside()`
+处理根目录边界。
+
+### 18.9 B9 客户端中断刷 traceback
+
+标准库只捕 `TimeoutError`，keep-alive 期间的下一次 `readline` 遇到
+ECONNRESET 会冒泡给 `socketserver.handle_error`，每个 RST 打一整段回溯。
+**修法**：包一层 `handle_one_request`，只补捕这两种异常并静默关闭连接，
+正常路径原样交回父类。
+
+### 18.10 第三轮评审发现的其余缺陷
+
+| 编号 | 问题 | 修法 |
+|------|------|------|
+| S4 | token 占位符泄漏到链接文本/URL/title/alt（`%00MK0%00`） | 新增 `read_tokens()`，统一 token 语义 |
+| S5 | 链接里嵌图片（徽章）被转义成文本 | 新增单趟 `scan_inline()`，图片与链接一起处理 |
+| S6 | 行内链接标签里的强调不生效（自己的文档就是受害者） | 标签递归解析 |
+| S7 | `\>` 漏出私有区标记 `\ue000` | 转义整段做成 token（原来靠"标记夹一个字符"的正则，`&gt;` 有 4 个字符永远匹配不上） |
+| S8 | 行内码里的转义反引号漏出 `\ue013` / `MK0` | 行内码内就地还原屏蔽字符与转义 token |
+| S9 | 裸 NUL 直接进 HTML | 入口清除 NUL |
+| S12 | URL 里的配对括号被截断 | 扫描器做括号配对 |
+| S14 | `文字 \| 文字` + `---` 被当表格 | 分隔行必须自带竖线 |
+| S15 | 围栏内的 `[r]:` 被当成引用定义 | 采集引用定义时跟踪围栏状态 |
+| S16 | `a` / `a-1` / `a` 生成重复 id | 用"已用 id 集合"+最小可用后缀 |
+| S17 | **链接正则平方级 DoS**：78 KB → 59 秒 | 手写单趟扫描器（栈配对），78 KB → 0.018 秒 |
+| S18 | 强调配对平方级：31 KB → 9.4 秒 | 定界符数量封顶 `MAX_DELIM_RUNS` |
+| S19 | `_parse_size("9"*309)` 抛 OverflowError | 改用 Decimal + 数值上界 |
+| S20 | `_parse_size` 大整数丢精度 | 同上 |
+| S21 | `_fmt_size` 定义两次（前一处是死代码） | 删除重复定义 |
+| S2 | 深嵌套（`>`*1000）RecursionError → 500 | `MAX_BLOCK_DEPTH` + 入口兜底 |
+| S3 | 文档里字面写 token 形式 → IndexError → 500 | 下标越界时当普通文本 |
+
+### 18.11 验证
+
+- 单元测试 111 项（+14 条针对本轮缺陷的回归，含核心安全断言）
+- 端到端 239 项全绿；残留进程 0
+- **反向验证**：核心安全断言对修复前版本能检出 `onmouseover` / `onerror` 注入
+- 性能实测：链接 78 KB 从 **59 秒** 降到 **0.018 秒**

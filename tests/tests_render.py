@@ -131,7 +131,9 @@ class TestInline(unittest.TestCase):
 
     def test_reference_link(self):
         out = r('[文字][r1]\n\n[r1]: https://example.com "标题"')
-        self.assertIn('<a href="https://example.com" title="标题">文字</a>', out)
+        # 外部协议链接现在也会带上 rel（与行内链接一致，属于修复后的行为）
+        self.assertIn('<a href="https://example.com" title="标题" '
+                      'rel="noreferrer noopener">文字</a>', out)
         out = r("[r1]\n\n[r1]: https://example.com")
         self.assertIn(">r1</a>", out)
 
@@ -331,6 +333,293 @@ class TestCopyButton(unittest.TestCase):
         # 顶部条是 flex + space-between（左侧语言名、右侧复制按钮）
         self.assertIn(".codeblock .codebanner{display:flex", page)
         self.assertIn("justify-content:space-between", page)
+
+
+class TestReviewRegressions(unittest.TestCase):
+    """第二轮评审（S 系列）发现的缺陷回归。
+
+    每条都对应一个实测过的坏行为，避免以后再犯。
+    """
+
+    def test_link_scan_is_linear(self):
+        """S17：链接解析必须线性。
+
+        旧正则在 `"[x](" * 20000`（78 KB）上要 59 秒，单请求即可打满线程。
+        这里给一个宽松上界（正常应在 0.05 秒内），只为拦住平方级退化。
+        """
+        import time
+        src = "[x](" * 20000
+        t = time.time()
+        m.render_markdown(src)
+        self.assertLess(time.time() - t, 5.0, "链接解析疑似退化成平方级")
+
+    def test_deep_nesting_no_crash(self):
+        """S2：极深嵌套不能变成 500。"""
+        for src in (">" * 1000, "- " + "- " * 500 + "x", "[".join(["a"] * 200)):
+            out = m.render_markdown(src)          # 不应抛异常
+            self.assertIsInstance(out, str)
+            self.assertTrue(out)
+
+    def test_literal_token_does_not_crash(self):
+        """S3：文档里字面写出 token 形式不能 IndexError。"""
+        for src in ("\x00MK0\x00", "# \x00MK3\x00", "> \x00MK0\x00"):
+            self.assertIsInstance(m.render_markdown(src), str)
+
+    def test_escaped_gt_no_marker_leak(self):
+        """S7：转义的大于号曾经漏出私有区标记。"""
+        out = m.render_markdown("\\>\n")
+        self.assertNotIn("\ue000", out)
+        self.assertNotIn("\ue001", out)
+        self.assertIn('class="esc"', out)
+        self.assertIn("&gt;", out)
+
+    def test_code_span_no_placeholder_leak(self):
+        """S8：行内码里的转义不能漏出 MK0 / 屏蔽字符。"""
+        for src in ("`\\*`", "`a\\`b`", "`\\>`"):
+            out = m.render_markdown(src + "\n")
+            self.assertNotIn("MK0", out, "%r 漏出占位符: %r" % (src, out))
+            for ch in ("\ue010", "\ue013", "\ue000", "\ue001"):
+                self.assertNotIn(ch, out, "%r 漏出屏蔽字符" % src)
+
+    def test_nul_is_stripped(self):
+        """S9：NUL 是 HTML 非法字符，且是内部定界符。"""
+        out = m.render_markdown("a\x00b\n")
+        self.assertNotIn("\x00", out)
+        self.assertIn("ab", out)
+
+    def test_heading_ids_never_collide(self):
+        """S16：`a` / `a-1` / `a` 曾经生成 a、a-1、a-1。"""
+        import re as _re
+        for src in ("## a\n## a-1\n## a", "## 重复\n\n## 重复",
+                    "# a\n# a\n# a"):
+            ids = _re.findall(r'id="([^"]*)"', m.render_markdown(src))
+            self.assertEqual(len(ids), len(set(ids)), "id 冲突: %s" % ids)
+
+    def test_link_label_nested_image_survives(self):
+        """S5：徽章写法里的 <img> 不能被转义成文本。"""
+        out = m.render_markdown("[![build](badge.svg)](https://ci.example/run)\n")
+        self.assertIn("<img", out)
+        self.assertNotIn("&lt;img", out)
+        self.assertIn('href="https://ci.example/run"', out)
+
+    def test_emphasis_inside_inline_link_label(self):
+        """S6：行内链接标签里的强调要生效（引用式早就能，行内曾经不能）。"""
+        out = m.render_markdown("[**bold**](x.md)\n")
+        self.assertIn("<strong>bold</strong>", out)
+        self.assertNotIn("**bold**", out)
+
+    def test_url_with_balanced_parens(self):
+        """S12：URL 里的配对括号不能被截断。"""
+        out = m.render_markdown("[x](https://e.com/wiki/Foo_(bar))\n")
+        self.assertIn("Foo_(bar)", out)
+        self.assertNotIn("</a>)", out)
+
+    def test_reference_definitions_ignored_in_fences(self):
+        """S15：围栏里的 [r]: 不能被当成引用定义。"""
+        out = m.render_markdown("```\n[r]: https://evil.example\n```\n\n[r]\n")
+        self.assertIn("[r]: https://evil.example", out)
+        self.assertNotIn('href="https://evil.example"', out)
+
+    def test_bare_dashes_not_a_table(self):
+        """S14：`文字 | 文字` + `---` 必须仍是分隔线，不是表格。"""
+        out = m.render_markdown("文字 | 文字\n---\n")
+        self.assertNotIn("<table>", out)
+        self.assertIn("<hr>", out)
+
+    def test_parse_size_no_overflow_and_exact(self):
+        """S19/S20：超大输入要报错而不是 OverflowError；大整数不能丢精度。"""
+        self.assertEqual(m._parse_size("9007199254740993"), 9007199254740993)
+        with self.assertRaises(ValueError):
+            m._parse_size("9" * 309)
+
+
+class TestPathAndFileKind(unittest.TestCase):
+    """路径夹紧（含符号链接）与常规文件判定（B5/B6/B8）。"""
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp()
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def test_traversal_clamped(self):
+        for bad in ("/../../etc/passwd", "/..%2f..%2fetc/passwd",
+                    "/%2e%2e/%2e%2e/etc/passwd", "//etc/passwd", "/a/../../etc"):
+            path, _rel = m._resolve(self.root, bad)
+            if path is not None:
+                self.assertTrue(m._inside(os.path.realpath(self.root),
+                                          os.path.realpath(path)),
+                                "%s 逃出了 root: %s" % (bad, path))
+
+    def test_symlink_escape_rejected(self):
+        """root 内指向外部的符号链接必须被拒（B6）。"""
+        link = os.path.join(self.root, "escape")
+        try:
+            os.symlink("/etc/passwd", link)
+        except (OSError, NotImplementedError):
+            self.skipTest("此环境不支持创建符号链接")
+        path, _rel = m._resolve(self.root, "/escape")
+        self.assertIsNone(path, "符号链接逃逸未被挡住")
+
+    def test_symlink_inside_root_allowed(self):
+        target = os.path.join(self.root, "real.txt")
+        open(target, "w").write("hi")
+        link = os.path.join(self.root, "alias.txt")
+        try:
+            os.symlink(target, link)
+        except (OSError, NotImplementedError):
+            self.skipTest("此环境不支持创建符号链接")
+        path, _rel = m._resolve(self.root, "/alias.txt")
+        self.assertIsNotNone(path, "root 内部的符号链接不该被拒")
+
+    def test_is_regular_file(self):
+        f = os.path.join(self.root, "f.txt")
+        open(f, "w").write("x")
+        self.assertTrue(m._is_regular_file(f))
+        self.assertFalse(m._is_regular_file(self.root), "目录不是常规文件")
+        self.assertFalse(m._is_regular_file(os.path.join(self.root, "nope")))
+        fifo = os.path.join(self.root, "pipe")
+        try:
+            os.mkfifo(fifo)
+        except (OSError, AttributeError, NotImplementedError):
+            fifo = None
+        if fifo:
+            self.assertFalse(m._is_regular_file(fifo), "FIFO 不是常规文件")
+            self.assertTrue(m._is_binary(fifo), "FIFO 应被当作二进制（避免 open 阻塞）")
+
+    def test_inside_root_slash(self):
+        """--root / 时不能因为 // 而全部 403（B8）。"""
+        self.assertTrue(m._inside("/", "/etc/hosts"))
+        self.assertTrue(m._inside("/", "/"))
+
+
+class TestLinkSafety(unittest.TestCase):
+    """链接安全：属性注入与危险协议（B1）。
+
+    背景：`<a@b.com"onmouseover="x>` 曾被渲染成活的 onmouseover（Chrome 实测触发）。
+    """
+
+    @staticmethod
+    def _attr_names(tag):
+        """按 HTML 的引号规则解析属性名（值里的等号不算属性名）。
+
+        不能用正则直接抓属性名：转义后的值里也含 `onmouseover=`，
+        那样会把"已转义的安全文本"误报成属性注入。
+        """
+        inner = tag[tag.index(" ") + 1:-1] if " " in tag else ""
+        names, i, n = [], 0, len(inner)
+        while i < n:
+            while i < n and inner[i].isspace():
+                i += 1
+            start = i
+            while i < n and not inner[i].isspace() and inner[i] != "=":
+                i += 1
+            name = inner[start:i]
+            while i < n and inner[i].isspace():
+                i += 1
+            if i < n and inner[i] == "=":
+                i += 1
+                while i < n and inner[i].isspace():
+                    i += 1
+                if i < n and inner[i] in "\"'":
+                    quote = inner[i]
+                    i += 1
+                    while i < n and inner[i] != quote:
+                        i += 1
+                    i += 1
+                else:
+                    while i < n and not inner[i].isspace():
+                        i += 1
+            if name:
+                names.append(name.lower())
+        return names
+
+    def test_no_unexpected_attributes_anywhere(self):
+        """核心安全断言：渲染出的标签上不得出现白名单以外的属性名。
+
+        这是 B1（存储型 XSS）的真正判据 —— 修复前 Chrome 实测
+        onmouseover 是活的函数；修复后属性名集合严格收在白名单内。
+        """
+        allowed = {"href", "title", "rel", "src", "alt", "class", "id", "style"}
+        payloads = [
+            '<foo@bar.com"onmouseover="x>',
+            '<a"href="javascript:1@b.co>',
+            '<http://e.com/x"onmouseover="y>',
+            '<x"onerror="1@a.com>',
+            '[a](b.md "t\\" onmouseover=\\"x")',
+            '![i](p.png "t\\" onerror=\\"x")',
+            '[a](<b"onmouseover="c>)',
+            '<img src=x onerror=alert(1)>',
+            '[x](javascript:alert(1))',
+            '![x](javascript:alert(1))',
+        ]
+        for payload in payloads:
+            out = m.render_markdown(payload + "\n")
+            for tag in re.findall(r"<[a-z]+\b[^>]*>", out):
+                extra = set(self._attr_names(tag)) - allowed
+                self.assertFalse(extra, "%r 渲染出意外属性 %s: %s"
+                                 % (payload, extra, tag))
+
+    def test_autolink_attribute_injection_blocked(self):
+        """注入的引号必须落在属性值**内部**（转义成 &quot;），不能闭合属性。
+
+        元素文本里出现字面引号是无害的（文本节点不解析属性），所以要断言的是
+        href 属性内部没有未转义的引号，而不是整段输出里没有引号。
+        """
+        import re as _re
+        out = m.render_markdown('<foo@bar.com"onmouseover="document.title=1>\n')
+        href = _re.search(r'href="([^"]*)"', out)
+        self.assertIsNotNone(href, "应当仍是一个链接")
+        # 属性值里出现的引号必须已被转义（否则就闭合了属性）
+        self.assertNotIn('"', href.group(1), "href 属性值里出现了未转义引号")
+        self.assertIn("&quot;", out)
+        # 不能凭空多出属性：整个标签里只应有 href（+ 可选的 rel/title）
+        tag = _re.search(r"<a\b[^>]*>", out).group(0)
+        self.assertNotIn("onmouseover", tag.replace("&quot;onmouseover=&quot;", ""))
+
+    def test_http_autolink_escapes_text(self):
+        out = m.render_markdown('<http://e.com/x"y>\n')
+        self.assertNotIn('"y"', out.replace("&quot;", ""))
+        self.assertIn("&quot;", out)
+
+    def test_javascript_scheme_rejected(self):
+        for payload in ('[x](javascript:alert(1))',
+                        '[x](JavaScript:alert(1))',
+                        '[x](JaVaScRiPt:alert(1))',
+                        '[x](vbscript:msgbox(1))',
+                        '[x](data:text/html,<script>alert(1)</script>)'):
+            out = m.render_markdown(payload + "\n")
+            self.assertNotIn("href=", out, "危险协议未被拒绝: %s" % payload)
+            self.assertIn(">x</a>", out)
+        # 前导空格让链接正则直接不匹配 —— 退化成纯文本，同样安全
+        out = m.render_markdown("[x](  javascript:alert(1))\n")
+        self.assertNotIn("href=", out)
+
+    def test_javascript_scheme_in_reference_and_image(self):
+        out = m.render_markdown('[x][r]\n\n[r]: javascript:alert(1)\n')
+        self.assertNotIn("href=", out)
+        out = m.render_markdown('![i](javascript:alert(1))\n')
+        self.assertNotIn("<img", out)
+
+    def test_safe_schemes_preserved(self):
+        for url in ("https://e.com/a", "http://e.com/a", "mailto:a@b.com",
+                    "ftp://e.com/f", "tel:+123", "#anchor", "/abs/path.md",
+                    "rel/path.md"):
+            out = m.render_markdown("[x](%s)\n" % url)
+            self.assertIn('href="', out, "安全链接被误拒: %s" % url)
+
+    def test_control_chars_stripped_from_url(self):
+        """URL 里的制表/换行不能用来伪装协议。"""
+        out = m.render_markdown("[x](java\u0000script:alert(1))\n")
+        self.assertNotIn("javascript:", out.replace("\x00", ""))
+
+    def test_url_entities_decoded(self):
+        """URL 里的 &amp; 要还原成 &，不能被烘成字面量或漏出 token。"""
+        for src in ("[a](x&amp;y.md)", "[a](x&y.md)"):
+            out = m.render_markdown(src + "\n")
+            self.assertNotIn("MK0", out, "token 占位符泄漏: %s" % out)
+            self.assertNotIn("&amp;amp;", out)
+            self.assertIn("%26", out)
 
 
 class TestDownloadButton(unittest.TestCase):

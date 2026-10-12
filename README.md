@@ -166,8 +166,14 @@ python3 mdview.py                  # ❌ 在 md-preview/ 下启动，/media/logo
 已经做的防护：
 
 - **路径穿越**：`/../../etc/passwd` 这类请求的 `..` 会被夹紧在 `--root` 内，不可能读到根外文件。
-- **XSS**：正文里的裸 HTML 与**代码块内的 HTML** 一律转义（代码块这条曾经是漏洞，
-  已修并加回归测试），`.md` 无法作为脚本载体。
+- **XSS**：两道防线，缺一不可 ——
+  1. 正文里的裸 HTML 与**代码块内的 HTML** 一律转义（代码块这条曾经是漏洞，已修）；
+  2. 链接/图片目标过**协议白名单**，`javascript:` / `data:` / `vbscript:` 一律不产出属性。
+
+  两层都曾经不完整：早期只做了第 1 条，于是 `<a@b.com"onmouseover="x>` 能在真实
+  Chrome 里注入一个**活的**事件处理器，`[x](javascript:alert(1))` 也能点击执行。
+  现已修复，并加了一条针对"标签属性名必须落在白名单内"的核心断言，
+  该断言对修复前的版本有检出能力（已反向验证）。
 - **隐藏裸奔**：`--root` 只想暴露文档时用 `--safe`（只放行 `.md` 与图片），或把 `--host` 改成 `127.0.0.1`。
 
 推荐的最小暴露姿势：
@@ -207,7 +213,7 @@ md-preview/
 ├─ README.md            # 本文
 ├─ SELFTEST.md          # 验证结果与缺陷修复台账
 ├─ tests/               # 测试（见 tests/README.md）
-│  ├─ tests_render.py   #   渲染器回归测试（85 项，纯 unittest）
+│  ├─ tests_render.py   #   渲染器回归测试（111 项，纯 unittest）
 │  └─ selftest.sh       #   端到端 HTTP 冒烟测试（198 项断言）
 └─ docs/                # 示例语料
    ├─ index.md          #   表格/任务列表/嵌套列表/代码高亮/相对链接
@@ -220,7 +226,7 @@ md-preview/
 ## 8. 测试
 
 ```bash
-python3 tests/tests_render.py      # 渲染器单元测试：85 项
+python3 tests/tests_render.py      # 渲染器单元测试：111 项
 bash tests/selftest.sh             # 端到端 HTTP 验证：198 项断言
 ```
 

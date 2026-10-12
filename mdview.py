@@ -30,7 +30,9 @@ SECTION 导航（本文件按功能分块；每块的标题就是唯一标识，
     搜 "SECTION 10"  -> CLI 与启动        CLI
 
 已知行为（写在代码里而不是靠口头约定）:
-    * 裸 HTML 全部转义，不透传 —— 100% 消除 .md 作为 XSS 载体。
+    * 裸 HTML 全部转义，不透传；链接/图片目标再过一道协议白名单
+      （javascript:/data: 一律不产出属性）—— 这两条合起来才封住 .md 的 XSS。
+      早期版本只做了前一条，自动链接与 javascript: 仍可注入（已修）。
     * 列表/引用可嵌套；只有带语言标识的围栏代码块才高亮。
     * 单层目录不限制条目数，大目录索引可能较慢。
     * 超过 --max-preview（默认 20 MiB）的文件不再预览，改为下载（对 .md、
@@ -43,11 +45,13 @@ SECTION 导航（本文件按功能分块；每块的标题就是唯一标识，
 """
 
 import argparse
+import decimal
 import html
 import os
 import posixpath
 import re
 import socket
+import stat
 import sys
 import threading
 import time
@@ -128,6 +132,15 @@ DEFAULT_MAX_PREVIEW = 20 * 1024 * 1024
 # 只看开头必然会漏判（前 512 字节干净、后面藏二进制的文件会被当文本），
 # 这是刻意承担的代价——换来的是几乎零成本的判定。
 BINARY_SNIFF_BYTES = 512
+
+# 强调配对的定界符上限。配对算法是"每个 opener 向右找最近 closer"，
+# 最坏情况平方级：`"***a" * 8000`（31 KB）要 9.4 秒，一个请求就能占满线程。
+# 正常文档的定界符远小于这个数，所以超出部分直接当字面量，把最坏情况封顶。
+MAX_DELIM_RUNS = 2000
+
+# 块级嵌套（引用/列表）的深度上限。递归下降遇到极深嵌套会打穿 Python 递归栈，
+# 表现为 HTTP 500；封顶后超深部分退化为等宽文本块。
+MAX_BLOCK_DEPTH = 100
 TEXT_EXT = {
     # 脚本与源码
     ".py", ".pyw", ".pyi", ".sh", ".bash", ".zsh", ".fish", ".bat", ".cmd", ".ps1",
@@ -165,6 +178,9 @@ def _is_binary(path, nbytes=BINARY_SNIFF_BYTES):
     只看开头，不完整解码 —— 与 VS Code 的判定方式一致（它也只看前 512 字节）。
     故意宽松：GBK 等非 UTF-8 文本不含 NUL，仍会被判为文本（可能显示乱码但不下载）。
     """
+    if not _is_regular_file(path):
+        # 不能被 open 的东西（FIFO 会永久阻塞）一律当作二进制 -> 走下载分支
+        return True
     try:
         with open(path, "rb") as fh:
             return b"\x00" in fh.read(nbytes)
@@ -238,25 +254,20 @@ def _parse_size(text, what="--max-preview"):
             "k": 1024, "kb": 1024, "kib": 1024,
             "m": 1024 ** 2, "mb": 1024 ** 2, "mib": 1024 ** 2,
             "g": 1024 ** 3, "gb": 1024 ** 3, "gib": 1024 ** 3}[unit]
-    value = int(float(number) * mult)
+    # 用 Decimal 而不是 float：float 既会把 2**53 以上的整数弄丢精度
+    # （9007199254740993 -> ...992），又会对超大输入抛 OverflowError。
+    try:
+        value = int(decimal.Decimal(number) * mult)
+    except (decimal.InvalidOperation, OverflowError, ValueError):
+        raise ValueError("%s 无法解析: %s" % (what, text))
     if value < 0:
         raise ValueError("%s 不能为负数: %s" % (what, text))
+    if value > (1 << 63):
+        # 309 位数字这类输入能算出天文数字，作为"预览上限"没有意义；
+        # 明确拒绝比接受一个荒谬值好（早期版本会在这里抛 OverflowError）。
+        raise ValueError("%s 数值过大: %s" % (what, text[:32]))
     return value
 
-
-def _fmt_size(nbytes):
-    """字节数 -> 可读文本，用于横幅与报错。"""
-    for unit, scale in (("GiB", 1024 ** 3), ("MiB", 1024 ** 2), ("KiB", 1024)):
-        if nbytes >= scale:
-            value = nbytes / float(scale)
-            return ("%.0f %s" % (value, unit)) if value == int(value) else \
-                   ("%.1f %s" % (value, unit))
-    return "%d B" % nbytes
-
-
-# ============================================================================
-# SECTION 2  CSS
-# ============================================================================
 
 CSS = """
 *,*::before,*::after{box-sizing:border-box}
@@ -454,6 +465,7 @@ COPY_JS = """
   });
 })();
 """
+
 
 
 def _page(title, body, nav_right="", show_search=True, search_q="", depth_nav=""):
@@ -736,6 +748,38 @@ ALIASES = {
     "ldquo": "“", "rdquo": "”", "lsquo": "‘", "rsquo": "’",
 }
 
+# 允许出现在 href/src 里的协议。凡是没列进来的（javascript: / data: / vbscript: …）
+# 一律不产生属性 —— 光靠转义挡不住 javascript: 链接（点了就执行）。
+SAFE_SCHEMES = frozenset((
+    "http", "https", "mailto", "ftp", "ftps", "sftp", "tel", "sms", "news",
+    "irc", "ircs", "xmpp", "magnet", "gemini", "gopher",
+))
+_SCHEME_RE = re.compile(r"^([A-Za-z][A-Za-z0-9+.-]*):")
+
+
+def safe_href(url):
+    """把 URL 变成可安全放进 href/src 属性的字符串。
+
+    两层防护：
+      1. 协议白名单：javascript:/data:/vbscript: 等一律拒绝（返回 ""）；
+      2. 属性转义：引号、尖括号、& 都转义，杜绝属性注入。
+    返回空串表示"不要输出这个属性"。
+    """
+    if url is None:
+        return ""
+    text = str(url).strip()
+    # 去掉控制字符（制表/换行/回车/DEL 等）—— 它们躲过正则后仍会被浏览器当作协议的一部分
+    text = "".join(ch for ch in text if ord(ch) >= 0x20 and ch != "\x7f")
+    match = _SCHEME_RE.match(text)
+    if match:
+        if match.group(1).lower() not in SAFE_SCHEMES:
+            return ""
+    elif text.startswith("//"):
+        # 协议相对链接 -> 交给浏览器按当前协议解析，允许
+        pass
+    return html.escape(text, quote=True)
+
+
 _AUTOLINK_RE = re.compile(r"<((?:https?|ftp|mailto)://[^\s<>]+|[^\s<>@]+@[^\s<>@]+\.[^\s<>@]+)>")
 _TAG_RE = re.compile(r"</?[A-Za-z][A-Za-z0-9-]*(?:\s[^<>]*)?/?>")
 _ENTITY_RE = re.compile(r"&(#[0-9]{1,7}|#[xX][0-9a-fA-F]{1,6}|[A-Za-z][A-Za-z0-9]{1,31});")
@@ -771,11 +815,101 @@ def _entity_sub(m):
 
 
 def _autolink_sub(m):
+    """自动链接 <...>。两个分支都必须转义：target 里可以含引号。
+
+    之前 mailto 分支既没转义 href 也没转义文本，http 分支只转义了 href，
+    于是 `<a@b.com"onmouseover="x>` 能凭空注入一个事件处理器（已实测触发）。
+    """
     target = m.group(1)
+    text = html.escape(target, quote=False)
     if "@" in target and "://" not in target:
-        return '<a href="mailto:%s">%s</a>' % (target, target)
+        return '<a href="%s">%s</a>' % (safe_href("mailto:" + target), text)
     return '<a href="%s" rel="noreferrer noopener">%s</a>' % (
-        html.escape(target, quote=True), target)
+        safe_href(target), text)
+
+
+def _bracket_pairs(text):
+    """单趟 O(n) 用栈配对 [ ]，返回 {开括号下标: 闭括号下标}。
+
+    绝不为每个 `[` 向后扫描找 `]` —— 那是平方级的根源：`"[x](" * 20000`
+    （78 KB）在旧的正则实现里要 59 秒，一个请求就能把一个线程打满。
+    """
+    pairs = {}
+    stack = []
+    for i, ch in enumerate(text):
+        if ch == "[":
+            stack.append(i)
+        elif ch == "]" and stack:
+            pairs[stack.pop()] = i
+    return pairs
+
+
+def _scan_link_spans(text):
+    """单趟找出所有「标签](目标)」区间，返回 [(起点, 标签起, 标签止, 目标止)]。
+
+    只认后面紧跟 `(` 的 `]`，因此天然跳过绝大多数方括号噪声；
+    目标允许括号配对（`Foo_(bar)` 这类维基链接不会被截断）。
+    """
+    pairs = _bracket_pairs(text)
+    spans = []
+    i, n = 0, len(text)
+    while i < n:
+        if text[i] != "[":
+            i += 1
+            continue
+        close = pairs.get(i, -1)
+        if close < 0 or close + 1 >= n or text[close + 1] != "(":
+            i += 1
+            continue
+        k, depth = close + 2, 1
+        while k < n and depth:
+            ch = text[k]
+            if ch == "(":
+                depth += 1
+            elif ch == ")":
+                depth -= 1
+            k += 1
+        if depth:
+            # 关键：这里必须跳到刚才扫到的位置，不能只 i += 1。
+            # 否则同一个"扫到结尾也找不到 )"的失败会对后面每个 `[`
+            # 重做一遍，整体仍然是平方级（实测 31 KB 要 8 秒）。
+            i = k
+            continue
+        spans.append((i, i + 1, close, k))
+        i = k
+    return spans
+
+
+def _split_link_tail(tail):
+    """把「目标 ) 与 ) 之间」的尾巴拆成 (目标, title)。
+
+    目标里允许括号配对；其后可跟 ` "标题" ` / ` '标题' ` / ` (标题)`。
+    """
+    i, n, depth = 0, len(tail), 0
+    while i < n:
+        ch = tail[i]
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            if depth == 0:
+                break
+            depth -= 1
+        elif ch.isspace() and depth == 0:
+            break
+        i += 1
+    return tail[:i], _parse_link_title(tail[i:])
+
+
+def _parse_link_title(tail):
+    """从链接尾部解析 title（"…" / '…' / (…)）；解析不出返回空串。"""
+    t = tail.strip()
+    if len(t) < 2:
+        return ""
+    for open_q, close_q in (("\"", "\""), ("'", "'"), ("(", ")"),
+                            ("&quot;", "&quot;")):
+        if t.startswith(open_q) and t.endswith(close_q) and len(t) >= 2 * len(open_q):
+            return t[len(open_q):-len(close_q)]
+    return ""
 
 
 def parse_inline(text, ctx):
@@ -792,10 +926,37 @@ def parse_inline(text, ctx):
         tokens.append(s)
         return TOKEN_FMT % (len(tokens) - 1)
 
-    # 转义用私有区标记承载，不进 token 池：
-    # 若把它塞进 tokens，而行内码内容里正好也含 token，还原时下标就会错位，
-    # 页面上会漏出字面量 "MK0"/"MK1"。
-    text = _ESC_RE.sub(lambda m: _ESC_OPEN + m.group(1) + _ESC_CLOSE, text)
+    def read_tokens(s):
+        """把文本里已 stash 的 token 就地在本地解码出来，返回**纯文本**。
+
+        token 表里混着两类值：
+          * 已渲染的 HTML（`<img …>`、`<a …>`，来自嵌套解析）—— 原样返回；
+          * 文本（转义后的字符、实体、行内码内容）—— 反转义还原成原始字符。
+        这样调用方可以放心地"取出来 -> 自己转义一次"，不会出现 &amp;amp;。
+
+        链接/图片的 URL 与 alt 必须走这里：实体保护发生在链接解析之前，
+        直接读 m.group() 会拿到占位符，经 URL 编码后变成 %00MK0%00 写进 href。
+        """
+        def one(mm):
+            idx = int(mm.group(1))
+            if not (0 <= idx < len(tokens)):
+                return mm.group(0)
+            val = tokens[idx]
+            if val.startswith("<"):
+                return val                      # 已渲染的 HTML
+            return html.unescape(val)           # 文本：还原成原始字符
+        # 此刻 token 的定界符可能已被换成 _TOKEN_SHIELD（行内码屏蔽阶段），
+        # 所以匹配要把两种形式都算上。
+        return re.sub(_TOKEN_SHIELD + r"MK(\d+)" + _TOKEN_SHIELD, one,
+                      _TOKEN_RE.sub(one, s))
+
+    # 转义字符：整段做成 token（含已转义的字符）。
+    # 早期实现用私有区标记承载、最后用"标记夹一个字符"的正则还原，但
+    # html.escape 会把 `>` 变成 `&gt;`（4 个字符），那个正则永远匹配不上，
+    # 于是页面上漏出 ⟦EO⟧&gt;⟦EC⟧。做成 token 就绕开了这个前提。
+    text = _ESC_RE.sub(
+        lambda m: stash('<span class="esc">%s</span>'
+                        % html.escape(m.group(1), quote=False)), text)
     # 行内码匹配前先隐去两类字符，匹配后逐次还原：
     #   * NUL —— 已有 token 的内容，参与匹配会打乱 token 下标；
     #   * 转义标记内的反引号（\`）—— 否则行内码正则会跨标记配对，把转义吃掉。
@@ -810,7 +971,22 @@ def parse_inline(text, ctx):
     code_spans = []
 
     def stash_code(m):
-        code_spans.append(html.escape(m.group(2).strip(), quote=False))
+        # 行内码内容可能夹着 token（紧邻的转义 `\`` 就是 token）与本轮的
+        # _BT_SHIELD，两者都要在这里就地还原：它们已经离开主文本，
+        # 后面那轮"逐个 replace"再也扫不到，否则页面会漏出 MK0 / ⟦BT⟧。
+        inner = m.group(2).strip().replace(_BT_SHIELD, "`")
+        # 行内码里的转义 token 要变回**字面字符**（不是 <span class="esc">）：
+        # 行内码内容是纯文本，塞 HTML 进去会被当成文本显示出来。
+        def literal(mm):
+            i = int(mm.group(1))
+            if not (0 <= i < len(tokens)):
+                return mm.group(0)
+            val = tokens[i]
+            m2 = re.match(r'<span class="esc">(.*?)</span>$', val, re.S)
+            return html.unescape(m2.group(1)) if m2 else val
+        inner = re.sub(_TOKEN_SHIELD + r"MK(\d+)" + _TOKEN_SHIELD, literal,
+                       _TOKEN_RE.sub(literal, inner))
+        code_spans.append(html.escape(inner, quote=False))
         return _CODE_OPEN + str(len(code_spans) - 1) + _CODE_CLOSE
 
     shielded = _CODE_SPAN_RE.sub(stash_code, shielded)
@@ -829,44 +1005,110 @@ def parse_inline(text, ctx):
     text = _REF_DEF_LINK(text, ctx)
     text = _REF_SHORT_RE.sub(lambda m: _shortcut_ref(m, ctx), text)
 
-    def img_sub(m):
-        return stash('<img src="%s" alt="%s"%s>' % (
-            html.escape(ctx.rewrite_image(m.group(2)), quote=True),
-            html.escape(m.group(1), quote=True),
-            ' title="%s"' % html.escape(m.group(3) or m.group(4) or "", quote=True)
-            if (m.group(3) or m.group(4)) else ""))
-
-    text = _IMAGE_RE.sub(img_sub, text)
-
-    def link_sub(m):
-        label = m.group(1)
-        title = m.group(3) or m.group(4) or ""
+    def render_link(label_raw, dest_raw, title_raw):
+        """构造 <a>。转义与协议过滤统一在这里做（B1 的修复点）。"""
+        # 先解 token，再解 HTML 实体：写成 &amp; 的 URL 要还原成 &，
+        # 之后交给 URL 编码统一处理，否则 &amp; 会被烘成字面量进 href。
+        dest = html.unescape(read_tokens(dest_raw))
         try:
-            href = urllib.parse.unquote(m.group(2))
+            href = urllib.parse.unquote(dest)
         except Exception:
-            href = m.group(2)
+            href = dest
         if re.match(r"^[A-Za-z][A-Za-z0-9+.-]*:", href):
-            target = m.group(2)
-            extra = ' rel="noreferrer noopener"'
+            target = safe_href(dest)
+            extra = ' rel="noreferrer noopener"' if target else ""
         else:
-            target = html.escape(ctx.rewrite_link(href), quote=True)
+            target = safe_href(ctx.rewrite_link(href))
             extra = ""
-        return stash('<a href="%s"%s%s>%s</a>' % (
-            target, ' title="%s"' % html.escape(title, quote=True) if title else "",
-            extra, label))
+        attr = ' href="%s"' % target if target else ""
+        title = html.unescape(read_tokens(title_raw)) if title_raw else ""
+        tattr = ' title="%s"' % html.escape(title, quote=True) if title else ""
+        return '<a%s%s%s>%s</a>' % (attr, tattr, extra, render_label(label_raw))
 
-    text = _LINK_RE.sub(link_sub, text)
+    def render_label(plain):
+        """标签内的行内解析：先递归处理嵌套的图片/链接，再跑强调。
+
+        必须递归：`[![i](p.png)](u)` 这种徽章写法里，外层链接扫描会一口气
+        吃掉整个区间，内层图片的 token 是在**外层**扫描时产生的；
+        只对剩下的字面量再扫一遍，图片才能被渲染成 <img> 而不是文本。
+        """
+        inner = scan_inline(plain)          # 嵌套图片/链接 -> token
+        return read_tokens(parse_emphasis(inner))
+
+    def render_image(alt_raw, dest_raw, title_raw):
+        """构造 <img>；协议被拒时退化成转义后的字面量。"""
+        dest = html.unescape(read_tokens(dest_raw))
+        src = safe_href(ctx.rewrite_image(dest))
+        alt = render_label(alt_raw)
+        if not src:
+            return None
+        tattr = (' title="%s"' % html.escape(title_raw, quote=True)
+                 if title_raw else "")
+        # alt 里可能已含 token（不会），转义时保留 token 不被破坏
+        return '<img src="%s" alt="%s"%s>' % (src, alt, tattr)
+
+    def scan_inline(text):
+        """单趟扫描 ![alt](src) 与 [label](dest)，就地替换成 token。
+
+        用 _bracket_pairs/_scan_link_spans 的栈配对代替正则：旧正则在
+        一串不匹配的 `[` 上会退化成平方级（78 KB 要 59 秒，一个请求就能
+        打满一个线程）。图片与链接一起处理，所以 `[![i](p.png)](u)`
+        这种徽章写法里的 <img> 会被正确保留，而不是被转义成文本。
+        """
+        spans = _scan_link_spans(text)
+        if not spans:
+            return text
+        out = []
+        pos = 0
+        for start, lab_start, lab_end, dest_end in spans:
+            is_img = start > 0 and text[start - 1] == "!"
+            cut = start - 1 if is_img else start
+            if cut < pos:
+                continue
+            dest_and_tail = text[lab_end + 2:dest_end - 1]
+            dest_raw, title_raw = _split_link_tail(dest_and_tail)
+            label_raw = text[lab_start:lab_end]
+            if is_img:
+                html_img = render_image(label_raw, dest_raw, title_raw)
+                if html_img is None:
+                    continue                       # 协议被拒：留给后面的转义
+                out.append(text[pos:cut])
+                out.append(stash(html_img))
+            else:
+                out.append(text[pos:cut])
+                out.append(stash(render_link(label_raw, dest_raw, title_raw)))
+            pos = dest_end
+        out.append(text[pos:])
+        return "".join(out)
+
+    text = scan_inline(text)
+
     text = parse_emphasis(text)
     # 先还原 token，再还原行内码与转义（行内码内容不含 token，顺序无关但更直观）
-    text = _TOKEN_RE.sub(lambda m: tokens[int(m.group(1))], text)
+    def resolve_token(mm):
+        # 文档里字面写了 \x00MK0\x00 时下标会越界 —— 当普通文本处理，不要 500
+        idx = int(mm.group(1))
+        if 0 <= idx < len(tokens):
+            return tokens[idx]
+        return mm.group(0)
+
+    text = _TOKEN_RE.sub(resolve_token, text)
     text = re.sub(re.escape(_CODE_OPEN) + r"(\d+)" + re.escape(_CODE_CLOSE),
                   lambda m: "<code>%s</code>" % code_spans[int(m.group(1))], text)
-    # 中间必须正好一个非标记字符：否则 (.) 会跨越标记把 <em>…</em> 整段吞掉
-    esc_atom = "([^" + re.escape(_ESC_OPEN + _ESC_CLOSE) + "])"
-    text = re.sub(re.escape(_ESC_OPEN) + esc_atom + re.escape(_ESC_CLOSE),
-                  lambda m: '<span class="esc">%s</span>' %
-                  html.escape(m.group(1), quote=False), text)
     return text
+
+
+def _ref_link_html(ctx, url, title, label):
+    """引用式链接的统一渲染：协议白名单 + 属性/文本转义。"""
+    decoded = urllib.parse.unquote(url)
+    if re.match(r"^[A-Za-z][A-Za-z0-9+.-]*:", decoded):
+        href, extra = safe_href(decoded), ' rel="noreferrer noopener"'
+    else:
+        href, extra = safe_href(ctx.rewrite_link(decoded)), ""
+    attr = ' href="%s"' % href if href else ""
+    return '<a%s%s%s>%s</a>' % (
+        attr, ' title="%s"' % html.escape(title, quote=True) if title else "",
+        extra, html.escape(label, quote=False))
 
 
 def _REF_DEF_LINK(text, ctx):
@@ -878,10 +1120,7 @@ def _REF_DEF_LINK(text, ctx):
         if target is None:
             return m.group(0)
         url, title = target
-        return '<a href="%s"%s>%s</a>' % (
-            html.escape(ctx.rewrite_link(urllib.parse.unquote(url)), quote=True),
-            ' title="%s"' % html.escape(title, quote=True) if title else "",
-            label or key)
+        return _ref_link_html(ctx, url, title, label or key)
     return _REF_LINK_RE.sub(sub, text)
 
 
@@ -892,10 +1131,7 @@ def _shortcut_ref(m, ctx):
     if target is None:
         return m.group(0)
     url, title = target
-    return '<a href="%s"%s>%s</a>' % (
-        html.escape(ctx.rewrite_link(urllib.parse.unquote(url)), quote=True),
-        ' title="%s"' % html.escape(title, quote=True) if title else "",
-        label)
+    return _ref_link_html(ctx, url, title, label)
 
 
 def _is_punct(ch):
@@ -1027,10 +1263,16 @@ def parse_emphasis(text):
     # 降级后只剩「同字符同长度」一种配对，行为可预测且好测。
     text = _rewrite_triple(text)
 
+    # 定界符数量封顶：超过就只把前 MAX_DELIM_RUNS 个当定界符，其余留作字面量。
+    # 这是为了给平方级的配对算法一个上界（见 MAX_DELIM_RUNS 注释）。
+    delims = list(_delim_re().finditer(text))
+    if len(delims) > MAX_DELIM_RUNS:
+        delims = delims[:MAX_DELIM_RUNS]
+
     nodes = []          # (kind, sym, pos, run_id)
     pos = 0
     run_id = 0
-    for m in _delim_re().finditer(text):
+    for m in delims:
         if m.start() > pos:
             nodes.append(("text", text[pos:m.start()], pos, None, 0, 1))
         run = m.group(0)
@@ -1350,6 +1592,11 @@ def _is_table_start(lines, i):
         return False
     if not RE_TABLE_SEP.match(lines[i + 1]):
         return False
+    # 分隔行必须自带竖线。否则「文字 | 文字」+「---」会被当成表格，而
+    # README/advanced.md 都写明 `---` 一律是分隔线。单列写法的 `|---|`
+    # 仍然有竖线，不受影响。
+    if "|" not in lines[i + 1]:
+        return False
     return len(split_table_row(lines[i])) >= 1
 
 
@@ -1363,10 +1610,27 @@ def indent_of(s):
 
 def render_markdown(text, rel_path=""):
     """入口：Markdown 文本 -> HTML 片段。"""
+    # NUL 在 HTML 里是非法字符，且是内部 token 的定界符 —— 先清掉
+    text = text.replace("\x00", "")
     text = text.replace("\r\n", "\n").replace("\r", "\n")
     lines = text.split("\n")
     refs, kept = {}, []
+    in_fence = None
     for line in lines:
+        # 围栏代码块里的内容一律不解析（README 明确承诺），包括 [r]: url 这种
+        # 看起来像引用定义的行 —— 否则它既从代码块里消失，又变成全局引用。
+        fm = RE_FENCE.match(line)
+        if fm:
+            marker = fm.group(2)[0]
+            if in_fence is None:
+                in_fence = marker
+            elif marker == in_fence:
+                in_fence = None
+            kept.append(line)
+            continue
+        if in_fence is not None:
+            kept.append(line)
+            continue
         m = _REF_DEF_RE.match(line)
         if m and "|" not in line and not RE_ULIST.match(line):
             refs.setdefault(m.group(1).strip().lower(),
@@ -1376,10 +1640,24 @@ def render_markdown(text, rel_path=""):
             kept.append(line)
     ctx = RenderContext(rel_path, refs, CFG.root if CFG.root else None)
     ctx.slug_counts = {}
-    return render_blocks(kept, ctx)
+    try:
+        return render_blocks(kept, ctx)
+    except RecursionError:
+        # 双保险：即使深度上限失效（比如将来的新递归路径），也不要 500
+        return ('<p class="note">这篇文档的嵌套层数超出渲染器上限，'
+                '已按纯文本显示。</p>\n<pre>%s</pre>'
+                % html.escape(text[:200000], quote=False))
 
 
-def render_blocks(lines, ctx):
+def render_blocks(lines, ctx, depth=0):
+    """块级解析。depth 用于限制嵌套深度。
+
+    引用与列表是递归下降的，`">" * 1000` 这种输入会直接把 Python 递归栈打穿
+    （实测 800 层 OK、1000 层 RecursionError -> HTTP 500）。超过上限就
+    原样输出剩余内容，保证任何输入都能得到一个页面。
+    """
+    if depth > MAX_BLOCK_DEPTH:
+        return "<pre>%s</pre>" % html.escape("\n".join(lines)[:200000], quote=False)
     out = []
     i = 0
     n = len(lines)
@@ -1472,12 +1750,13 @@ def render_blocks(lines, ctx):
                         break
                 else:
                     break
-            out.append("<blockquote>\n%s\n</blockquote>" % render_blocks(buf, ctx))
+            out.append("<blockquote>\n%s\n</blockquote>"
+                           % render_blocks(buf, ctx, depth + 1))
             continue
 
         # --- 列表 -------------------------------------------------------
         if RE_ULIST.match(line) or RE_OLIST.match(line):
-            html_list, i = _render_list(lines, i, ctx)
+            html_list, i = _render_list(lines, i, ctx, depth)
             out.append(html_list)
             continue
 
@@ -1530,9 +1809,17 @@ def _heading(level, inner, ctx):
     counts = getattr(ctx, "slug_counts", None)
     if counts is None:
         counts = ctx.slug_counts = {}
-    seen = counts.get(slug, 0)
-    counts[slug] = seen + 1
-    anchor = slug if seen == 0 else "%s-%d" % (slug, seen)
+    # 用"已用 id 集合"判重，后缀从 1 开始试最小可用值。
+    # 只数当前 slug 的出现次数会撞车：`## a` / `## a-1` / `## a` 会生成
+    # a、a-1、a-1；而把计数带过去又会跳过 -1。
+    if not hasattr(ctx, "slug_used"):
+        ctx.slug_used = set()
+    anchor = slug
+    n = 1
+    while anchor in ctx.slug_used:
+        anchor = "%s-%d" % (slug, n)
+        n += 1
+    ctx.slug_used.add(anchor)
     return '<h%d id="%s">%s</h%d>' % (level, html.escape(anchor, quote=True), inner, level)
 
 
@@ -1551,7 +1838,7 @@ def _table(header, aligns, rows, ctx):
         head, "\n".join(body_rows))
 
 
-def _render_list(lines, start, ctx):
+def _render_list(lines, start, ctx, depth=0):
     """列表渲染：收集条目原始行，统一 dedent 后递归解析（天然支持嵌套）。
 
     dedent 取「条目内非首行的公共最小缩进」而不是固定值：
@@ -1613,7 +1900,7 @@ def _render_list(lines, start, ctx):
             if tm:
                 task = tm.group(1).lower() == "x"
                 body_lines[0] = tm.group(2)
-        inner = render_blocks(body_lines, ctx)
+        inner = render_blocks(body_lines, ctx, depth + 1)
         if not is_loose and inner.startswith("<p>") and inner.endswith("</p>") \
                 and inner.count("<p>") == 1 and "<ul>" not in inner and "<ol>" not in inner:
             inner = inner[3:-4]
@@ -1737,6 +2024,16 @@ def search_markdown(abs_root, query, cap=MD_SEARCH_CAP, context=SEARCH_CONTEXT):
         if len(body_hits) >= cap:
             truncated = True
             break
+        # 与预览上限一致：超大文件不进搜索（否则一个小请求就能把整个大文件
+        # 读进内存，内存放大到"最大的那个 .md"）。非常规文件同样跳过。
+        if not _is_regular_file(path):
+            continue
+        if CFG.max_preview:
+            try:
+                if os.path.getsize(path) > CFG.max_preview:
+                    continue
+            except OSError:
+                continue
         try:
             with open(path, "r", encoding="utf-8", errors="replace") as fh:
                 lines = fh.read().split("\n")
@@ -1839,8 +2136,38 @@ _RENDER_CACHE = {}
 _CACHE_LOCK = threading.Lock()
 
 
+def _is_regular_file(path):
+    """只接受常规文件。
+
+    FIFO / 字符设备 / 块设备 / 套接字一律拒绝：
+      * 对 FIFO 执行 open(path, "rb") 会**阻塞到有写者为止** —— 每个请求
+        永久吃掉一个线程（ThreadingHTTPServer 每连接一线程），实测确认；
+      * /dev/zero 这类设备 os.path.getsize() 返回 0，却会无限吐数据，
+        Content-Length 与实际字节数不符（协议破坏）。
+    """
+    try:
+        return stat.S_ISREG(os.stat(path).st_mode)
+    except OSError:
+        return False
+
+
+def _inside(root, path):
+    """path 是否就是 root 或位于 root 之内（两者都应为已 normpath 的绝对路径）。"""
+    if path == root:
+        return True
+    return path.startswith(root.rstrip(os.sep) + os.sep)
+
+
 def _resolve(abs_root, url_path):
-    """URL 路径 -> 绝对路径。../ 被夹紧在 root 内（不可能越出），只拒绝 NUL 等病态输入。"""
+    """URL 路径 -> 绝对路径。
+
+    两层夹紧：
+      1. 字符串层：posixpath.normpath 消掉 ../ 与 //，结果必须落在 root 内；
+      2. **真实路径层**：对已存在的路径做 realpath，解析符号链接后仍必须在
+         root 内 —— 否则 root 内一个指向 /etc/passwd 的符号链接就能把整个
+         文件系统读出去（实测确认过）。realpath 对不存在的路径也安全（返回
+         其父目录解析后的路径），所以 404 分支不受影响。
+    """
     rel = urllib.parse.unquote(url_path)
     if "\x00" in rel:
         return None, ""
@@ -1848,9 +2175,17 @@ def _resolve(abs_root, url_path):
     rel = posixpath.normpath("/" + rel).lstrip("/")
     if rel in (".", "/"):
         rel = ""
-    abs_path = os.path.normpath(os.path.join(abs_root, rel.replace("/", os.sep)))
     root = os.path.normpath(abs_root)
-    if abs_path != root and not abs_path.startswith(root + os.sep):
+    abs_path = os.path.normpath(os.path.join(root, rel.replace("/", os.sep)))
+    if not _inside(root, abs_path):
+        return None, rel
+    # 真实路径校验（符号链接）
+    try:
+        real_root = os.path.realpath(root)
+        real_path = os.path.realpath(abs_path)
+    except OSError:
+        return None, rel
+    if not _inside(real_root, real_path):
         return None, rel
     return abs_path, rel
 
@@ -1861,6 +2196,19 @@ class Handler(BaseHTTPRequestHandler):
 
     def log_message(self, fmt, *args):
         sys.stderr.write("[%s] %s\n" % (time.strftime("%H:%M:%S"), fmt % args))
+
+    def handle_one_request(self):
+        """包一层：客户端中途断开时不要再往 stderr 刷整段回溯。
+
+        标准库只捕 TimeoutError，**keep-alive 期间的下一次 readline** 遇到
+        ECONNRESET / EPIPE 会直接冒泡给 socketserver.handle_error，打印一大段
+        traceback。实测三种断开方式（下载中途 abort、写响应时 RST、响应后
+        空闲时 RST）各 3/3 次都会刷屏。正常路径原样交回父类，不复制它的逻辑。
+        """
+        try:
+            BaseHTTPRequestHandler.handle_one_request(self)
+        except (ConnectionResetError, BrokenPipeError):
+            self.close_connection = True
 
     # --- 响应工具 -------------------------------------------------------
     def _send(self, code, body, ctype="text/html; charset=utf-8", extra=None):
@@ -1888,6 +2236,11 @@ class Handler(BaseHTTPRequestHandler):
             return False
 
     def _send_file(self, path, force_download=False):
+        # 先判类型：FIFO/设备文件绝不能用 open() 碰（会永久阻塞）
+        if not _is_regular_file(path):
+            self._send(HTTPStatus.NOT_FOUND,
+                       _error_page("404", "不是常规文件（FIFO/设备/目录）"))
+            return
         try:
             size = os.path.getsize(path)
             fh = open(path, "rb")
@@ -1955,8 +2308,11 @@ class Handler(BaseHTTPRequestHandler):
 
         if os.path.isdir(abs_path):
             if not path.endswith("/") and rel:
+                # 必须用已解码的 rel 重新编码：path 来自 urlsplit，本身已是
+                # 百分号编码，再 quote 一次会把 % 编成 %25（双重编码 ->
+                # Location 指向不存在的路径 -> 跟随后 404）。
                 self.send_response(HTTPStatus.MOVED_PERMANENTLY)
-                self.send_header("Location", quote_seg_path(path) + "/")
+                self.send_header("Location", url_for_rel(rel, trailing_slash=True))
                 self.send_header("Content-Length", "0")
                 self.end_headers()
                 return
@@ -1984,10 +2340,12 @@ class Handler(BaseHTTPRequestHandler):
             self._send_file(abs_path)
             return
         if ext == MD_EXT and not raw:
-            self._send(HTTPStatus.OK, self._markdown_page(abs_path, rel))
+            status, body = self._markdown_page(abs_path, rel)
+            self._send(status, body)
             return
         if ext == MD_EXT and raw:
-            self._send(HTTPStatus.OK, self._raw_page(abs_path, rel))
+            status, body = self._raw_page(abs_path, rel)
+            self._send(status, body)
             return
         self._send_file(abs_path)
 
@@ -2021,8 +2379,8 @@ class Handler(BaseHTTPRequestHandler):
         """
         text = self._read_text(abs_path)
         if text is None:
-            self._send(HTTPStatus.NOT_FOUND, _error_page("404", "无法读取文件", rel))
-            return
+            # 返回而不是自己发：调用方统一发响应，避免"一次请求写多个响应"
+            return HTTPStatus.NOT_FOUND, _error_page("404", "无法读取文件", rel)
         raw_url = url_for_rel(rel) + "?raw=1"
         rows = []
         for n, line in enumerate(text.split("\n"), 1):
@@ -2031,15 +2389,17 @@ class Handler(BaseHTTPRequestHandler):
         body = (_crumbs(rel) + '\n<p class="note">源码视图（每行带锚点，可从搜索直接跳转）。'
                 '<a href="%s">看渲染结果</a></p>\n<pre class="rawsrc">%s</pre>'
                 % (html.escape(url_for_rel(rel), quote=True), "\n".join(rows)))
-        self._send(HTTPStatus.OK, _page(posixpath.basename(rel) + "（源码）", body,
-                                        nav_right='<a class="btn" href="%s">渲染</a>'
-                                        % html.escape(url_for_rel(rel), quote=True),
-                                        show_search=CFG.search,
-                                        depth_nav=depth_nav_html(rel)))
+        return HTTPStatus.OK, _page(
+            posixpath.basename(rel) + "（源码）", body,
+            nav_right='<a class="btn" href="%s">渲染</a>'
+            % html.escape(url_for_rel(rel), quote=True),
+            show_search=CFG.search, depth_nav=depth_nav_html(rel))
 
     @staticmethod
     def _read_text(abs_path):
         """读文本；解码失败与非 UTF-8 都退化为 errors=replace，绝不 500。"""
+        if not _is_regular_file(abs_path):
+            return None
         try:
             with open(abs_path, "r", encoding="utf-8", errors="replace") as fh:
                 return fh.read()
@@ -2054,19 +2414,20 @@ class Handler(BaseHTTPRequestHandler):
         if cached is None:
             text = self._read_text(abs_path)
             if text is None:
-                self._send(HTTPStatus.NOT_FOUND, _error_page("404", "无法读取文件", rel))
-                return
+                return HTTPStatus.NOT_FOUND, _error_page("404", "无法读取文件", rel)
             cached = render_markdown(text, rel)
             with _CACHE_LOCK:
                 if len(_RENDER_CACHE) > RENDER_CACHE_MAX:
                     _RENDER_CACHE.clear()
                 _RENDER_CACHE[key] = cached
         title = posixpath.basename(rel)
+        # 用已解码的 rel 重新编码（不能拿 self.path 再 quote 一次 —— 那是双重编码）
         raw_link = ('<a class="btn" href="%s?raw=1" title="查看原始 Markdown">源</a>'
-                    % html.escape(quote_seg_path(self.path.split("?")[0]), quote=True))
+                    % html.escape(url_for_rel(rel), quote=True))
         body = _crumbs(rel) + "\n" + cached
-        return _page(title, body, nav_right=raw_link, show_search=CFG.search,
-                     depth_nav=depth_nav_html(rel))
+        return HTTPStatus.OK, _page(title, body, nav_right=raw_link,
+                                    show_search=CFG.search,
+                                    depth_nav=depth_nav_html(rel))
 
 
 # ============================================================================
@@ -2091,6 +2452,9 @@ def bind_server(host, port, tries=PORT_TRIES):
         try:
             httpd = ThreadingHTTPServer((host, p), Handler)
             httpd.daemon_threads = True
+            # socketserver 默认 backlog 只有 5：浏览器一个页面就会并发 6 个连接，
+            # 实测 30 并发里有 9 个被内核直接拒连（ECONNREFUSED）。
+            httpd.request_queue_size = 128
             return httpd, p
         except OSError as exc:
             last = exc

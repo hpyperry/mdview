@@ -45,6 +45,27 @@ serve_temp() {
   printf '%s' "$pid"
 }
 
+# 数一个请求在**同一条连接**上写出了几个 HTTP 响应（协议正确性用）。
+# 用法: count_responses <base-url> <路径>
+count_responses() {
+  python3 - "$1" "$2" <<'PYEOF'
+import socket, sys
+host = sys.argv[1].replace("http://", "")
+hostname, port = host.split(":")
+sock = socket.create_connection((hostname, int(port)))
+sock.sendall(("GET %s HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n"
+              % sys.argv[2]).encode())
+data = b""
+while True:
+    chunk = sock.recv(65536)
+    if not chunk:
+        break
+    data += chunk
+sock.close()
+print(data.count(b"HTTP/1.1 "))
+PYEOF
+}
+
 SERVER_PID="$(serve_temp "$PORT" "$LOG")"
 
 # 指定任意 root 起临时实例：serve_root <端口> <root> [额外参数...]
@@ -425,7 +446,62 @@ chk "非 ASCII 名不进 filename"  "$(DISP "$BASE/preview/%E7%BC%96%E7%A0%81.tx
 # 头必须能按 latin-1 编码（含中文会直接 500 / 连接断开）
 chk "含中文名的下载不崩"       "$(curl -s -o /dev/null -w '%{http_code}' "$BASE/preview/.gitignore?download=1")" '200'
 
+echo "== 修复回归：单响应 / 重定向编码 / 文件类型 / 符号链接 / 搜索上限 =="
+# B2：一个 ?raw=1 请求只能有一个响应（曾经写出 200 + 残缺 200 + 500 三个）
+chk "?raw=1 只写一个响应"     "$(count_responses "$BASE" "/index.md?raw=1")" '1'
+nchk "?raw=1 不再出现 500"    "$(curl -s "$BASE/index.md?raw=1" | grep -c '500 detail')" '1'
+chk "?raw=1 仍是 200"         "$(curl -s -o /dev/null -w '%{http_code}' "$BASE/index.md?raw=1")" '200'
+chk "不可读 .md 也只一个响应" "$(count_responses "$BASE" "/nope-404.md")" '1'
+
+# B3：重定向 Location 不能双重编码（空格与中文目录）
+B3DIR="$(mktemp -d -t mdview-b3)"
+mkdir -p "$B3DIR/my dir" "$B3DIR/中文目录"
+printf '# in\n' > "$B3DIR/my dir/a.md"
+printf '# 中文\n' > "$B3DIR/中文目录/n.md"
+B3PID="$(serve_root "$((PORT+8))" "$B3DIR")"; B3B="http://127.0.0.1:$((PORT+8))"
+chk "空格目录 301"           "$(curl -s -o /dev/null -w '%{http_code}' "$B3B/my%20dir")" '301'
+chk "Location 单次编码"      "$(curl -s -D - -o /dev/null "$B3B/my%20dir" | grep -i '^location' | tr -d '\r' | cut -d' ' -f2-)" '/my%20dir/'
+chk "跟随后可访问"           "$(curl -s -L -o /dev/null -w '%{http_code}' "$B3B/my%20dir")" '200'
+nchk "Location 无 %25"       "$(curl -s -D - -o /dev/null "$B3B/my%20dir" | grep -ci '%25')" '1'
+chk "中文目录 301"           "$(curl -s -o /dev/null -w '%{http_code}' "$B3B/%E4%B8%AD%E6%96%87%E7%9B%AE%E5%BD%95")" '301'
+chk "中文目录跟随后 200"     "$(curl -s -L -o /dev/null -w '%{http_code}' "$B3B/%E4%B8%AD%E6%96%87%E7%9B%AE%E5%BD%95")" '200'
+chk "中文文件源的链接可用"   "$(curl -s -o /dev/null -w '%{http_code}' "$B3B/%E4%B8%AD%E6%96%87%E7%9B%AE%E5%BD%95/n.md?raw=1")" '200'
+{ kill "$B3PID" 2>/dev/null; wait "$B3PID" 2>/dev/null; }
+rm -rf "$B3DIR"
+
+# B5/B6：FIFO 与符号链接
+B56DIR="$(mktemp -d -t mdview-b56)"
+printf 'ok\n' > "$B56DIR/real.txt"
+mkfifo "$B56DIR/pipe" 2>/dev/null
+ln -sf /etc/passwd "$B56DIR/escape" 2>/dev/null
+ln -sf "$B56DIR/real.txt" "$B56DIR/alias.txt" 2>/dev/null
+B56PID="$(serve_root "$((PORT+9))" "$B56DIR")"; B56B="http://127.0.0.1:$((PORT+9))"
+chk "FIFO 立刻 404"          "$(curl -s -m 4 -o /dev/null -w '%{http_code}' "$B56B/pipe")" '404'
+chk "FIFO 用时 <1 秒"        "$(curl -s -m 4 -o /dev/null -w '%{time_total}' "$B56B/pipe" | cut -d. -f1)" '0'
+chk "符号链接逃逸 403"       "$(curl -s -o /dev/null -w '%{http_code}' "$B56B/escape")" '403'
+chk "root 内符号链接可用"    "$(curl -s -o /dev/null -w '%{http_code}' "$B56B/alias.txt")" '200'
+chk "常规文件仍 200"         "$(curl -s -o /dev/null -w '%{http_code}' "$B56B/real.txt")" '200'
+{ kill "$B56PID" 2>/dev/null; wait "$B56PID" 2>/dev/null; }
+rm -rf "$B56DIR"
+
+# B7：搜索跳过超限文件（与 --max-preview 一致）
+B7DIR="$(mktemp -d -t mdview-b7)"
+printf '关键词ZZZ命中\n' > "$B7DIR/small.md"
+python3 -c 'line = ("# \u5173\u952e\u8bcdZZZ\n").encode(); open("'"$B7DIR"'/huge.md", "wb").write(line * ((21*1024*1024)//len(line)))'
+B7PID="$(serve_root "$((PORT+10))" "$B7DIR")"; B7B="http://127.0.0.1:$((PORT+10))"
+SR="$(curl -s --get --data-urlencode 'q=关键词ZZZ' "$B7B/search")"
+chk "搜索仍能找到小文件"     "$(printf '%s' "$SR" | grep -c 'small.md')" '1'
+chk "搜索跳过超限文件"       "$(printf '%s' "$SR" | grep -c 'huge.md')" '0'
+{ kill "$B7PID" 2>/dev/null; wait "$B7PID" 2>/dev/null; }
+rm -rf "$B7DIR"
+
+# B9：客户端中断不再刷 traceback
+curl -s --limit-rate 100k --max-time 0.2 -o /dev/null "$BASE/preview/large/big.txt" 2>/dev/null || true
+sleep 0.5
+chk "断开不刷 traceback"     "$(grep -c 'Traceback' "$LOG" 2>/dev/null || echo 0)" '0'
+
 echo "== 参数开关（另起临时实例） =="
+
 { kill "$SERVER_PID" 2>/dev/null; wait "$SERVER_PID" 2>/dev/null; } ; sleep 0.3
 
 # --safe：只放行 .md 与图片
