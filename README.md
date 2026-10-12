@@ -59,6 +59,36 @@ python3 mdview.py --root docs --safe
 
 ---
 
+## 3.5 压缩运行版（`dist/mdview.min.py`）
+
+**只带这一个文件就能运行**：删掉注释、docstring 与空行，逻辑一字未改。
+
+| | 字节 | 行数 |
+|---|---|---|
+| `mdview.py`（源码，给人看） | 115,543 | 2,607 |
+| `dist/mdview.min.py`（运行版） | **82,286** | 1,894 |
+| 减少 | **33,257（28.8%）** | |
+
+```bash
+python3 tools/minify.py                  # 重新生成
+python3 tools/minify.py --check          # 只看体积
+```
+
+压缩只做三件语义安全的事，并用 `tokenize` 精确定位（**不用正则**）：
+删注释、删 docstring（删后作用域变空则补 `pass`）、删空行。
+**字符串字面量内部的空行一律保留** —— 这条例外是实测踩出来的：`COPY_JS` 里有个
+空行，早期实现把它也删了，每个 HTML 页面就少 1 字节。
+
+等价性用两套测试 + 逐路径差分验证（测试支持指向替代实现）：
+
+```bash
+MDVIEW_FILE=dist/mdview.min.py python3 tests/tests_render.py   # 111 项 OK
+MDVIEW=dist/mdview.min.py bash tests/selftest.sh               # 239 项 PASS
+```
+
+差分覆盖 21 条路径（渲染页/源码视图/下载/搜索/目录索引/二进制/无扩展名/404/
+CJK 文件名），**正文哈希与响应头全部一致**；`--help` 与错误文案也逐字节相同。
+
 ## 4. 支持的 Markdown 语法
 
 ### 会渲染
@@ -214,7 +244,9 @@ md-preview/
 ├─ SELFTEST.md          # 验证结果与缺陷修复台账
 ├─ tests/               # 测试（见 tests/README.md）
 │  ├─ tests_render.py   #   渲染器回归测试（111 项，纯 unittest）
-│  └─ selftest.sh       #   端到端 HTTP 冒烟测试（198 项断言）
+│  └─ selftest.sh       #   端到端 HTTP 冒烟测试（239 项断言）
+├─ tools/minify.py      #   生成运行版（去注释/docstring/空行）
+├─ dist/mdview.min.py   #   ★ 压缩运行版（82 KB，可单独拿去运行）
 └─ docs/                # 示例语料
    ├─ index.md          #   表格/任务列表/嵌套列表/代码高亮/相对链接
    ├─ guide/            #   安装、边界、代码块专项
@@ -227,7 +259,7 @@ md-preview/
 
 ```bash
 python3 tests/tests_render.py      # 渲染器单元测试：111 项
-bash tests/selftest.sh             # 端到端 HTTP 验证：198 项断言
+bash tests/selftest.sh             # 端到端 HTTP 验证：239 项断言
 ```
 
 三者都是零依赖、可重复执行的。`tests/selftest.sh` 会在 `127.0.0.1:8731` 起一个临时实例，

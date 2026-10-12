@@ -13,6 +13,9 @@ set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"        # tests/
 ROOT="$(cd "$HERE/.." && pwd)"               # 仓库根：mdview.py 与 docs/ 在这里
 PORT="${PORT:-8731}"
+# MDVIEW 可指向别处的同名脚本（例如压缩版），校验行为一致：
+#   MDVIEW=dist/mdview.min.py bash tests/selftest.sh
+MDVIEW="${MDVIEW:-$ROOT/mdview.py}"
 BASE="http://127.0.0.1:${PORT}"
 LOG="$(mktemp -t mdview-selftest)"
 
@@ -37,7 +40,7 @@ wait_ready() {
 # 把实例 PID 登记进 PIDS，EXIT 时统一回收（否则会留下孤儿进程）。
 serve_temp() {
   local port="$1" log="$2"; shift 2
-  python3 "$ROOT/mdview.py" --root "$ROOT/docs" --port "$port" --host 127.0.0.1 "$@" \
+  python3 "$MDVIEW" --root "$ROOT/docs" --port "$port" --host 127.0.0.1 "$@" \
       >"$log" 2>&1 &
   local pid=$!
   PIDS="$PIDS $pid"
@@ -71,7 +74,7 @@ SERVER_PID="$(serve_temp "$PORT" "$LOG")"
 # 指定任意 root 起临时实例：serve_root <端口> <root> [额外参数...]
 serve_root() {
   local port="$1" root="$2"; shift 2
-  python3 "$ROOT/mdview.py" --root "$root" --port "$port" --host 127.0.0.1 "$@" \
+  python3 "$MDVIEW" --root "$root" --port "$port" --host 127.0.0.1 "$@" \
       >/dev/null 2>&1 &
   local pid=$!
   PIDS="$PIDS $pid"
@@ -231,11 +234,13 @@ chk "code-blocks: UTF-8 未切数字"       "$(printf '%s' "$CB" | grep -c 'UTF-
 
 # 根目录选错时（用上层目录启动）必须给出可操作的 --root 提示。
 # 场景：以 md-preview 的上一层为根，此时根下没有 .md，但 md-preview/docs 里有。
-python3 "$ROOT/mdview.py" --root "$ROOT/.." --port $((PORT+5)) --host 127.0.0.1 \
+python3 "$MDVIEW" --root "$ROOT/.." --port $((PORT+5)) --host 127.0.0.1 \
     >"$LOG.alt" 2>&1 &
 ALT_PID=$!; PIDS="$PIDS $ALT_PID"
 wait_ready $((PORT+5))
-chk "根目录选错时给出 --root 提示" "$(cat "$LOG.alt")" "python3 mdview.py --root md-preview/docs"
+# 断言提示的**实质内容**（该用哪个 --root），不要写死脚本名 ——
+# 用压缩版跑时提示会写 mdview.min.py，那是正确行为（按 sys.argv[0] 取名）。
+chk "根目录选错时给出 --root 提示" "$(cat "$LOG.alt")" "--root md-preview/docs"
 # 服务根绝对路径（/media/...）按定义依赖 --root 指向文档库根：这里明确断言其行为
 chk "默认根下 /media 为 404（语义明确）" \
     "$(code "http://127.0.0.1:$((PORT+5))/media/logo.svg")" '404'
@@ -379,7 +384,7 @@ chk "附件头含 filename"         "$(curl -s -D - -o /dev/null "$LIMB/big.md" 
 rm -rf "$LIM"
 
 # --max-preview 参数解析
-chk "--max-preview 非法值被拒"    "$(python3 "$ROOT/mdview.py" --max-preview abc 2>&1 | grep -c '无法解析')" '1'
+chk "--max-preview 非法值被拒"    "$(python3 "$MDVIEW" --max-preview abc 2>&1 | grep -c '无法解析')" '1'
 chk "--max-preview 0 表示不限制"  "$(python3 -c "import sys; sys.path.insert(0,'$ROOT'); import mdview; print(mdview._parse_size('0'))")" '0'
 chk "--max-preview 单位解析"      "$(python3 -c "import sys; sys.path.insert(0,'$ROOT'); import mdview; print(mdview._parse_size('512K'))")" '524288'
 
@@ -521,7 +526,7 @@ nchk "no-search: 文档页也无" "$(curl -s "$NSB/index.md")" 'name="q"'
 
 # 端口占用自动回退
 P1="$(serve_temp $((PORT+3)) /dev/null)"
-python3 "$ROOT/mdview.py" --root "$ROOT/docs" --port $((PORT+3)) --host 127.0.0.1 \
+python3 "$MDVIEW" --root "$ROOT/docs" --port $((PORT+3)) --host 127.0.0.1 \
     >"$LOG.fallback" 2>&1 &
 P2=$!; PIDS="$PIDS $P2"
 wait_ready $((PORT+4))

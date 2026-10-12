@@ -14,9 +14,20 @@ import sys
 import tempfile
 import unittest
 
-# mdview.py 在仓库根（本文件位于 tests/），把它加入 sys.path
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-import mdview as m  # noqa: E402
+# mdview.py 在仓库根（本文件位于 tests/），把它加入 sys.path。
+# MDVIEW_FILE 可用于指向别处的同名实现（例如压缩版），校验行为一致：
+#   MDVIEW_FILE=dist/mdview.min.py python3 tests/tests_render.py
+_ALT = os.environ.get("MDVIEW_FILE")
+if _ALT:
+    import importlib.util as _ilu
+    _spec = _ilu.spec_from_file_location("mdview", os.path.abspath(_ALT))
+    m = _ilu.module_from_spec(_spec)
+    sys.modules["mdview"] = m
+    _spec.loader.exec_module(m)
+    print("[tests_render] 被测文件: %s" % _ALT)
+else:
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    import mdview as m  # noqa: E402
 
 
 def r(src, rel="docs/a.md"):
