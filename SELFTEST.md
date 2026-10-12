@@ -5,7 +5,7 @@
 
 | 项目 | 命令 | 结果 |
 |------|------|------|
-| 渲染器单元测试 | `python3 tests/tests_render.py` | **77 项全部通过**（`Ran 77 tests ... OK`） |
+| 渲染器单元测试 | `python3 tests/tests_render.py` | **81 项全部通过**（`Ran 81 tests ... OK`） |
 | 端到端 HTTP 验证 | `bash tests/selftest.sh` | **198 项断言全部通过**（`PASS=198 FAIL=0`） |
 | 语法兼容性 | `ast` 扫描 | 无 walrus / `match` / 3.9+ 独有语法 → 3.6+ 可运行 |
 | `--safe` | 见下 §3 | 只放行 `.md` 与图片，其余 404 |
@@ -212,7 +212,7 @@ $ curl -s 'http://127.0.0.1:8731/../../../../etc/passwd' | grep -c 'root:'
 
 ```bash
 cd /Users/hpy/Documents/deepseek-harness/md-preview
-python3 tests/tests_render.py      # 77 项
+python3 tests/tests_render.py      # 81 项
 bash tests/selftest.sh             # 198 项（自动起停临时服务）
 ```
 
@@ -579,3 +579,58 @@ GBK 文件确实非 UTF-8、两条文本路径都覆盖）；端到端 153 项�
   `Content-Disposition` 不写 filename、`--max-preview` 解析）
 - 浏览器实测 13 项判定（12 项与预期一致；`noext_nul512` 服务端判文本而 Chrome 仍下载，
   已在 §16.3 记录为两套阈值不同）
+
+---
+
+## 17. 目录索引的下载按钮
+
+用户要求：**每个文件后加一个下载按钮**。
+
+### 实现
+
+目录索引的每个文件行右侧加一个 `<a class="dl" href="<路径>?download=1">⬇ 下载</a>`，
+**目录行不加**。服务端识别 `?download=1` 并强制发 `Content-Disposition: attachment`。
+
+为什么走服务端参数，而不是 HTML5 的 `<a download>` 属性：
+
+| 方案 | 问题 |
+|------|------|
+| `<a download>` 属性 | 依赖浏览器；对跨源/某些类型行为不一致；且**不改变响应头**，无法在服务端断言 |
+| **`?download=1`（采用）** | 服务端发头，**对任何类型一致有效**，可被 curl 断言，也方便外部脚本直接复用 |
+
+### 保留准确类型，不退化成 octet-stream
+
+`resolve_ctype()` 的 `force_download` 参数只负责**附加强制下载头**，不改类型：
+
+    /x.md?download=1     ->  text/markdown; charset=utf-8  + attachment
+    /x.png?download=1    ->  image/png                     + attachment
+    /x.py?download=1     ->  text/plain; charset=utf-8     + attachment
+    /x.zip?download=1    ->  application/octet-stream      + attachment
+
+`.md` 走下载时**返回服务器上的原始 Markdown 字节**，不是渲染后的 HTML（有断言）。
+原先的 `too_big` 参数因此泛化为 `force_download`：超限与用户点按钮是同一条路径。
+
+### 不写 filename —— 已实测确认可行
+
+`Content-Disposition` 只写裸 `attachment`，不带 `filename=`。理由是**浏览器会用 URL
+最后一段当文件名**，而我们的 URL 末段就是真实文件名（含中文会自动百分号编码）。
+实测（Chrome 落盘观察，服务端只发裸 `attachment`）：
+
+| 文件 | 落盘结果 |
+|------|---------|
+| `/preview/binary-test.md?download=1` | `binary-test.md` ✅ |
+| `/preview/%E6%B5%8B%E8%AF%95%20%E6%96%87%E4%BB%B6.md?download=1` | `测试 文件.md` ✅（中文+空格） |
+
+反例（**不要**这么写）：`Content-Disposition: attachment; filename="报告.png"` ——
+HTTP 头只能编 latin-1，中文会抛 `UnicodeEncodeError` 导致响应直接挂掉（实测 HTTP 000）。
+所以"不写 filename"不是省事，是**避开了唯一能让响应崩溃的写法**。
+
+### 验证
+
+- 单元测试 81 项（+4：文件行有按钮而目录行没有、title/aria-label、
+  force_download 保留准确类型、默认不下载）
+- 端到端 214 项（+16：索引含链接、目录行无按钮、6 种类型的下载头、
+  3 种类型不退化、`.md` 返回原文且不含 HTML、不带参数仍是预览）
+- 浏览器实测：加 `?download=1` 三个类型全部下载（DOM 0 字节）；
+  不加参数三个类型全部内联预览（对照）
+- 截图确认按钮位置（在文件大小/mtime 右侧）、目录行无按钮

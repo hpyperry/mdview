@@ -333,6 +333,42 @@ class TestCopyButton(unittest.TestCase):
         self.assertIn("justify-content:space-between", page)
 
 
+class TestDownloadButton(unittest.TestCase):
+    """目录索引里每个文件都有下载按钮；目录没有。"""
+
+    def test_listing_has_button_for_files_only(self):
+        out = m.render_dir_listing("docs/preview", "preview")
+        self.assertIn('class="dl"', out)
+        self.assertIn("?download=1", out)
+        # 目录行不该有下载按钮
+        import re as _re
+        for row in _re.findall(r'<li class="d">.*?</li>', out):
+            self.assertNotIn("download=1", row, "目录行不该有下载按钮")
+        # 文件行必须有
+        files = _re.findall(r'<li class="">.*?</li>', out)
+        self.assertTrue(files, "应当有文件行")
+        for row in files:
+            self.assertIn("download=1", row, "文件行应当有下载按钮")
+
+    def test_button_has_title_and_aria(self):
+        out = m.render_dir_listing("docs/preview", "preview")
+        self.assertIn('title="下载', out)
+        self.assertIn('aria-label="下载', out)
+
+    def test_force_download_keeps_accurate_type(self):
+        """下载按钮不能把类型退化成 octet-stream。"""
+        for name, want in (("a.md", "text/markdown"), ("a.png", "image/png"),
+                           ("a.py", "text/plain"), ("a.pdf", "application/pdf")):
+            ctype, download = m.resolve_ctype(name, force_download=True)
+            self.assertTrue(download)
+            self.assertTrue(ctype.startswith(want),
+                            "%s 应为 %s，实际 %s" % (name, want, ctype))
+
+    def test_force_download_off_by_default(self):
+        self.assertFalse(m.resolve_ctype("a.md")[1])
+        self.assertFalse(m.resolve_ctype("a.py")[1])
+
+
 class TestPreviewLimitAndSniffing(unittest.TestCase):
     """大小上限 + 无扩展名嗅探（2026 设计：20 MiB + 前 512 字节 NUL 判定）。"""
 
@@ -392,10 +428,10 @@ class TestPreviewLimitAndSniffing(unittest.TestCase):
 
     def test_resolve_ctype_oversized_keeps_type_and_downloads(self):
         """超大文件保留准确类型（C' 方案），并要求下载。"""
-        ctype, download = m.resolve_ctype("x.md", too_big=True)
+        ctype, download = m.resolve_ctype("x.md", force_download=True)
         self.assertTrue(download)
         self.assertEqual(ctype, "text/markdown; charset=utf-8")
-        ctype, download = m.resolve_ctype("x.png", too_big=True)
+        ctype, download = m.resolve_ctype("x.png", force_download=True)
         self.assertTrue(download)
         self.assertEqual(ctype, "image/png")
 

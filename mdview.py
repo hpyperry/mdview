@@ -171,15 +171,17 @@ def _is_binary(path, nbytes=BINARY_SNIFF_BYTES):
         return False
 
 
-def resolve_ctype(path, too_big=False):
-    """决定响应的 Content-Type。返回 (类型, 是否强制下载)。
+def resolve_ctype(path, force_download=False):
+    """决定响应的 Content-Type。返回 (类型, 是否附加强制下载头)。
 
     优先级（前者优先）：
-      1. 超过预览上限 -> 保留准确类型 + 附件下载（由 too_big 传入）
-      2. 源码/配置类扩展名或文件名 -> text/plain; charset=utf-8
-      3. 内置 MIME 表（图片/PDF/HTML…）
-      4. 无扩展名 -> 嗅探开头 512 字节：有 NUL 判二进制，否则按文本
-      5. 其余 -> application/octet-stream（下载）
+      1. 源码/配置类扩展名或文件名 -> text/plain; charset=utf-8
+      2. 内置 MIME 表（图片/PDF/HTML…）
+      3. 无扩展名 -> 嗅探开头 512 字节：有 NUL 判二进制，否则按文本
+      4. 其余 -> application/octet-stream（浏览器自然下载）
+
+    force_download=True 时（超过预览上限，或用户点了下载按钮）**保留上面算出的
+    准确类型**，只额外要求强制下载 —— 不把类型退化成 octet-stream。
     """
     ext = os.path.splitext(path)[1].lower()
     if _is_textual(path):
@@ -191,8 +193,8 @@ def resolve_ctype(path, too_big=False):
         ctype = TEXT_MIME_DEFAULT
     else:
         ctype = BINARY_MIME
-    # 超过上限一律要求下载；此时仍保留上面算出的准确类型（C' 方案）
-    return ctype, bool(too_big)
+    # 需要强制下载时仍保留上面算出的准确类型（不退化成 octet-stream）
+    return ctype, bool(force_download)
 
 
 def _parse_size(text, what="--max-preview"):
@@ -315,6 +317,10 @@ mark{background:var(--mark);color:var(--markfg);border-radius:3px;padding:0 2px}
   align-items:baseline;gap:10px}
 .dirlist li .nm{flex:1 1 auto;min-width:0;overflow-wrap:anywhere}
 .dirlist li .meta{color:var(--muted);font-size:13px;white-space:nowrap}
+/* 下载按钮：一直可见但低调，悬停变强调色 */
+.dirlist li a.dl{color:var(--muted);font-size:12px;white-space:nowrap;
+  border:1px solid var(--line);border-radius:5px;padding:1px 7px;text-decoration:none}
+.dirlist li a.dl:hover{color:var(--accent);border-color:var(--accent);text-decoration:none}
 .dirlist li.d a{font-weight:600}
 .note{background:var(--soft);border:1px solid var(--line);border-radius:8px;
   padding:12px 15px;color:var(--muted);font-size:14px;margin:0 0 18px}
@@ -1664,9 +1670,17 @@ def render_dir_listing(abs_dir, rel_dir):
                 icon, cls = "📄", ""
             meta = _fmt_size(size) + " · " + time.strftime("%Y-%m-%d %H:%M",
                                                            time.localtime(mtime))
+        # 文件行额外给一个下载按钮：?download=1 由服务端强制发附件头，
+        # 所以对任何类型都有效（不依赖 HTML5 download 属性的浏览器差异）。
+        dl = ("" if is_dir else
+              '<a class="dl" href="%s?download=1" title="下载 %s" '
+              'aria-label="下载 %s">\u2b07 下载</a>' % (
+                  html.escape(href, quote=True),
+                  html.escape(name, quote=True), html.escape(name, quote=True)))
         rows.append('<li class="%s"><span class="nm">%s <a href="%s">%s</a></span>'
-                    '<span class="meta">%s</span></li>' % (
-                        cls, icon, html.escape(href, quote=True), html.escape(name), meta))
+                    '<span class="meta">%s</span>%s</li>' % (
+                        cls, icon, html.escape(href, quote=True),
+                        html.escape(name), meta, dl))
     return '<ul class="dirlist">\n%s\n</ul>' % "\n".join(rows)
 
 
@@ -1846,16 +1860,16 @@ class Handler(BaseHTTPRequestHandler):
         except OSError:
             return False
 
-    def _send_file(self, path):
+    def _send_file(self, path, force_download=False):
         try:
             size = os.path.getsize(path)
             fh = open(path, "rb")
         except OSError:
             self._send(HTTPStatus.NOT_FOUND, _error_page("404", "文件不存在"))
             return
-        # 先判大小：超过预览上限就一律改为下载（对 .md、图片、PDF 同样生效）
-        too_big = bool(CFG.max_preview) and size > CFG.max_preview
-        ctype, download = resolve_ctype(path, too_big=too_big)
+        # 超过预览上限 -> 一律改为下载（对 .md、图片、PDF 同样生效）
+        download = force_download or self._too_big(path)
+        ctype, download = resolve_ctype(path, force_download=download)
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", ctype)
         if download:
@@ -1934,6 +1948,11 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         ext = os.path.splitext(abs_path)[1].lower()
+        # ?download=1：用户显式要求下载。.md 也直接发原始字节，不渲染成页面。
+        want_download = (qs.get("download") or ["0"])[0] not in ("0", "", "false", "no")
+        if want_download:
+            self._send_file(abs_path, force_download=True)
+            return
         # 超过预览上限：渲染视图与源码视图**都**改为下载，不留绕过的口子
         if self._too_big(abs_path):
             self._send_file(abs_path)

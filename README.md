@@ -73,6 +73,7 @@ python3 mdview.py --root docs --safe
 | 围栏代码块 | ``` 与 ~~~，可带语言标识；内容一律不解析 Markdown |
 | 代码块样式 | 语言条 + 代码区**两段叠放**（顶部条左显语言名、右侧放复制按钮），无语言时不留空白条 |
 | 代码块复制 | 顶部条右侧的「复制」按钮：纯原生 JS、无依赖、内联进页面（不发额外请求）。按钮**由脚本注入**，禁用 JS 时不会出现点了没反应的死按钮；`http://` 下没有 `navigator.clipboard` 时自动回落到 `execCommand` |
+| 下载按钮 | 目录索引里**每个文件**右侧有「⬇ 下载」按钮（目录没有）。走服务端 `?download=1`，因此对任何类型都有效、且**保留准确类型**；`.md` 点下载拿到的是**原始 Markdown** 而不是渲染后的页面 |
 | 预览上限 | 单文件超过 **20 MiB**（可调）就不再把整个文件塞进浏览器，改为**下载**。实测 20 MiB 文本会让 Chrome 卡 **13.7 秒、占 2.5 GiB 内存**，50 MiB 要 34 秒 / 5.9 GiB —— 所以默认值刻意压在 20 MiB（详见 SELFTEST §16） |
 | 无扩展名嗅探 | `.git/HEAD` 这类没有扩展名的文件，按**开头 512 字节有无 NUL** 判文本还是二进制：文本内联预览，二进制下载。与 VS Code 的判定方式同源（它也是只看前 512 字节） |
 | 代码高亮 | 内置 **17 种**：Python / JS / TS / Go / Rust / Java / C / C++ / Shell / SQL / JSON / YAML / TOML / INI / Makefile / **Dockerfile** / **Docker Compose**。**只有带语言标识的围栏才高亮**；标识未知时退化为通用规则（注释/字符串/数字着色）；不写语言或写 `text`/`plaintext`/`txt` 则整块素色。Dockerfile、Makefile、INI 按**大小写不敏感**匹配 |
@@ -137,6 +138,7 @@ python3 mdview.py                  # ❌ 在 md-preview/ 下启动，/media/logo
 
 | 路由 | 行为 |
 |------|------|
+| `/<路径>?download=1` | 强制下载该文件（服务端发 `Content-Disposition: attachment`）。`.md` 也返回原始字节、不渲染。任何类型都适用，不需要 HTML5 `download` 属性 |
 | `/` | 目录索引：目录在前，逐个列出条目（名称 / 大小 / mtime），带面包屑与搜索框。**分层浏览**——每层只列当前目录，点进子目录继续看（无递归展开树） |
 | `/path/doc.md` | 渲染为 HTML，`Cache-Control: no-store`（改了 md 刷新即见） |
 | `/path/doc.md?raw=1` | 返回原始 Markdown，`Content-Type: text/markdown; charset=utf-8` |
@@ -205,7 +207,7 @@ md-preview/
 ├─ README.md            # 本文
 ├─ SELFTEST.md          # 验证结果与缺陷修复台账
 ├─ tests/               # 测试（见 tests/README.md）
-│  ├─ tests_render.py   #   渲染器回归测试（77 项，纯 unittest）
+│  ├─ tests_render.py   #   渲染器回归测试（81 项，纯 unittest）
 │  └─ selftest.sh       #   端到端 HTTP 冒烟测试（198 项断言）
 └─ docs/                # 示例语料
    ├─ index.md          #   表格/任务列表/嵌套列表/代码高亮/相对链接
@@ -218,7 +220,7 @@ md-preview/
 ## 8. 测试
 
 ```bash
-python3 tests/tests_render.py      # 渲染器单元测试：77 项
+python3 tests/tests_render.py      # 渲染器单元测试：81 项
 bash tests/selftest.sh             # 端到端 HTTP 验证：198 项断言
 ```
 

@@ -394,6 +394,27 @@ chk "附件头不含 filename"      "$(curl -s -D - -o /dev/null "$LRG/big.md" |
 # 测试页本身可访问，且里面没有断链
 chk "测试页可访问"             "$(curl -s -o /dev/null -w '%{http_code}' "$BASE/preview/binary-test.md")" '200'
 
+echo "== 下载按钮（?download=1）=="
+DL="$(curl -s "$BASE/preview/")"
+chk "目录索引含下载链接"      "$DL" 'download=1'
+chk "下载按钮有 title"        "$DL" 'title="下载'
+chk "下载按钮有 aria-label"   "$DL" 'aria-label="下载'
+# 目录行不该有下载链接
+nchk "目录行无下载按钮"       "$DL" '📁 <a href="/preview/binary/">binary</a></span><span class="meta">目录</span><a class="dl"'
+# 各种类型走 ?download=1 都必须带附件头，且类型不退化
+for u in "preview/binary-test.md" "preview/code/sample.py" "preview/binary/real.png" \
+         "preview/binary/real.zip" "preview/media/sample.gif" "preview/large/big.md"; do
+  chk "下载头: $u"   "$(curl -s -D - -o /dev/null "$BASE/$u?download=1" | grep -ci 'content-disposition: attachment')" '1'
+done
+chk "下载 .md 保留 text/markdown" "$(curl -s -o /dev/null -w '%{content_type}' "$BASE/preview/binary-test.md?download=1")" 'text/markdown'
+chk "下载 .png 保留 image/png"    "$(curl -s -o /dev/null -w '%{content_type}' "$BASE/preview/binary/real.png?download=1")" 'image/png'
+chk "下载 .py 保留 text/plain"    "$(curl -s -o /dev/null -w '%{content_type}' "$BASE/preview/code/sample.py?download=1")" 'text/plain'
+# .md 走下载必须返回原始 Markdown，而不是渲染后的 HTML
+chk ".md 下载返回原文"        "$(curl -s "$BASE/preview/binary-test.md?download=1" | head -1)" '# 二进制 / 超大文件测试'
+nchk ".md 下载不含 HTML 标签" "$(curl -s "$BASE/preview/binary-test.md?download=1" | head -3)" '<html'
+# 不加参数时仍然是预览
+nchk "不带参数时不下载"       "$(curl -s -D - -o /dev/null "$BASE/preview/code/sample.py" | grep -ci 'content-disposition')" '1'
+
 echo "== 参数开关（另起临时实例） =="
 { kill "$SERVER_PID" 2>/dev/null; wait "$SERVER_PID" 2>/dev/null; } ; sleep 0.3
 
