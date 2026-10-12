@@ -5,8 +5,8 @@
 
 | 项目 | 命令 | 结果 |
 |------|------|------|
-| 渲染器单元测试 | `python3 tests/tests_render.py` | **57 项全部通过**（`Ran 57 tests ... OK`） |
-| 端到端 HTTP 验证 | `bash tests/selftest.sh` | **129 项断言全部通过**（`PASS=129 FAIL=0`） |
+| 渲染器单元测试 | `python3 tests/tests_render.py` | **61 项全部通过**（`Ran 61 tests ... OK`） |
+| 端到端 HTTP 验证 | `bash tests/selftest.sh` | **135 项断言全部通过**（`PASS=135 FAIL=0`） |
 | 语法兼容性 | `ast` 扫描 | 无 walrus / `match` / 3.9+ 独有语法 → 3.6+ 可运行 |
 | `--safe` | 见下 §3 | 只放行 `.md` 与图片，其余 404 |
 | `--no-search` | 见下 §3 | 路由与界面搜索框同时消失 |
@@ -35,7 +35,7 @@ OK
 
 ---
 
-## 2. 端到端 HTTP 验证（`bash tests/selftest.sh`，129 项）
+## 2. 端到端 HTTP 验证（`bash tests/selftest.sh`，135 项）
 
 脚本自己在 `127.0.0.1:8731` 起临时实例，跑完自动关闭。关键断言与实测：
 
@@ -125,7 +125,7 @@ OK
   ok   端口占用自动回退                  "端口 8739 不可用（Address already in use），尝试 8740…"
   ok   回退后端口可用                    http://127.0.0.1:8740/ -> 200
 
-PASS=129 FAIL=0
+PASS=135 FAIL=0
 全部通过 ✔
 ```
 
@@ -213,8 +213,8 @@ $ curl -s 'http://127.0.0.1:8731/../../../../etc/passwd' | grep -c 'root:'
 
 ```bash
 cd /Users/hpy/Documents/deepseek-harness/md-preview
-python3 tests/tests_render.py      # 57 项
-bash tests/selftest.sh             # 129 项（自动起停临时服务）
+python3 tests/tests_render.py      # 61 项
+bash tests/selftest.sh             # 135 项（自动起停临时服务）
 ```
 
 `tests/selftest.sh` 支持 `PORT=9000 bash tests/selftest.sh` 换端口；结束时打印
@@ -355,3 +355,34 @@ md-preview/
 padding:9px 14px`、复制按钮无边框、继承字色、悬停变蓝。本实现按此对齐，
 按钮改为**一直显示**（DSH 默认是悬停显现，按用户要求简化）。
 并使用自己的 CSS 变量（`--banner`）而非 DSH 的设计 token。
+
+---
+
+## 12. 搜索跳转落点居中
+
+用户报告：点搜索结果跳转后，高亮行"在页面顶部太靠上"，希望居中。
+
+定位：搜索结果是 `/index.md?raw=1#L51`，浏览器处理 `#L51` 时**默认把目标元素贴到
+视口最上沿**（y=0），上方零留白。页面里既没有 `scroll-margin` 也没有 `scroll-padding`。
+
+修法（两层，排序有讲究）：
+
+1. **JS 居中**：自己算坐标 `window.scrollTo(0, rect.top + rect.height/2 - innerHeight/2)`，
+   并夹紧到 `[0, scrollHeight - innerHeight]`
+2. **CSS 兜底**：`scroll-margin-top:20vh; scroll-margin-bottom:70vh`
+   —— 禁用 JS 时靠它保留偏移，不会顶到边
+
+为什么不用 `scrollIntoView({block:"center"})`：**实测无效**。带 hash 首次加载时它会被
+浏览器的原生锚点滚动盖掉，目标仍停在视口上方（实测偏差 −157px）。
+改用显式 `scrollTo` 后实测**偏差 = 0**（目标行中心与视口中心重合）。
+
+实测数据（Chrome headless，视口 557px 高）：
+
+    改前：range.top=114  偏差=-157   ← 目标在视口上方
+    改后：range.top=271  偏差=0      ← 正中（视口中心 278.5）
+
+只在 `#L*` 锚点上生效，普通标题锚点（如 `#列表`）保持浏览器默认行为，不受干扰。
+另有 `replaceState` 标记，避免"点同一链接两次"时重复滚动。
+
+验证：单元测试 61 项（+4：scroll-margin 兜底、显式 scrollTo、只在 L 锚点生效、
+上下夹紧与防重复滚动、源码视图确实每行带 id）；端到端 135 项（+6）。

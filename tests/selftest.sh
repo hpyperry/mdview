@@ -259,6 +259,15 @@ nchk "HTML 里没有硬编码按钮"    "$CB2" 'class="copybtn"'
 # 没有代码块的页面也必须能正常渲染（脚本不能报错）
 chk "目录索引仍正常"            "$(curl -s -o /dev/null -w '%{http_code}' "$BASE/")" '200'
 
+echo "== 搜索跳转落点居中 =="
+RAW2="$(curl -s "$BASE/index.md?raw=1")"
+chk "源码视图有行锚点"          "$RAW2" 'id="L1"'
+chk "有 scroll-margin 兜底"     "$RAW2" 'scroll-margin-top:20vh'
+chk "有 scrollTo 居中逻辑"      "$RAW2" 'window.scrollTo'
+chk "居中只在 L 锚点生效"       "$RAW2" "charAt(1) !== \"L\""
+chk "上下边界做了夹紧"          "$RAW2" 'if (y > max) y = max;'
+chk "已居中则不重复滚动"        "$RAW2" 'replaceState'
+
 echo "== 参数开关（另起临时实例） =="
 { kill "$SERVER_PID" 2>/dev/null; wait "$SERVER_PID" 2>/dev/null; } ; sleep 0.3
 

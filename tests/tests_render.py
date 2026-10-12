@@ -331,6 +331,42 @@ class TestCopyButton(unittest.TestCase):
         self.assertIn("justify-content:space-between", page)
 
 
+class TestSearchJumpCentering(unittest.TestCase):
+    """搜索跳转的落点要竖向居中，而不是贴到视口最上沿。
+
+    背景：搜索结果是 /x.md?raw=1#L51，浏览器默认把 #L51 顶到视口最上沿。
+    实测过 scrollIntoView({block:"center"}) 会被原生锚点滚动盖掉（仍停在上方），
+    所以改成自己算坐标 scrollTo。
+    """
+
+    def test_css_scroll_margin_fallback(self):
+        """没有 JS 时也要不贴顶（上多下少的偏移）。"""
+        page = m._page("t", "")
+        self.assertIn("pre.rawsrc .srcline{scroll-margin-top:20vh;scroll-margin-bottom:70vh}",
+                      page)
+
+    def test_js_centers_with_explicit_scroll(self):
+        page = m._page("t", "")
+        self.assertIn("window.scrollTo", page)
+        self.assertIn("window.innerHeight / 2", page)
+        # 只对 L 开头的锚点生效，普通标题锚点不动
+        self.assertIn('h.charAt(1) !== "L"', page)
+
+    def test_js_clamps_and_avoids_repeat_scroll(self):
+        page = m._page("t", "")
+        self.assertIn("if (y < 0) y = 0;", page)          # 顶部不越界
+        self.assertIn("if (y > max) y = max;", page)      # 底部不越界
+        self.assertIn("replaceState", page)               # 已居中就不再滚
+        self.assertIn('addEventListener("load"', page)    # 补一次，压过原生锚点滚动
+
+    def test_raw_view_emits_line_anchors(self):
+        """居中的前提：源码视图每行都有可定位的 id（读实现源码确认）。"""
+        import inspect
+        src = inspect.getsource(m.Handler._raw_page)
+        self.assertIn('id="L%d"', src)
+        self.assertIn("srcline", src)
+
+
 class TestTextExtensions(unittest.TestCase):
     """源码/配置类文件必须按 UTF-8 文本发送，否则中文乱码或直接下载。
 

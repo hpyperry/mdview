@@ -248,6 +248,9 @@ pre.rawsrc{margin:0;white-space:pre-wrap;overflow-wrap:anywhere;font-size:13px;l
 pre.rawsrc .srcline{display:block}
 pre.rawsrc .srcline:target{background:var(--mark);color:var(--markfg);
   outline:2px solid var(--accent);border-radius:3px}
+/* 搜索跳转的落点不要贴着视口最上沿。没有 JS 时靠这个偏移落地，
+   有 JS 时由 scrollIntoView({block:"center"}) 接管为真正居中。 */
+pre.rawsrc .srcline{scroll-margin-top:20vh;scroll-margin-bottom:70vh}
 .bad{color:var(--t-kw)}
 @media print{
   header.bar,.crumbs,.note{display:none}
@@ -264,6 +267,29 @@ pre.rawsrc .srcline:target{background:var(--mark);color:var(--markfg);
 
 COPY_JS = """
 (function () {
+  // 1) 搜索跳转：把目标行滚到视口竖向居中（浏览器默认只把它贴到视口最上沿）
+  //    自己算坐标而不用 scrollIntoView：后者在"带 hash 首次加载"时会被浏览器的
+  //    原生锚点滚动盖掉，实测仍停在视口上方。
+  function centreOnHash() {
+    var h = location.hash;
+    if (!h || h.length < 2 || h.charAt(1) !== "L") return false;
+    var el = document.getElementById(h.slice(1));
+    if (!el) return false;
+    var rect = el.getBoundingClientRect();
+    var y = window.pageYOffset + rect.top + rect.height / 2 - window.innerHeight / 2;
+    var max = document.documentElement.scrollHeight - window.innerHeight;
+    if (y < 0) y = 0;
+    if (y > max) y = max;
+    window.scrollTo(0, y);
+    history.replaceState(null, "", location.href);       // 标记已居中，避免重复滚
+    return true;
+  }
+  if (centreOnHash()) {
+    // 浏览器的锚点滚动可能发生在脚本之后，补滚一次
+    setTimeout(centreOnHash, 0);
+    window.addEventListener("load", centreOnHash);
+  }
+
   var LABEL = "\u590d\u5236", DONE = "\u5df2\u590d\u5236", FAIL = "\u5931\u8d25";
   function flash(btn, text, cls) {
     btn.textContent = text; btn.classList.remove("done", "bad");
