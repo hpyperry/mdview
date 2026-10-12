@@ -139,13 +139,33 @@ python3 mdview.py                  # ❌ 在 md-preview/ 下启动，/media/logo
 | `/` | 目录索引：目录在前，逐个列出条目（名称 / 大小 / mtime），带面包屑、搜索框、`?depth=N` 与「展开 3 层树」入口 |
 | `/?depth=N` | 递归展开 N 层目录树 |
 | `/path/doc.md` | 渲染为 HTML，`Cache-Control: no-store`（改了 md 刷新即见） |
-| `/path/doc.md?raw=1` | 返回原始 Markdown，`Content-Type: text/markdown; charset=utf-8` |
-| `/path/img.png` | 原样返回图片，正确的 `Content-Type` |
-| `/search?q=…` | 全文搜索：只扫 `.md`，大小写不敏感子串匹配，文件名命中与正文命中分两块，正文命中带上下文行与 `#L<行号>` 跳转 |
-| 其他任意文件 | 原样返回（`--safe` 下则 404） |
+| `/path/doc.md?raw=1` | 源码视图：原始 Markdown 逐行渲染，每行带 `id="L<n>"` 锚点（供搜索精确跳转） |
+| `/search?q=…` | 全文搜索：只扫 `.md`，大小写不敏感子串匹配，文件名命中与正文命中分两块（并集），正文命中带上下文行与 `?raw=1#L<行号>` 跳转 |
+| **其他任意文件** | **与 `python3 -m http.server` 完全一致**：`Content-Type` 由标准库 `mimetypes` 推断，带 `Content-Length` 与 `Last-Modified`，不设 `Content-Disposition`、不设 `Cache-Control`（`--safe` 下则 404） |
 | 目录缺少结尾 `/` | `301` 补斜杠 |
 | 不存在 | `404` 友好页面 |
 | `HEAD` | 支持（与 `GET` 同样的头，不返回体） |
+
+### 唯一被特殊处理的文件类型是 `.md`
+
+除 Markdown 之外，本服务不做任何加工——它就是 `python3 -m http.server` 加了一层
+Markdown 渲染。所以**点某些文件变成下载是正常的**，而且是标准库的推断结果：
+
+| 点击后 | 典型扩展名 | 原因 |
+|--------|-----------|------|
+| 浏览器内显示 | `.txt` `.log` `.json` `.csv` `.xml` `.pdf` `.png` `.jpg` `.svg` `.mp4` `.mp3`… | `mimetypes` 给出可内联的类型 |
+| 下载 | `.zip` `.docx` `.xlsx` `.pptx` `.tar` `.gz`… | `mimetypes` 给出 `application/…`，浏览器对内联渲染这些格式持保守态度 |
+| 下载 | 未知扩展名 | 回落 `application/octet-stream`（标准库同此行为） |
+
+想让某个扩展名变成"内联显示"，改**标准库的推断表**即可，不必改本服务：
+
+```python
+import mimetypes
+mimetypes.add_type("text/plain", ".mydoc")   # 放在 main() 之前
+```
+
+反过来，早期版本为了"精确控制"手写了一张小 MIME 表，结果把 `.zip`/`.docx`/`.mp4`/`.log`
+全部打成 `application/octet-stream`，**比标准库还差**。现在只有一份真相：标准库。
 
 ---
 
@@ -181,7 +201,7 @@ python3 mdview.py --root ./docs --safe --port 9000   # 要给同事看，但只�
 
 | Section | 内容 | 大约位置 |
 |---------|------|----------|
-| `[1] CONSTANTS` | 扩展名、MIME、跳过目录、各类上限 | 文件头 |
+| `[1] CONSTANTS` | 扩展名、跳过目录、各类上限（**不含 MIME 表**，见下） | 文件头 |
 | `[2] CSS` | 内联样式（含暗色模式、打印样式、代码 token 配色） | |
 | `[3] TEMPLATES` | 页面骨架、面包屑、错误页、体积格式化 | |
 | `[4] HIGHLIGHTER` | 关键字表 + 单趟 big-regex token 着色 | |
@@ -194,17 +214,18 @@ python3 mdview.py --root ./docs --safe --port 9000   # 要给同事看，但只�
 
 渲染结果缓存以 `(路径, mtime_ns, size)` 为键的惰性缓存，文件被外部编辑后自动失效。
 
-配套文件：
+配套文件（测试与开发工具全部隔离在 `tests/`，仓库根只留可交付源码与文档）：
 
 ```
 md-preview/
-├─ mdview.py          # 服务端 + 渲染器（单文件）
-├─ sync_nav.py        # 重新生成 mdview.py 顶部的 SECTION 行号导航
-├─ README.md          # 本文
-├─ SELFTEST.md        # 端到端验证结果（可复查）
-├─ selftest.sh        # 端到端测试脚本（108 项断言，自己起服务自己关）
-├─ tests_render.py    # 渲染器回归测试（45 项，纯 unittest）
-└─ docs/              # 示例语料：表格/任务列表/嵌套列表/代码块/相对链接/图片
+├─ mdview.py            # 唯一的可交付源码：服务端 + 渲染器
+├─ README.md            # 本文
+├─ SELFTEST.md          # 验证结果与缺陷修复台账
+├─ tests/               # 测试与开发工具（见 tests/README.md）
+│  ├─ tests_render.py   #   渲染器回归测试（48 项，纯 unittest）
+│  ├─ selftest.sh       #   端到端 HTTP 冒烟测试（113 项断言）
+│  └─ sync_nav.py       #   重新生成顶部导航行号（维护工具）
+└─ docs/                # 示例语料：表格/任务列表/嵌套列表/代码块/相对链接/图片
 ```
 
 ---
@@ -212,8 +233,8 @@ md-preview/
 ## 8. 测试
 
 ```bash
-python3 tests/tests_render.py      # 渲染器单元测试：45 项
-bash tests/selftest.sh             # 端到端 HTTP 验证：108 项断言
+python3 tests/tests_render.py      # 渲染器单元测试：48 项
+bash tests/selftest.sh             # 端到端 HTTP 验证：113 项断言
 python3 tests/sync_nav.py --check  # 校验顶部导航行号与代码一致
 ```
 

@@ -5,8 +5,8 @@
 
 | 项目 | 命令 | 结果 |
 |------|------|------|
-| 渲染器单元测试 | `python3 tests/tests_render.py` | **45 项全部通过**（`Ran 45 tests ... OK`） |
-| 端到端 HTTP 验证 | `bash tests/selftest.sh` | **108 项断言全部通过**（`PASS=108 FAIL=0`） |
+| 渲染器单元测试 | `python3 tests/tests_render.py` | **48 项全部通过**（`Ran 48 tests ... OK`） |
+| 端到端 HTTP 验证 | `bash tests/selftest.sh` | **113 项断言全部通过**（`PASS=113 FAIL=0`） |
 | 语法兼容性 | `ast` 扫描 | 无 walrus / `match` / 3.9+ 独有语法 → 3.6+ 可运行 |
 | `--safe` | 见下 §3 | 只放行 `.md` 与图片，其余 404 |
 | `--no-search` | 见下 §3 | 路由与界面搜索框同时消失 |
@@ -24,7 +24,7 @@
 $ python3 tests/tests_render.py
 ...
 ----------------------------------------------------------------------
-Ran 45 tests in 0.014s
+Ran 48 tests in 0.015s
 
 OK
 ```
@@ -35,7 +35,7 @@ OK
 
 ---
 
-## 2. 端到端 HTTP 验证（`bash tests/selftest.sh`，108 项）
+## 2. 端到端 HTTP 验证（`bash tests/selftest.sh`，113 项）
 
 脚本自己在 `127.0.0.1:8731` 起临时实例，跑完自动关闭。关键断言与实测：
 
@@ -125,7 +125,7 @@ OK
   ok   端口占用自动回退                  "端口 8739 不可用（Address already in use），尝试 8740…"
   ok   回退后端口可用                    http://127.0.0.1:8740/ -> 200
 
-PASS=108 FAIL=0
+PASS=113 FAIL=0
 全部通过 ✔
 ```
 
@@ -213,8 +213,8 @@ $ curl -s 'http://127.0.0.1:8731/../../../../etc/passwd' | grep -c 'root:'
 
 ```bash
 cd /Users/hpy/Documents/deepseek-harness/md-preview
-python3 tests/tests_render.py      # 45 项
-bash tests/selftest.sh             # 108 项（自动起停临时服务）
+python3 tests/tests_render.py      # 48 项
+bash tests/selftest.sh             # 113 项（自动起停临时服务）
 python3 tests/sync_nav.py --check  # 导航行号与代码一致
 ```
 
@@ -283,4 +283,30 @@ md-preview/
 
 三个脚本都改为**从自身位置推出仓库根**（`selftest.sh` 新增 `ROOT`，`sync_nav.py` 新增
 `ROOT`，`tests_render.py` 的 `sys.path` 指向上一层），因此从任何目录执行都可以 ——
-已实测在仓库根与 `/tmp` 下分别执行 `tests/selftest.sh`，均为 `PASS=108 FAIL=0`。
+已实测在仓库根与 `/tmp` 下分别执行 `tests/selftest.sh`，均为 `PASS=113 FAIL=0`。
+
+---
+
+## 8. 非 Markdown 文件交还给标准库
+
+原始需求里，Markdown 之外的文件本就应该保持 `python3 -m http.server` 的行为。早期实现
+却手写了一张 24 项的 MIME 表，把 `.zip`/`.docx`/`.xlsx`/`.mp4`/`.mp3`/`.log`/`.sh`/`.c`
+全部打成 `application/octet-stream` —— 比标准库**更差**，点这些文件必然下载，而标准库
+本来认识它们。
+
+现在改为：
+
+| 项 | 处理 |
+|----|------|
+| `Content-Type` | `mimetypes.guess_type()`（`mimetypes.init()` 不读系统 mime.types，保证可复现）；未知回落 `application/octet-stream` |
+| 响应头 | 只有 `Content-Type` / `Content-Length` / `Last-Modified` —— 与 stdlib 三件套一致 |
+| 不再发送 | `Content-Disposition`（stdlib 不发）、`Cache-Control`（stdlib 不发） |
+| `.md` | 仍然特殊：渲染为 HTML，或 `?raw=1` 走带行锚点的源码视图 |
+
+验证：16 种扩展名的 `Content-Type` 与 stdlib **逐行一致**（单元测试断言
+`guess_ctype(name) == mimetypes.guess_type(name)`，端到端另有 5 种扩展名比对 +
+响应头断言）。回归测试还断言 `mdview` 里**不存在** `MIME` 表，防止再长出第二份真相。
+
+浏览器层面的表现（这是标准库推断的自然结果，不是 bug）：
+`.txt`/`.log`/`.json`/`.csv`/`.pdf`/`.png` 内联显示；
+`.zip`/`.docx`/`.xlsx`/`.pptx` 与未知扩展名下载。

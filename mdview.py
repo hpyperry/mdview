@@ -15,30 +15,36 @@
     * 默认 0.0.0.0 + 任意文件可读：等同于一个好看一点的静态文件服务器；启动 banner 会
       显式打印真实暴露范围。需要收紧时用 --safe。
     * 路径穿越防护：解决后的路径必须仍在 root 内，否则 403。
-    * 虚拟主机名不参与路由；所有 .md 一律渲染，?raw=1 返回纯文本。
+    * 只有 .md 被特殊处理：默认渲染为 HTML，?raw=1 走带行锚点的源码视图。
+      其余文件完全交还标准库：Content-Type 由 mimetypes 推断，
+      响应头只有 Content-Type / Content-Length / Last-Modified
+      （与 `python3 -m http.server` 一致）—— 所以 .zip/.docx 点击下载是正常行为。
 
 SECTION 导航（本文件按功能分块；行号由 python3 sync_nav.py 生成）:
-    [1 ] 常量与配置                CONSTANTS                  mdview.py:57
-    [2 ] 内联 CSS               CSS                        mdview.py:104
-    [3 ] HTML 模板              TEMPLATES                  mdview.py:210
-    [4 ] 语法高亮器                HIGHLIGHTER                mdview.py:266
-    [5 ] 内联解析                 INLINE                     mdview.py:480
-    [6 ] 链接/图片重写              URL REWRITE                mdview.py:919
-    [7 ] 块级解析                 BLOCKS                     mdview.py:1046
-    [8 ] 目录索引 / 搜索页           DIRECTORY & SEARCH         mdview.py:1408
-    [9 ] HTTP 处理器             HANDLER                    mdview.py:1594
-    [10] CLI 与启动              CLI                        mdview.py:1843
+    [1 ] 常量与配置                CONSTANTS                  mdview.py:63
+    [2 ] 内联 CSS               CSS                        mdview.py:102
+    [3 ] HTML 模板              TEMPLATES                  mdview.py:208
+    [4 ] 语法高亮器                HIGHLIGHTER                mdview.py:264
+    [5 ] 内联解析                 INLINE                     mdview.py:478
+    [6 ] 链接/图片重写              URL REWRITE                mdview.py:917
+    [7 ] 块级解析                 BLOCKS                     mdview.py:1044
+    [8 ] 目录索引 / 搜索页           DIRECTORY & SEARCH         mdview.py:1406
+    [9 ] HTTP 处理器             HANDLER                    mdview.py:1592
+    [10] CLI 与启动              CLI                        mdview.py:1846
 
 已知行为（写在代码里而不是靠口头约定）:
     * 裸 HTML 全部转义，不透传 —— 100% 消除 .md 作为 XSS 载体。
-    * 列表/引用可嵌套；未标语言的围栏代码块按通用规则高亮。
-    * 单层目录不限制条目数（--max-list 可调），大目录可能较慢。
+    * 列表/引用可嵌套；只有**带语言标识**的围栏代码块才高亮（未标语言或
+      text/plaintext 一律素色）。
+    * 单层目录不限制条目数，大目录索引可能较慢。
     * 单文件渲染不限制大小；非 UTF-8 用 errors="replace" 解码。
     * 隐藏目录（.git / .svn / node_modules 等）不进索引与搜索，但仍可直接按 URL 访问。
 """
 
 import argparse
+import calendar
 import html
+import mimetypes
 import os
 import posixpath
 import re
@@ -73,31 +79,23 @@ PORT_TRIES = 10
 MD_SEARCH_CAP = 400          # 单次搜索最多返回多少条命中行
 SEARCH_CONTEXT = 2           # 每条命中上下各带几行
 
-MIME = {
-    ".md": "text/markdown; charset=utf-8",
-    ".txt": "text/plain; charset=utf-8",
-    ".html": "text/html; charset=utf-8",
-    ".htm": "text/html; charset=utf-8",
-    ".css": "text/css; charset=utf-8",
-    ".js": "text/javascript; charset=utf-8",
-    ".json": "application/json; charset=utf-8",
-    ".xml": "application/xml; charset=utf-8",
-    ".csv": "text/csv; charset=utf-8",
-    ".py": "text/plain; charset=utf-8",
-    ".yaml": "text/plain; charset=utf-8",
-    ".yml": "text/plain; charset=utf-8",
-    ".toml": "text/plain; charset=utf-8",
-    ".png": "image/png",
-    ".jpg": "image/jpeg",
-    ".jpeg": "image/jpeg",
-    ".gif": "image/gif",
-    ".svg": "image/svg+xml",
-    ".webp": "image/webp",
-    ".bmp": "image/bmp",
-    ".ico": "image/x-icon",
-    ".avif": "image/avif",
-    ".pdf": "application/pdf",
-}
+# 静态文件的 Content-Type 完全交给标准库判断（与 `python3 -m http.server` 一致）。
+# 曾经手写一张小表，结果 .zip/.docx/.mp4/.log 等全部落到 application/octet-stream
+# 而触发下载 —— 比标准库还差。这里不再维护第二份真相。
+_mimetypes_ready = False
+
+
+def guess_ctype(path):
+    """按扩展名推断 Content-Type；未知类型回落到 octet-stream（同 stdlib）。
+
+    只用于**非 Markdown** 文件：.md 走渲染或源码视图，由本服务自己定类型。
+    """
+    global _mimetypes_ready
+    if not _mimetypes_ready:
+        mimetypes.init()          # 不读系统/用户 mime.types，保证可复现
+        _mimetypes_ready = True
+    ctype, _encoding = mimetypes.guess_type(path)
+    return ctype or "application/octet-stream"
 
 
 # ============================================================================
@@ -1646,12 +1644,16 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(body)
 
     def _send_file(self, path):
-        ext = os.path.splitext(path)[1].lower()
-        ctype = MIME.get(ext)
-        if ctype is None:
-            ctype = "application/octet-stream"
+        """非 Markdown 文件：与 `python3 -m http.server` 同样的响应形态。
+
+        Content-Type 决定浏览器是内联显示还是下载，而那是**标准库的推断结果**：
+        .pdf/.png/.txt 内联，.zip/.docx 之类下载都是正常且预期的行为。
+        这里只额外分块写出（避免大文件整块进内存）。
+        """
+        ctype = guess_ctype(path)
         try:
             size = os.path.getsize(path)
+            mtime = time.gmtime(os.path.getmtime(path))
             fh = open(path, "rb")
         except OSError:
             self._send(HTTPStatus.NOT_FOUND, _error_page("404", "文件不存在"))
@@ -1659,7 +1661,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(size))
-        self.send_header("Cache-Control", "no-store")
+        self.send_header("Last-Modified", self.date_time_string(
+            calendar.timegm(mtime)))
         self.end_headers()
         if self.command == "HEAD":
             fh.close()

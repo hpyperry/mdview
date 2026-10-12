@@ -45,6 +45,17 @@ serve_temp() {
   printf '%s' "$pid"
 }
 
+# 指定任意 root 起临时实例：serve_root <端口> <root> [额外参数...]
+serve_root() {
+  local port="$1" root="$2"; shift 2
+  python3 "$ROOT/mdview.py" --root "$root" --port "$port" --host 127.0.0.1 "$@" \
+      >/dev/null 2>&1 &
+  local pid=$!
+  PIDS="$PIDS $pid"
+  wait_ready "$port"
+  printf '%s' "$pid"
+}
+
 SERVER_PID="$(serve_temp "$PORT" "$LOG")"
 
 pass=0; fail=0; failed_names=""
@@ -207,6 +218,41 @@ chk "根目录选错时给出 --root 提示" "$(cat "$LOG.alt")" "python3 mdview
 chk "默认根下 /media 为 404（语义明确）" \
     "$(code "http://127.0.0.1:$((PORT+5))/media/logo.svg")" '404'
 chk "改用 --root docs 后 /media 为 200"  "$(code "$BASE/media/logo.svg")" '200'
+
+echo "== 非 Markdown 文件：响应形态与 python3 -m http.server 一致 =="
+# 造几种典型扩展名，逐个比对 Content-Type 与 stdlib 的推断值
+MIMEDIR="$(mktemp -d -t mdview-mime)"
+printf 'text\n' > "$MIMEDIR/x.txt"
+printf 'PK\x03\x04' > "$MIMEDIR/x.zip"
+printf '%%PDF-1.4' > "$MIMEDIR/x.pdf"
+printf 'docx' > "$MIMEDIR/x.docx"
+printf 'unknown' > "$MIMEDIR/x.unknownext"
+MIME_PID="$(serve_root "$((PORT+7))" "$MIMEDIR")"
+MIMEB="http://127.0.0.1:$((PORT+7))"
+MISMATCH=0
+for f in x.txt x.zip x.pdf x.docx x.unknownext; do
+  got="$(curl -s -o /dev/null -w '%{content_type}' "$MIMEB/$f")"
+  want="$(python3 -c "
+import mimetypes,sys
+print(mimetypes.guess_type(sys.argv[1])[0] or 'application/octet-stream')" "$f")"
+  if [ "$got" != "$want" ]; then
+    printf '  \033[31mFAIL\033[0m %s 服务=%s stdlib=%s\n' "$f" "$got" "$want"
+    MISMATCH=$((MISMATCH+1))
+  fi
+done
+if [ "$MISMATCH" -eq 0 ]; then
+  printf '  \033[32mok\033[0m   5 种扩展名的 Content-Type 与 stdlib 一致\n'; pass=$((pass+1))
+else
+  fail=$((fail+1)); failed_names="$failed_names 非md类型"
+fi
+HDRS="$(curl -s -D - -o /dev/null "$MIMEB/x.zip")"
+chk "静态文件带 Last-Modified"   "$HDRS" 'Last-Modified:'
+nchk "静态文件不设 Content-Disposition" "$HDRS" 'Content-Disposition'
+nchk "静态文件不设 Cache-Control"       "$HDRS" 'Cache-Control'
+chk "图片仍是图片类型"           "$(curl -s -o /dev/null -w '%{content_type}' "$BASE/media/logo.svg")" 'image/svg'
+# 这个实例用的是临时 root，必须先停掉再删目录，否则会留下孤儿进程
+{ kill "$MIME_PID" 2>/dev/null; wait "$MIME_PID" 2>/dev/null; }
+rm -rf "$MIMEDIR"
 
 echo "== 参数开关（另起临时实例） =="
 { kill "$SERVER_PID" 2>/dev/null; wait "$SERVER_PID" 2>/dev/null; } ; sleep 0.3

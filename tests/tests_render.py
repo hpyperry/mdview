@@ -269,6 +269,35 @@ class TestRewrites(unittest.TestCase):
         self.assertIn('href="#锚"', r("[x](#锚)"))
 
 
+class TestContentType(unittest.TestCase):
+    """非 Markdown 文件的 Content-Type 必须与标准库推断**完全一致**。
+
+    这决定浏览器是内联显示还是下载（.pdf/.txt 显示，.zip/.docx 下载都是正常的）。
+    曾经手写一张小 MIME 表，把 .log/.sh/.c/.zip/.docx/.mp4 全打成
+    application/octet-stream —— 比 `python3 -m http.server` 还差。
+    """
+
+    def test_matches_stdlib_mimetypes(self):
+        import mimetypes as std
+        samples = ["a.txt", "a.json", "a.csv", "a.yaml", "a.toml", "a.log", "a.sh",
+                   "a.c", "a.pdf", "a.zip", "a.docx", "a.xlsx", "a.pptx", "a.mp4",
+                   "a.mp3", "a.png", "a.svg", "a.html", "a.xml", "a.unknownext",
+                   "noext", "a.tar.gz", "a.PDF", "a.JPG"]
+        for name in samples:
+            want = std.guess_type(name)[0] or "application/octet-stream"
+            self.assertEqual(m.guess_ctype(name), want,
+                             "%s 的 Content-Type 应等于 stdlib 推断值" % name)
+
+    def test_unknown_falls_back_to_octet_stream(self):
+        self.assertEqual(m.guess_ctype("a.definitelynotatype"),
+                         "application/octet-stream")
+
+    def test_curated_table_is_gone(self):
+        """不允许再出现第二份 MIME 真相表。"""
+        self.assertFalse(hasattr(m, "MIME"),
+                         "不应保留手写 MIME 表；统一走 guess_ctype()")
+
+
 class TestRoutingHelpers(unittest.TestCase):
     def test_resolve_stays_in_root(self):
         root = os.path.abspath(os.sep + "tmp")
