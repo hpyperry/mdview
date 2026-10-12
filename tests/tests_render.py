@@ -313,15 +313,22 @@ class TestCopyButton(unittest.TestCase):
         # 反馈文案存在，且复制按钮有 aria 标签（可访问性）
         self.assertIn("aria-label", page)
 
-    def test_css_has_hover_and_touch_rules(self):
+    def test_css_always_visible(self):
+        """按钮常显，不做悬停隐藏。
+
+        注意只在按钮自身的规则块里断言：页面上别处有合法的 opacity:0
+        （源码视图的 .srcline:target 高亮）。
+        """
         page = m._page("t", "")
-        self.assertIn(".copybtn", page)
-        self.assertIn(".codeblock:hover .copybtn", page)
+        start = page.index(".copybtn{")
+        block = page[start:page.index("@media print{.copybtn")]
+        self.assertNotIn("opacity", block, "按钮规则里不该有透明度切换")
+        self.assertNotIn("@media (hover:none)", page)     # 常显就不需要触屏特例
+        self.assertIn(".copybtn:hover{color:var(--accent)}", page)
+        self.assertIn("@media print{.copybtn{display:none}}", page)
         # 顶部条是 flex + space-between（左侧语言名、右侧复制按钮）
         self.assertIn(".codeblock .codebanner{display:flex", page)
         self.assertIn("justify-content:space-between", page)
-        self.assertIn("@media (hover:none)", page)   # 触屏无 hover，需要常显
-        self.assertIn("@media print{.copybtn{display:none}}", page)
 
 
 class TestTextExtensions(unittest.TestCase):

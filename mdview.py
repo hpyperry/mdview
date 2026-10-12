@@ -216,14 +216,13 @@ mark{background:var(--mark);color:var(--markfg);border-radius:3px;padding:0 2px}
 .codeblock .codebanner .lang{color:var(--muted)}
 .codeblock pre{margin:0;border:0;border-radius:0;background:var(--soft)}
 .codeblock pre code{background:none;border:0;padding:0;font-size:.86em}
-/* 复制按钮：由 JS 注入到顶部条里；无 JS 时顶部条只剩语言名，没有死按钮 */
+/* 复制按钮：由 JS 注入到顶部条里，一直显示（点击后短暂变色反馈）。
+   无 JS 时顶部条只剩语言名，不会出现点了没反应的死按钮。 */
 .copybtn{flex:none;background:none;border:0;padding:2px 4px;margin:0;cursor:pointer;
-  color:var(--muted);font:11px/18px inherit;opacity:0;transition:opacity .12s,color .12s}
-.codeblock:hover .copybtn,.copybtn:focus-visible{opacity:1}
+  color:var(--muted);font:11px/18px inherit}
 .copybtn:hover{color:var(--accent)}
-.copybtn.done{color:#1a7f37;opacity:1}
-.copybtn.bad{color:var(--t-kw);opacity:1}
-@media (hover:none){.copybtn{opacity:1}}         /* 触屏没有 hover，常显 */
+.copybtn.done{color:#1a7f37}
+.copybtn.bad{color:var(--t-kw)}
 @media print{.copybtn{display:none}}
 .kw{color:var(--t-kw)} .str{color:var(--t-str)} .com{color:var(--t-com);font-style:italic}
 .num{color:var(--t-num)} .fn{color:var(--t-fn)} .op{color:var(--t-op)}

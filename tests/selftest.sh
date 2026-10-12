@@ -249,11 +249,11 @@ CB2="$(curl -s "$BASE/guide/code-blocks.md")"
 chk "页面内联了脚本"            "$CB2" 'createElement("button")'
 chk "有 Clipboard API 路径"     "$CB2" 'navigator.clipboard'
 chk "有 http 下的兜底路径"      "$CB2" 'execCommand'
-chk "有悬停显示样式"            "$CB2" '.codeblock:hover .copybtn'
+chk "按钮一直显示（无隐藏态）"  "$CB2" '.copybtn{flex:none;background:none'
+nchk "没有悬停淡入规则"          "$CB2" '.codeblock:hover .copybtn'
 chk "顶部条为 flex 两端布局"    "$CB2" '.codebanner{display:flex'
 chk "按钮注入到顶部条"          "$CB2" 'banner.appendChild(btn)'
 chk "语言名在顶部条左侧"        "$CB2" '<span class="lang">'
-chk "触屏常显规则"              "$CB2" '@media (hover:none)'
 # 关键：按钮不能出现在 HTML 里（否则禁用 JS 时是个点了没反应的死按钮）
 nchk "HTML 里没有硬编码按钮"    "$CB2" 'class="copybtn"'
 # 没有代码块的页面也必须能正常渲染（脚本不能报错）
