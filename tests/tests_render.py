@@ -368,6 +368,38 @@ class TestDownloadButton(unittest.TestCase):
         self.assertFalse(m.resolve_ctype("a.md")[1])
         self.assertFalse(m.resolve_ctype("a.py")[1])
 
+    def test_content_disposition_has_filename(self):
+        """必须显式给文件名，否则浏览器自己推导会改名。
+
+        实测：裸 attachment 时 Chrome 把 .gitignore 存成 gitignore.txt
+        （点被当隐藏文件标记去掉，还按类型硬加了 .txt）。
+        """
+        cd = m._content_disposition(".gitignore")
+        self.assertIn('filename=".gitignore"', cd)
+        self.assertIn("filename*=UTF-8''", cd)
+
+    def test_content_disposition_is_latin1_safe(self):
+        """HTTP 头只能编 latin-1；中文写进 filename 会抛异常让响应挂掉。"""
+        cd = m._content_disposition("测试 文件.md")
+        cd.encode("latin-1")                      # 不抛异常才算合格
+        self.assertNotIn("测试", cd)
+        self.assertIn("filename*=UTF-8''", cd)     # 中文靠 filename* 还原
+        self.assertIn("%E6%B5%8B%E8%AF%95", cd)
+
+    def test_content_disposition_sanitizes_fallback(self):
+        """回退名里不能留引号/分号/斜杠等会破坏头的字符。"""
+        for name in ('a"b.txt', "a;b.txt", "a\\b.txt", "a\nb.txt"):
+            cd = m._content_disposition(name)
+            header_value = cd.split("filename*=UTF-8''")[0]
+            self.assertEqual(header_value.count('"'), 2,
+                             "%r 的回退名破坏了引号配对: %s" % (name, cd))
+            cd.encode("latin-1")
+
+    def test_content_disposition_never_empty(self):
+        """空文件名也要给一个可用的回退名。"""
+        cd = m._content_disposition("")
+        self.assertIn('filename="download"', cd)
+
 
 class TestPreviewLimitAndSniffing(unittest.TestCase):
     """大小上限 + 无扩展名嗅探（2026 设计：20 MiB + 前 512 字节 NUL 判定）。"""

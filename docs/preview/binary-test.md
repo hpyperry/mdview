@@ -94,4 +94,43 @@ python3 mdview.py --root docs --max-preview 100M
 
 ---
 
+## 6. 下载文件名的实测行为
+
+点「⬇ 下载」时，服务端会给出 `filename` + `filename*`（RFC 6266/5987 双写）。
+实测落盘结果：
+
+| 文件 | 落盘文件名 | 说明 |
+|---|---|---|
+| `binary-test.md` | `binary-test.md` | ✅ 完全一致 |
+| `large/big.md` | `big.md` | ✅ 完全一致 |
+| `.gitignore` | `gitignore` | ⚠️ **前导点被去掉** |
+| `config/.env` | `env` | ⚠️ 同上 |
+
+### 关于点文件：这是浏览器的安全行为，服务端无法阻止
+
+我穷举测过所有写法，**没有一种能让浏览器保留前导点**：
+
+| Content-Disposition 写法 | 落盘 |
+|---|---|
+| 不写 filename（让浏览器从 URL 推导）| `gitignore.txt` ← **最差：点没了还多加 `.txt`** |
+| `filename=".gitignore"` | `gitignore` |
+| `filename=".gitignore"; filename*=UTF-8''.gitignore` | `gitignore` |
+| `filename="%2Egitignore"` | `gitignore` |
+| 只有 `filename*` | `gitignore` |
+| `filename="dot.gitignore"` | `dot.gitignore` ✅ |
+
+最后一行说明：**只要文件名不以点开头就能完整保留**。浏览器把以点开头的下载名
+当成"隐藏文件"而拒绝，这是它的安全策略（防止下载出用户看不见的文件）。
+
+所以现在的实现是**能做到的最好结果**：普通文件名完全一致；点文件丢掉前导点，
+但**不会再多加 `.txt` 后缀**（不写 filename 时那个额外后缀才是真正的 bug）。
+
+想拿到带点的原名，下载后自己改一下，或者从命令行取：
+
+```bash
+curl -O -J "http://127.0.0.1:8000/preview/.gitignore?download=1"
+```
+
+---
+
 [返回预览总览](index.md) · [代码块专项测试](../guide/code-blocks.md)

@@ -5,7 +5,7 @@
 
 | 项目 | 命令 | 结果 |
 |------|------|------|
-| 渲染器单元测试 | `python3 tests/tests_render.py` | **81 项全部通过**（`Ran 81 tests ... OK`） |
+| 渲染器单元测试 | `python3 tests/tests_render.py` | **85 项全部通过**（`Ran 85 tests ... OK`） |
 | 端到端 HTTP 验证 | `bash tests/selftest.sh` | **198 项断言全部通过**（`PASS=198 FAIL=0`） |
 | 语法兼容性 | `ast` 扫描 | 无 walrus / `match` / 3.9+ 独有语法 → 3.6+ 可运行 |
 | `--safe` | 见下 §3 | 只放行 `.md` 与图片，其余 404 |
@@ -212,7 +212,7 @@ $ curl -s 'http://127.0.0.1:8731/../../../../etc/passwd' | grep -c 'root:'
 
 ```bash
 cd /Users/hpy/Documents/deepseek-harness/md-preview
-python3 tests/tests_render.py      # 81 项
+python3 tests/tests_render.py      # 85 项
 bash tests/selftest.sh             # 198 项（自动起停临时服务）
 ```
 
@@ -610,20 +610,41 @@ GBK 文件确实非 UTF-8、两条文本路径都覆盖）；端到端 153 项�
 `.md` 走下载时**返回服务器上的原始 Markdown 字节**，不是渲染后的 HTML（有断言）。
 原先的 `too_big` 参数因此泛化为 `force_download`：超限与用户点按钮是同一条路径。
 
-### 不写 filename —— 已实测确认可行
+### 文件名：必须写 filename（原结论是错的，已更正）
 
-`Content-Disposition` 只写裸 `attachment`，不带 `filename=`。理由是**浏览器会用 URL
-最后一段当文件名**，而我们的 URL 末段就是真实文件名（含中文会自动百分号编码）。
-实测（Chrome 落盘观察，服务端只发裸 `attachment`）：
+**我最初的实现只发裸 `attachment`，理由是"浏览器用 URL 末段当文件名"。这个结论
+对普通文件名成立，但用户报告 `.gitignore` 下载后变成了别的名字。**
 
-| 文件 | 落盘结果 |
-|------|---------|
-| `/preview/binary-test.md?download=1` | `binary-test.md` ✅ |
-| `/preview/%E6%B5%8B%E8%AF%95%20%E6%96%87%E4%BB%B6.md?download=1` | `测试 文件.md` ✅（中文+空格） |
+复现：Chrome 把 `/preview/.gitignore?download=1` 存成 **`gitignore.txt`** ——
+前导点被当成隐藏文件标记去掉，**又按类型硬加了 `.txt`**。
 
-反例（**不要**这么写）：`Content-Disposition: attachment; filename="报告.png"` ——
-HTTP 头只能编 latin-1，中文会抛 `UnicodeEncodeError` 导致响应直接挂掉（实测 HTTP 000）。
-所以"不写 filename"不是省事，是**避开了唯一能让响应崩溃的写法**。
+于是穷举实测所有写法（Chrome 落盘观察）：
+
+| Content-Disposition | 落盘 | 评价 |
+|---|---|---|
+| 裸 `attachment` | `gitignore.txt` | ❌ 点没了**还加后缀** |
+| `filename=".gitignore"` | `gitignore` | 点没了，无多余后缀 |
+| `filename` + `filename*` 双写 | `gitignore` | 同上 |
+| `filename="%2Egitignore"` | `gitignore` | 同上 |
+| 只有 `filename*` | `gitignore` | 同上 |
+| `filename="dot.gitignore"` | `dot.gitignore` | ✅ 不以点开头就完整保留 |
+
+**结论：前导点任何写法都保不住** —— 浏览器拒绝把下载名设成隐藏文件，是安全策略。
+所以最终实现是双写 `filename` + `filename*`，达到能做到的最好结果：
+
+    binary-test.md  -> binary-test.md   （完全一致）
+    big.md          -> big.md           （完全一致）
+    .gitignore      -> gitignore        （丢前导点，但不再多加 .txt）
+    测试 文件.md     -> 测试 文件.md      （中文靠 filename* 还原）
+
+### 双写是必需的，且顺序有讲究
+
+- `filename` **只能是 latin-1**（HTTP 头的限制）。把中文直接写进去会抛
+  `UnicodeEncodeError`，**整个响应挂掉**（实测 HTTP 000，连接断开）。
+  所以回退名必须把非 ASCII 与危险字符（引号/分号/换行）替换成 `_`。
+- `filename*`（RFC 5987 的 `UTF-8''` 百分号编码）负责还原真实名字；现代浏览器优先用它。
+- 有断言校验：回退名里的引号必须成对（否则伪造出的头会破坏解析）、整行必须能按
+  latin-1 编码、空文件名也要给出可用回退名。
 
 ### 验证
 

@@ -353,7 +353,7 @@ chk "超限 .md -> 附件下载"        "$(curl -s -D - -o /dev/null "$LIMB/big.
 chk "超限 .md?raw=1 -> 也下载"    "$(curl -s -D - -o /dev/null "$LIMB/big.md?raw=1" | grep -ci 'content-disposition: attachment')" '1'
 chk "超限二进制 -> 也下载"        "$(curl -s -D - -o /dev/null "$LIMB/big.bin" | grep -ci 'content-disposition: attachment')" '1'
 chk "小 .md 仍正常渲染"           "$(curl -s -o /dev/null -w '%{content_type}' "$LIMB/small.md")" 'text/html'
-chk "DISPOSITION 不写 filename"   "$(curl -s -D - -o /dev/null "$LIMB/big.md" | grep -ci 'filename')" '0'
+chk "附件头含 filename"         "$(curl -s -D - -o /dev/null "$LIMB/big.md" | grep -ci 'filename=')" '1'
 { kill "$LIM_PID" 2>/dev/null; wait "$LIM_PID" 2>/dev/null; }
 rm -rf "$LIM"
 
@@ -390,7 +390,7 @@ done
 chk "超大 .md 保留类型"        "$(curl -s -o /dev/null -w '%{content_type}' "$LRG/big.md")" 'text/markdown'
 chk "超大 .png 保留类型"       "$(curl -s -o /dev/null -w '%{content_type}' "$LRG/big.png")" 'image/png'
 chk "超大 ?raw=1 也下载"       "$(curl -s -D - -o /dev/null "$LRG/big.md?raw=1" | grep -ci 'content-disposition: attachment')" '1'
-chk "附件头不含 filename"      "$(curl -s -D - -o /dev/null "$LRG/big.md" | grep -ci 'filename')" '0'
+chk "附件头含 filename"        "$(curl -s -D - -o /dev/null "$LRG/big.md" | grep -ci 'filename=')" '1'
 # 测试页本身可访问，且里面没有断链
 chk "测试页可访问"             "$(curl -s -o /dev/null -w '%{http_code}' "$BASE/preview/binary-test.md")" '200'
 
@@ -414,6 +414,16 @@ chk ".md 下载返回原文"        "$(curl -s "$BASE/preview/binary-test.md?dow
 nchk ".md 下载不含 HTML 标签" "$(curl -s "$BASE/preview/binary-test.md?download=1" | head -3)" '<html'
 # 不加参数时仍然是预览
 nchk "不带参数时不下载"       "$(curl -s -D - -o /dev/null "$BASE/preview/code/sample.py" | grep -ci 'content-disposition')" '1'
+
+echo "== 下载头的文件名（实测裸 attachment 会被浏览器改名）=="
+DISP() { curl -s -D - -o /dev/null "$1" | grep -i '^content-disposition' | tr -d '\r'; }
+chk ".md 下载带 filename"      "$(DISP "$BASE/preview/binary-test.md?download=1" | grep -c 'filename="binary-test.md"')" '1'
+chk ".md 下载带 filename*"     "$(DISP "$BASE/preview/binary-test.md?download=1" | grep -c "filename\*=UTF-8''")" '1'
+chk "点文件带 filename"        "$(DISP "$BASE/preview/.gitignore?download=1" | grep -c 'filename=".gitignore"')" '1'
+chk "超大文件也带 filename"    "$(DISP "$BASE/preview/large/big.md?download=1" | grep -c 'filename="big.md"')" '1'
+chk "非 ASCII 名不进 filename"  "$(DISP "$BASE/preview/%E7%BC%96%E7%A0%81.txt?download=1" | grep -c 'filename="[^"]*[^\x00-\x7f]')" '0'
+# 头必须能按 latin-1 编码（含中文会直接 500 / 连接断开）
+chk "含中文名的下载不崩"       "$(curl -s -o /dev/null -w '%{http_code}' "$BASE/preview/.gitignore?download=1")" '200'
 
 echo "== 参数开关（另起临时实例） =="
 { kill "$SERVER_PID" 2>/dev/null; wait "$SERVER_PID" 2>/dev/null; } ; sleep 0.3

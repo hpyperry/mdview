@@ -36,6 +36,7 @@ SECTION 导航（本文件按功能分块；每块的标题就是唯一标识，
     * 超过 --max-preview（默认 20 MiB）的文件不再预览，改为下载（对 .md、
       图片、PDF 等一切类型生效）；未超限的文本非 UTF-8 用 errors="replace" 解码。
     * 无扩展名文件按开头 512 字节判文本/二进制（只看有没有 NUL，与 VS Code 同法）。
+    * 强制下载时用 filename + filename* 双写给出文件名（RFC 6266/5987）。
     * 隐藏目录（.git / .svn / node_modules 等）不进索引与搜索，但仍可直接按 URL 访问。
     * 只有 .md 被特殊处理；源码/配置类文本按 text/plain; charset=utf-8 发送，
       其余文件按内置 MIME 表处理（表外回落 octet-stream）。
@@ -195,6 +196,32 @@ def resolve_ctype(path, force_download=False):
         ctype = BINARY_MIME
     # 需要强制下载时仍保留上面算出的准确类型（不退化成 octet-stream）
     return ctype, bool(force_download)
+
+
+def _content_disposition(filename):
+    """返回可安全写进 HTTP 头的 Content-Disposition 值。
+
+    必须显式给文件名，否则浏览器会自己从 URL 推导，而推导规则会改名字：
+    实测 Chrome 把裸 attachment 的 `.gitignore` 存成 `gitignore.txt`
+    （点被当成隐藏文件标记去掉，又按类型硬加了 .txt）。
+
+    两个参数都给（RFC 6266 推荐的双写）：
+      filename   只能是 latin-1（HTTP 头的限制），非 ASCII 会被替换成下划线；
+      filename*  用 RFC 5987 的 UTF-8'' 百分号编码，非 ASCII 名字靠它还原。
+    注意**绝不能**把中文直接写进 filename —— 头按 latin-1 编码会抛
+    UnicodeEncodeError，整个响应直接挂掉（实测 HTTP 000）。
+    """
+    # ASCII 回退名：只留字母数字与 . _ -，其余替换成 _
+    fallback = []
+    for ch in filename:
+        if ch.isascii() and (ch.isalnum() or ch in "._-"):
+            fallback.append(ch)
+        else:
+            fallback.append("_")
+    fallback = "".join(fallback).strip() or "download"
+    # 百分号编码（quote 默认 safe="/"，这里不需要保留斜杠）
+    encoded = urllib.parse.quote(filename, safe="")
+    return 'attachment; filename="%s"; filename*=UTF-8\'\'%s' % (fallback, encoded)
 
 
 def _parse_size(text, what="--max-preview"):
@@ -1873,9 +1900,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", ctype)
         if download:
-            # 只写裸 attachment，不写 filename —— 浏览器用 URL 末段当文件名即可。
-            # （带非 ASCII 的 filename 会让 HTTP 头无法按 latin-1 编码而抛异常。）
-            self.send_header("Content-Disposition", "attachment")
+            self.send_header("Content-Disposition",
+                             _content_disposition(os.path.basename(path)))
         self.send_header("Content-Length", str(size))
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
