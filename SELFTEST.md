@@ -5,7 +5,7 @@
 
 | 项目 | 命令 | 结果 |
 |------|------|------|
-| 渲染器单元测试 | `python3 tests/tests_render.py` | **45 项全部通过**（`Ran 45 tests ... OK`） |
+| 渲染器单元测试 | `python3 tests/tests_render.py` | **50 项全部通过**（`Ran 50 tests ... OK`） |
 | 端到端 HTTP 验证 | `bash tests/selftest.sh` | **119 项断言全部通过**（`PASS=119 FAIL=0`） |
 | 语法兼容性 | `ast` 扫描 | 无 walrus / `match` / 3.9+ 独有语法 → 3.6+ 可运行 |
 | `--safe` | 见下 §3 | 只放行 `.md` 与图片，其余 404 |
@@ -213,9 +213,8 @@ $ curl -s 'http://127.0.0.1:8731/../../../../etc/passwd' | grep -c 'root:'
 
 ```bash
 cd /Users/hpy/Documents/deepseek-harness/md-preview
-python3 tests/tests_render.py      # 45 项
+python3 tests/tests_render.py      # 50 项
 bash tests/selftest.sh             # 119 项（自动起停临时服务）
-python3 tests/sync_nav.py --check  # 导航行号与代码一致
 ```
 
 `tests/selftest.sh` 支持 `PORT=9000 bash tests/selftest.sh` 换端口；结束时打印
@@ -234,7 +233,7 @@ python3 tests/sync_nav.py --check  # 导航行号与代码一致
 | # | 发现 | 处理 |
 |---|------|------|
 | S1 | `SECTION 8` 分隔带不存在，而 README 与代码注释都声称有 10 段 | 在目录/搜索代码真正起点补上分隔带，现为 10 段 |
-| S2 | README 称"行号级导航"，代码注释却写"行号会漂移、请用关键字搜索" | 改为 **`tests/sync_nav.py` 生成的真实行号**（`--check` 可校验），并新增该脚本 |
+| S2 | README 称"行号级导航"，代码注释却写"行号会漂移、请用关键字搜索" | 改为**不写行号的 section 唯一标识**（如搜 `SECTION 5`），两份自述统一；后续按用户要求删掉了临时的 `sync_nav.py` 生成器 |
 | S3 | README 的测试计数陈旧（98 项 vs 实测） | 全量修正为实测值 |
 | S4 | `SELFTEST.md` 残留"39 项" | 修正 |
 | S5 | 死代码：`_DELIM_RE_CACHE`、`parse_emphasis_inner`、`_restore`、`_find_md_root`、`Config.raw_ok`、`--no-wait`、恒真的 `same_slot` | 全部删除 |
@@ -262,7 +261,7 @@ python3 tests/sync_nav.py --check  # 导航行号与代码一致
 
 - 单元测试 45 项（新增：仅文件名命中、无语言围栏素色）
 - 端到端 108 项（新增：源码视图行锚点与内容一致性、搜索分栏计数、仅文件名命中）
-- 新增 `tests/sync_nav.py`（生成/校验导航行号），`python3 tests/sync_nav.py --check` 可纳入自检
+- 导航改为 section 唯一标识（搜索定位，无行号），因此不需要生成器
 
 ---
 
@@ -277,13 +276,16 @@ md-preview/
 ├─ README.md
 ├─ SELFTEST.md
 ├─ tests/             # 测试 + 开发工具（含自己的 README）
-│  ├─ tests_render.py   selftest.sh   sync_nav.py
+│  ├─ tests_render.py   selftest.sh
 └─ docs/              # 示例语料（含 media/）
 ```
 
-三个脚本都改为**从自身位置推出仓库根**（`selftest.sh` 新增 `ROOT`，`sync_nav.py` 新增
-`ROOT`，`tests_render.py` 的 `sys.path` 指向上一层），因此从任何目录执行都可以 ——
-已实测在仓库根与 `/tmp` 下分别执行 `tests/selftest.sh`，均为 `PASS=119 FAIL=0`。
+脚本都改为**从自身位置推出仓库根**（`selftest.sh` 新增 `ROOT`，
+`tests_render.py` 的 `sys.path` 指向上一层），因此从任何目录执行都可以 ——
+已实测在仓库根与 `/tmp` 下分别执行 `tests/selftest.sh`，结果一致。
+
+按用户要求删除了临时的 `sync_nav.py`：导航改为 **section 唯一标识**（搜索定位），
+不写行号也就不需要生成器维护。
 
 ---
 

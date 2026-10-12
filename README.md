@@ -179,7 +179,8 @@ python3 mdview.py --root ./docs --safe --port 9000   # 要给同事看，但只�
 
 ## 7. 源码导航（单文件分 section）
 
-`mdview.py` 是唯一入口，按功能分块，顶部注释有行号级导航：
+`mdview.py` 是唯一入口，按功能分块。顶部注释给出 10 个 section 的**唯一标识**
+（每个标识在文件里只有一个匹配，直接搜索即可定位，不写行号也就不会漂移）：
 
 | Section | 内容 | 大约位置 |
 |---------|------|----------|
@@ -200,13 +201,13 @@ python3 mdview.py --root ./docs --safe --port 9000   # 要给同事看，但只�
 
 ```
 md-preview/
-├─ mdview.py          # 服务端 + 渲染器（单文件）
-├─ sync_nav.py        # 重新生成 mdview.py 顶部的 SECTION 行号导航
-├─ README.md          # 本文
-├─ SELFTEST.md        # 端到端验证结果（可复查）
-├─ selftest.sh        # 端到端测试脚本（119 项断言，自己起服务自己关）
-├─ tests_render.py    # 渲染器回归测试（45 项，纯 unittest）
-└─ docs/              # 示例语料：表格/任务列表/嵌套列表/代码块/相对链接/图片
+├─ mdview.py            # 唯一的可交付源码：服务端 + 渲染器
+├─ README.md            # 本文
+├─ SELFTEST.md          # 验证结果与缺陷修复台账
+├─ tests/               # 测试（见 tests/README.md）
+│  ├─ tests_render.py   #   渲染器回归测试（50 项，纯 unittest）
+│  └─ selftest.sh       #   端到端 HTTP 冒烟测试（119 项断言）
+└─ docs/                # 示例语料：表格/任务列表/嵌套列表/代码块/相对链接/图片
 ```
 
 ---
@@ -214,9 +215,8 @@ md-preview/
 ## 8. 测试
 
 ```bash
-python3 tests/tests_render.py      # 渲染器单元测试：45 项
+python3 tests/tests_render.py      # 渲染器单元测试：50 项
 bash tests/selftest.sh             # 端到端 HTTP 验证：119 项断言
-python3 tests/sync_nav.py --check  # 校验顶部导航行号与代码一致
 ```
 
 三者都是零依赖、可重复执行的。`tests/selftest.sh` 会在 `127.0.0.1:8731` 起一个临时实例，
@@ -239,9 +239,9 @@ python3 tests/sync_nav.py --check  # 校验顶部导航行号与代码一致
 
 | 想加的东西 | 落点 |
 |------------|------|
-| 新语言高亮 | `SECTION 4` 的 `LANG_KEYWORDS` 加一组关键字（大小写不敏感就登记到 `LANG_ICASE`，显示名加到 `LANG_LABEL`） |
-| 改完代码必做 | `python3 tests/sync_nav.py` → `python3 tests/tests_render.py` → `bash tests/selftest.sh` |
+| 新语言高亮 | 搜 `SECTION 4`，在 `LANG_KEYWORDS` 加一组关键字（大小写不敏感就登记到 `LANG_ICASE`，显示名加到 `LANG_LABEL`） |
+| 改完代码必做 | `python3 tests/tests_render.py` → `bash tests/selftest.sh` |
 | 语法高亮以外的新行内语法 | `SECTION 5` 的 `parse_inline`：先 stash 成 token，再在还原前处理 |
 | 新块级语法 | `SECTION 7` 的 `render_blocks`：加一个分支并同步更新 `_starts_block` |
-| 新路由 | `SECTION 9` 的 `Handler._route` |
+| 新路由 | 搜 `SECTION 9` 的 `Handler._route` |
 | 目录列表截断 / 白名单扩展 | `SECTION 8` 与 `SECTION 1` 的常量 |

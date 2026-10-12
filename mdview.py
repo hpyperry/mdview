@@ -17,24 +17,26 @@
     * 路径穿越防护：解决后的路径必须仍在 root 内，否则 403。
     * 虚拟主机名不参与路由；所有 .md 一律渲染，?raw=1 返回纯文本。
 
-SECTION 导航（本文件按功能分块；行号由 python3 sync_nav.py 生成）:
-    [1 ] 常量与配置                CONSTANTS                  mdview.py:57
-    [2 ] 内联 CSS               CSS                        mdview.py:142
-    [3 ] HTML 模板              TEMPLATES                  mdview.py:248
-    [4 ] 语法高亮器                HIGHLIGHTER                mdview.py:304
-    [5 ] 内联解析                 INLINE                     mdview.py:518
-    [6 ] 链接/图片重写              URL REWRITE                mdview.py:957
-    [7 ] 块级解析                 BLOCKS                     mdview.py:1084
-    [8 ] 目录索引 / 搜索页           DIRECTORY & SEARCH         mdview.py:1446
-    [9 ] HTTP 处理器             HANDLER                    mdview.py:1632
-    [10] CLI 与启动              CLI                        mdview.py:1885
+SECTION 导航（本文件按功能分块；每块的标题就是唯一标识，可直接搜索）:
+    搜 "SECTION 1"   -> 常量与配置        CONSTANTS
+    搜 "SECTION 2"   -> 内联 CSS          CSS
+    搜 "SECTION 3"   -> HTML 模板         TEMPLATES
+    搜 "SECTION 4"   -> 语法高亮器        HIGHLIGHTER
+    搜 "SECTION 5"   -> 内联解析          INLINE
+    搜 "SECTION 6"   -> 链接/图片重写      URL REWRITE
+    搜 "SECTION 7"   -> 块级解析          BLOCKS
+    搜 "SECTION 8"   -> 目录索引/搜索页     DIRECTORY & SEARCH
+    搜 "SECTION 9"   -> HTTP 处理器       HANDLER
+    搜 "SECTION 10"  -> CLI 与启动        CLI
 
 已知行为（写在代码里而不是靠口头约定）:
     * 裸 HTML 全部转义，不透传 —— 100% 消除 .md 作为 XSS 载体。
-    * 列表/引用可嵌套；未标语言的围栏代码块按通用规则高亮。
-    * 单层目录不限制条目数（--max-list 可调），大目录可能较慢。
+    * 列表/引用可嵌套；只有带语言标识的围栏代码块才高亮。
+    * 单层目录不限制条目数，大目录索引可能较慢。
     * 单文件渲染不限制大小；非 UTF-8 用 errors="replace" 解码。
     * 隐藏目录（.git / .svn / node_modules 等）不进索引与搜索，但仍可直接按 URL 访问。
+    * 只有 .md 被特殊处理；源码/配置类文本按 text/plain; charset=utf-8 发送，
+      其余文件按内置 MIME 表处理（表外回落 octet-stream）。
 """
 
 import argparse

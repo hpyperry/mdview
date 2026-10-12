@@ -48,10 +48,9 @@ md-preview/
 ├─ mdview.py            # 唯一可交付源码
 ├─ README.md
 ├─ SELFTEST.md
-├─ tests/               # 测试与开发工具
+├─ tests/               # 测试
 │  ├─ tests_render.py
-│  ├─ selftest.sh
-│  └─ sync_nav.py
+│  └─ selftest.sh
 └─ docs/                # 就是本目录
    ├─ index.md
    ├─ guide/
