@@ -9,7 +9,9 @@
 
 import os
 import re
+import shutil
 import sys
+import tempfile
 import unittest
 
 # mdview.py 在仓库根（本文件位于 tests/），把它加入 sys.path
@@ -329,6 +331,91 @@ class TestCopyButton(unittest.TestCase):
         # 顶部条是 flex + space-between（左侧语言名、右侧复制按钮）
         self.assertIn(".codeblock .codebanner{display:flex", page)
         self.assertIn("justify-content:space-between", page)
+
+
+class TestPreviewLimitAndSniffing(unittest.TestCase):
+    """大小上限 + 无扩展名嗅探（2026 设计：20 MiB + 前 512 字节 NUL 判定）。"""
+
+    # ---- 大小参数解析 ----
+    def test_parse_size_units(self):
+        self.assertEqual(m._parse_size("20M"), 20 * 1024 * 1024)
+        self.assertEqual(m._parse_size("512K"), 512 * 1024)
+        self.assertEqual(m._parse_size("2G"), 2 * 1024 ** 3)
+        self.assertEqual(m._parse_size("20m"), 20 * 1024 * 1024)   # 大小写不敏感
+        self.assertEqual(m._parse_size("20971520"), 20971520)      # 纯字节
+        self.assertEqual(m._parse_size("0"), 0)                    # 0 = 不限制
+        self.assertEqual(m._parse_size("20MiB"), 20 * 1024 * 1024)
+        self.assertEqual(m._parse_size("1.5M"), int(1.5 * 1024 * 1024))
+
+    def test_parse_size_rejects_garbage(self):
+        for bad in ("abc", "", "-5", "M", "12X"):
+            with self.assertRaises(ValueError, msg="应拒绝 %r" % bad):
+                m._parse_size(bad)
+
+    def test_default_limit_constant(self):
+        self.assertEqual(m.DEFAULT_MAX_PREVIEW, 20 * 1024 * 1024)
+        self.assertEqual(m.BINARY_SNIFF_BYTES, 512)
+
+    # ---- 嗅探 ----
+    def test_is_binary_uses_first_bytes_only(self):
+        d = tempfile.mkdtemp()
+        try:
+            cases = {
+                "nul_at_start": (b"DIRC\x00\x00\x01", True),
+                "nul_at_511":   (b"A" * 511 + b"\x00", True),
+                "nul_at_512":   (b"A" * 512 + b"\x00", False),   # 只看前 512 字节
+                "nul_far":      (b"A" * 5000 + b"\x00", False),
+                "no_nul":       ("中文文本\n".encode(), False),
+                "gbk_no_nul":   ("中文 GBK\n".encode("gbk"), False),
+                "empty":        (b"", False),
+            }
+            for name, (data, want) in cases.items():
+                path = os.path.join(d, name)
+                with open(path, "wb") as fh:
+                    fh.write(data)
+                self.assertEqual(m._is_binary(path), want, name)
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
+
+    # ---- 类型判定优先级 ----
+    def test_resolve_ctype_extensionless_text_and_binary(self):
+        d = tempfile.mkdtemp()
+        try:
+            txt = os.path.join(d, "plain")
+            binf = os.path.join(d, "binfile")
+            open(txt, "wb").write("中文\n".encode())
+            open(binf, "wb").write(b"\x00\x01\x02")
+            self.assertEqual(m.resolve_ctype(txt), (m.TEXT_MIME_DEFAULT, False))
+            self.assertEqual(m.resolve_ctype(binf), (m.BINARY_MIME, False))
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
+
+    def test_resolve_ctype_oversized_keeps_type_and_downloads(self):
+        """超大文件保留准确类型（C' 方案），并要求下载。"""
+        ctype, download = m.resolve_ctype("x.md", too_big=True)
+        self.assertTrue(download)
+        self.assertEqual(ctype, "text/markdown; charset=utf-8")
+        ctype, download = m.resolve_ctype("x.png", too_big=True)
+        self.assertTrue(download)
+        self.assertEqual(ctype, "image/png")
+
+    def test_resolve_ctype_ordering(self):
+        """.md 渲染、源码文本、MIME 表、未知扩展名下载。"""
+        self.assertEqual(m.resolve_ctype("a.py"), (m.TEXT_MIME_DEFAULT, False))
+        self.assertEqual(m.resolve_ctype("a.png"), ("image/png", False))
+        self.assertEqual(m.resolve_ctype("a.zip"), (m.BINARY_MIME, False))
+        self.assertEqual(m.resolve_ctype("a.unknownext"), (m.BINARY_MIME, False))
+        self.assertFalse(m.resolve_ctype("a.py")[1])
+
+    def test_sniff_only_applies_to_extensionless(self):
+        """有扩展名的文件不读内容：一个 .py 里就算有 NUL 也按文本发。"""
+        d = tempfile.mkdtemp()
+        try:
+            weird = os.path.join(d, "weird.py")
+            open(weird, "wb").write(b"\x00\x00\x00")
+            self.assertEqual(m.resolve_ctype(weird)[0], m.TEXT_MIME_DEFAULT)
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
 
 
 class TestInlineDisplayableTypes(unittest.TestCase):

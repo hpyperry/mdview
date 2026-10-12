@@ -312,6 +312,88 @@ chk "GIF 魔数正确"           "$GIF_MAGIC" 'GIF89a'
 chk "空文件可访问"           "$(code "$BASE/preview/text/empty.txt")" '200'
 chk "GBK 文件声明了编码"     "$(curl -s -o /dev/null -w '%{content_type}' "$BASE/preview/text/gbk-encoded.txt")" 'charset='
 
+echo "== 预览上限与无扩展名嗅探 =="
+LIM="$(mktemp -d -t mdview-limit)"
+# 无扩展名：文本 / 二进制（NUL 在 511 内）
+printf '中文文本\n第二行\n' > "$LIM/plain"
+printf 'DIRC\x00\x00\x01\xff' > "$LIM/binfile"
+python3 -c "
+open('$LIM/nul511','wb').write(b'A'*511 + b'\x00' + b'B'*50)
+open('$LIM/nul512','wb').write(b'A'*512 + b'\x00' + b'B'*50)
+open('$LIM/nulfar','wb').write(b'A'*5000 + b'\x00' + b'B'*50)
+open('$LIM/gbk','wb').write('中文 GBK\n'.encode('gbk'))
+"
+# 有扩展名：不应被嗅探影响（内容含 NUL 也按文本发）
+python3 -c "open('$LIM/weird.py','wb').write(b'\x00\x00\x00')"
+# 大小：小文件与超过 20M 的文件
+printf '# 小\n' > "$LIM/small.md"
+# 用 ASCII 源码写 fixture（中文以 \u 转义，避免 b'...' 里出现非 ASCII）
+python3 -c "
+line = ('# \u4e2d\u6587\u6807\u9898\n').encode('utf-8')
+n = (21*1024*1024)//len(line)
+open('$LIM/big.md','wb').write(line*n)
+# big.bin 要是真正的 21 MiB（不能复用上面算行数的 n）
+with open('$LIM/big.bin','wb') as fh:
+    fh.truncate(21*1024*1024)
+"
+LIM_PID="$(serve_root "$((PORT+7))" "$LIM")"
+LIMB="http://127.0.0.1:$((PORT+7))"
+
+chk "无扩展名文本 -> text/plain"  "$(curl -s -o /dev/null -w '%{content_type}' "$LIMB/plain")" 'text/plain'
+chk "无扩展名文本 -> 不下载"      "$(curl -s -D - -o /dev/null "$LIMB/plain" | grep -ci 'content-disposition')" '0'
+chk "无扩展名含 NUL -> 二进制"    "$(curl -s -o /dev/null -w '%{content_type}' "$LIMB/binfile")" 'application/octet-stream'
+chk "NUL 在 511 -> 二进制"        "$(curl -s -o /dev/null -w '%{content_type}' "$LIMB/nul511")" 'application/octet-stream'
+chk "NUL 在 512 -> 文本"          "$(curl -s -o /dev/null -w '%{content_type}' "$LIMB/nul512")" 'text/plain'
+chk "NUL 在 5000 -> 文本"         "$(curl -s -o /dev/null -w '%{content_type}' "$LIMB/nulfar")" 'text/plain'
+chk "无扩展名 GBK -> 仍算文本"    "$(curl -s -o /dev/null -w '%{content_type}' "$LIMB/gbk")" 'text/plain'
+chk "有扩展名不被嗅探影响"        "$(curl -s -o /dev/null -w '%{content_type}' "$LIMB/weird.py")" 'text/plain'
+
+chk "超限 .md -> 保留准确类型"    "$(curl -s -o /dev/null -w '%{content_type}' "$LIMB/big.md")" 'text/markdown'
+chk "超限 .md -> 附件下载"        "$(curl -s -D - -o /dev/null "$LIMB/big.md" | grep -ci 'content-disposition: attachment')" '1'
+chk "超限 .md?raw=1 -> 也下载"    "$(curl -s -D - -o /dev/null "$LIMB/big.md?raw=1" | grep -ci 'content-disposition: attachment')" '1'
+chk "超限二进制 -> 也下载"        "$(curl -s -D - -o /dev/null "$LIMB/big.bin" | grep -ci 'content-disposition: attachment')" '1'
+chk "小 .md 仍正常渲染"           "$(curl -s -o /dev/null -w '%{content_type}' "$LIMB/small.md")" 'text/html'
+chk "DISPOSITION 不写 filename"   "$(curl -s -D - -o /dev/null "$LIMB/big.md" | grep -ci 'filename')" '0'
+{ kill "$LIM_PID" 2>/dev/null; wait "$LIM_PID" 2>/dev/null; }
+rm -rf "$LIM"
+
+# --max-preview 参数解析
+chk "--max-preview 非法值被拒"    "$(python3 "$ROOT/mdview.py" --max-preview abc 2>&1 | grep -c '无法解析')" '1'
+chk "--max-preview 0 表示不限制"  "$(python3 -c "import sys; sys.path.insert(0,'$ROOT'); import mdview; print(mdview._parse_size('0'))")" '0'
+chk "--max-preview 单位解析"      "$(python3 -c "import sys; sys.path.insert(0,'$ROOT'); import mdview; print(mdview._parse_size('512K'))")" '524288'
+
+echo "== 二进制/超大测试样例（docs/preview/binary 与 large）=="
+BIN="$BASE/preview/binary"; LRG="$BASE/preview/large"
+# 无扩展名：512 字节边界
+chk "noext 文本 -> 预览"       "$(curl -s -o /dev/null -w '%{content_type}' "$BIN/noext_text")" 'text/plain'
+chk "noext 空文件 -> 预览"     "$(curl -s -o /dev/null -w '%{content_type}' "$BIN/noext_empty")" 'text/plain'
+chk "noext GBK -> 仍算文本"    "$(curl -s -o /dev/null -w '%{content_type}' "$BIN/noext_gbk")" 'text/plain'
+chk "NUL@0 -> 二进制"          "$(curl -s -o /dev/null -w '%{content_type}' "$BIN/noext_nul_at_0")" 'application/octet-stream'
+chk "NUL@511 -> 二进制"        "$(curl -s -o /dev/null -w '%{content_type}' "$BIN/noext_nul_at_511")" 'application/octet-stream'
+chk "NUL@512 -> 文本"          "$(curl -s -o /dev/null -w '%{content_type}' "$BIN/noext_nul_at_512")" 'text/plain'
+chk "NUL@5000 -> 文本"         "$(curl -s -o /dev/null -w '%{content_type}' "$BIN/noext_nul_at_5000")" 'text/plain'
+chk "随机数据 -> 二进制"       "$(curl -s -o /dev/null -w '%{content_type}' "$BIN/noext_random")" 'application/octet-stream'
+# 真二进制格式
+chk "真 PNG -> image/png"      "$(curl -s -o /dev/null -w '%{content_type}' "$BIN/real.png")" 'image/png'
+chk "真 PDF -> application/pdf" "$(curl -s -o /dev/null -w '%{content_type}' "$BIN/real.pdf")" 'application/pdf'
+chk "真 ZIP -> octet-stream"   "$(curl -s -o /dev/null -w '%{content_type}' "$BIN/real.zip")" 'application/octet-stream'
+chk "ELF 头 -> octet-stream"   "$(curl -s -o /dev/null -w '%{content_type}' "$BIN/fake.elf")" 'application/octet-stream'
+# PNG 魔数必须是真图
+PNG2="$(curl -s "$BIN/real.png" | head -c 8 | od -An -tx1 | tr -d ' \n')"
+chk "真 PNG 魔数正确"          "$PNG2" '89504e470d0a1a0a'
+chk "真 PDF 魔数正确"          "$(curl -s "$BIN/real.pdf" | head -c 5)" '%PDF-'
+chk "真 ZIP 魔数正确"          "$(curl -s "$BIN/real.zip" | head -c 2)" 'PK'
+# 超大（稀疏文件）：每种类型都要变成下载
+for f in big.md big.txt big.bin big.png noext_big; do
+  chk "超大 $f -> 附件下载"    "$(curl -s -D - -o /dev/null "$LRG/$f" | grep -ci 'content-disposition: attachment')" '1'
+done
+chk "超大 .md 保留类型"        "$(curl -s -o /dev/null -w '%{content_type}' "$LRG/big.md")" 'text/markdown'
+chk "超大 .png 保留类型"       "$(curl -s -o /dev/null -w '%{content_type}' "$LRG/big.png")" 'image/png'
+chk "超大 ?raw=1 也下载"       "$(curl -s -D - -o /dev/null "$LRG/big.md?raw=1" | grep -ci 'content-disposition: attachment')" '1'
+chk "附件头不含 filename"      "$(curl -s -D - -o /dev/null "$LRG/big.md" | grep -ci 'filename')" '0'
+# 测试页本身可访问，且里面没有断链
+chk "测试页可访问"             "$(curl -s -o /dev/null -w '%{http_code}' "$BASE/preview/binary-test.md")" '200'
+
 echo "== 参数开关（另起临时实例） =="
 { kill "$SERVER_PID" 2>/dev/null; wait "$SERVER_PID" 2>/dev/null; } ; sleep 0.3
 

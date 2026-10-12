@@ -33,7 +33,9 @@ SECTION 导航（本文件按功能分块；每块的标题就是唯一标识，
     * 裸 HTML 全部转义，不透传 —— 100% 消除 .md 作为 XSS 载体。
     * 列表/引用可嵌套；只有带语言标识的围栏代码块才高亮。
     * 单层目录不限制条目数，大目录索引可能较慢。
-    * 单文件渲染不限制大小；非 UTF-8 用 errors="replace" 解码。
+    * 超过 --max-preview（默认 20 MiB）的文件不再预览，改为下载（对 .md、
+      图片、PDF 等一切类型生效）；未超限的文本非 UTF-8 用 errors="replace" 解码。
+    * 无扩展名文件按开头 512 字节判文本/二进制（只看有没有 NUL，与 VS Code 同法）。
     * 隐藏目录（.git / .svn / node_modules 等）不进索引与搜索，但仍可直接按 URL 访问。
     * 只有 .md 被特殊处理；源码/配置类文本按 text/plain; charset=utf-8 发送，
       其余文件按内置 MIME 表处理（表外回落 octet-stream）。
@@ -113,6 +115,18 @@ MIME = {
 #   * `.go`/`.rs`/`.ini`/`.log`/`.lua` 等干脆未收录 -> 回落 octet-stream -> 点开就下载。
 # 所以这里的判定优先于 mimetypes：命中即按文本发（`.ts` 当 TypeScript 是刻意的）。
 TEXT_MIME_DEFAULT = "text/plain; charset=utf-8"
+BINARY_MIME = "application/octet-stream"
+
+# 超过这个大小就不再预览，改为下载（0 = 不限制）。
+# 20 MiB 与 VS Code 的 LARGE_FILE_SIZE_THRESHOLD 同值：那边超过它就关掉词法高亮，
+# 这边超过它就不再把整个文件塞进浏览器。
+DEFAULT_MAX_PREVIEW = 20 * 1024 * 1024
+
+# 无扩展名文件的「是否二进制」判定只看开头这么多字节。
+# 512 字节来自 VS Code 的实测实现（它也是只看前 512 字节里有没有 NUL）。
+# 只看开头必然会漏判（前 512 字节干净、后面藏二进制的文件会被当文本），
+# 这是刻意承担的代价——换来的是几乎零成本的判定。
+BINARY_SNIFF_BYTES = 512
 TEXT_EXT = {
     # 脚本与源码
     ".py", ".pyw", ".pyi", ".sh", ".bash", ".zsh", ".fish", ".bat", ".cmd", ".ps1",
@@ -142,6 +156,73 @@ def _is_textual(path):
     if ext:
         return ext in TEXT_EXT
     return os.path.basename(path).lstrip(".").lower() in TEXT_FILENAMES
+
+
+def _is_binary(path, nbytes=BINARY_SNIFF_BYTES):
+    """看开头 nbytes 字节里有没有 NUL 字节，有则认为是二进制。
+
+    只看开头，不完整解码 —— 与 VS Code 的判定方式一致（它也只看前 512 字节）。
+    故意宽松：GBK 等非 UTF-8 文本不含 NUL，仍会被判为文本（可能显示乱码但不下载）。
+    """
+    try:
+        with open(path, "rb") as fh:
+            return b"\x00" in fh.read(nbytes)
+    except OSError:
+        return False
+
+
+def resolve_ctype(path, too_big=False):
+    """决定响应的 Content-Type。返回 (类型, 是否强制下载)。
+
+    优先级（前者优先）：
+      1. 超过预览上限 -> 保留准确类型 + 附件下载（由 too_big 传入）
+      2. 源码/配置类扩展名或文件名 -> text/plain; charset=utf-8
+      3. 内置 MIME 表（图片/PDF/HTML…）
+      4. 无扩展名 -> 嗅探开头 512 字节：有 NUL 判二进制，否则按文本
+      5. 其余 -> application/octet-stream（下载）
+    """
+    ext = os.path.splitext(path)[1].lower()
+    if _is_textual(path):
+        ctype = MIME.get(ext, TEXT_MIME_DEFAULT)
+    elif ext in MIME:
+        ctype = MIME[ext]
+    elif not ext and not _is_binary(path):
+        # 无扩展名且开头无 NUL -> 当文本（.git/HEAD 这类）
+        ctype = TEXT_MIME_DEFAULT
+    else:
+        ctype = BINARY_MIME
+    # 超过上限一律要求下载；此时仍保留上面算出的准确类型（C' 方案）
+    return ctype, bool(too_big)
+
+
+def _parse_size(text, what="--max-preview"):
+    """把 20M / 512K / 2G / 20971520 / 0 解析成字节数；非法则抛 ValueError。"""
+    raw = text.strip().lower().replace("_", "")
+    if not raw:
+        raise ValueError("%s 需要一个大小" % what)
+    # 一次匹配「数字 + 可选单位」，单位接受 b/k/kb/kib/m/mb/mib/g/gb/gib
+    match = re.match(r"^([0-9]*\.?[0-9]+)\s*(b|k|kb|kib|m|mb|mib|g|gb|gib)?$", raw)
+    if not match:
+        raise ValueError("%s 无法解析: %s" % (what, text))
+    number, unit = match.group(1), match.group(2) or ""
+    mult = {"": 1, "b": 1,
+            "k": 1024, "kb": 1024, "kib": 1024,
+            "m": 1024 ** 2, "mb": 1024 ** 2, "mib": 1024 ** 2,
+            "g": 1024 ** 3, "gb": 1024 ** 3, "gib": 1024 ** 3}[unit]
+    value = int(float(number) * mult)
+    if value < 0:
+        raise ValueError("%s 不能为负数: %s" % (what, text))
+    return value
+
+
+def _fmt_size(nbytes):
+    """字节数 -> 可读文本，用于横幅与报错。"""
+    for unit, scale in (("GiB", 1024 ** 3), ("MiB", 1024 ** 2), ("KiB", 1024)):
+        if nbytes >= scale:
+            value = nbytes / float(scale)
+            return ("%.0f %s" % (value, unit)) if value == int(value) else \
+                   ("%.1f %s" % (value, unit))
+    return "%d B" % nbytes
 
 
 # ============================================================================
@@ -1709,6 +1790,7 @@ class Config(object):
         self.root = os.getcwd()
         self.safe = False
         self.search = True
+        self.max_preview = DEFAULT_MAX_PREVIEW   # 0 = 不限制
 
 
 CFG = Config()
@@ -1754,23 +1836,32 @@ class Handler(BaseHTTPRequestHandler):
         if self.command != "HEAD":
             self.wfile.write(body)
 
+    @staticmethod
+    def _too_big(path):
+        """超过 --max-preview 上限则不再预览（默认 20M；0 = 不限制）。"""
+        if not CFG.max_preview:
+            return False
+        try:
+            return os.path.getsize(path) > CFG.max_preview
+        except OSError:
+            return False
+
     def _send_file(self, path):
-        ext = os.path.splitext(path)[1].lower()
-        if _is_textual(path):
-            # 源码/配置类：显式按 UTF-8 文本发送（优先于 MIME 表里的 image/pdf 等）
-            ctype = MIME.get(ext, TEXT_MIME_DEFAULT)
-        else:
-            ctype = MIME.get(ext)
-            if ctype is None:
-                ctype = "application/octet-stream"
         try:
             size = os.path.getsize(path)
             fh = open(path, "rb")
         except OSError:
             self._send(HTTPStatus.NOT_FOUND, _error_page("404", "文件不存在"))
             return
+        # 先判大小：超过预览上限就一律改为下载（对 .md、图片、PDF 同样生效）
+        too_big = bool(CFG.max_preview) and size > CFG.max_preview
+        ctype, download = resolve_ctype(path, too_big=too_big)
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", ctype)
+        if download:
+            # 只写裸 attachment，不写 filename —— 浏览器用 URL 末段当文件名即可。
+            # （带非 ASCII 的 filename 会让 HTTP 头无法按 latin-1 编码而抛异常。）
+            self.send_header("Content-Disposition", "attachment")
         self.send_header("Content-Length", str(size))
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
@@ -1843,6 +1934,10 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         ext = os.path.splitext(abs_path)[1].lower()
+        # 超过预览上限：渲染视图与源码视图**都**改为下载，不留绕过的口子
+        if self._too_big(abs_path):
+            self._send_file(abs_path)
+            return
         if ext == MD_EXT and not raw:
             self._send(HTTPStatus.OK, self._markdown_page(abs_path, rel))
             return
@@ -1982,6 +2077,8 @@ def build_parser():
                    help="端口占用时向后尝试几个（默认 %d）" % PORT_TRIES)
     p.add_argument("--safe", action="store_true",
                    help="只服务 .md 与图片（png/jpg/gif/svg/webp/bmp/ico/avif），其余 404")
+    p.add_argument("--max-preview", metavar="SIZE", default=None,
+                   help="超过该大小的文件不再预览、改为下载（默认 20M；支持 512K/20M/2G；0=不限制）")
     p.add_argument("--no-search", action="store_true", help="关闭全文搜索页")
     p.add_argument("--version", action="version", version="mdview " + __version__)
     return p
@@ -2004,6 +2101,8 @@ def banner(host, port, cfg):
     print(" 可读范围   : %s" % exposure)
     print(" 搜索       : %s" % ("开启" if cfg.search else "关闭"))
     print(" 目录索引   : 分层浏览（首页只列当前层）")
+    print(" 预览上限   : %s" % ("不限制" if not cfg.max_preview
+                                else "%s（超过则改为下载）" % _fmt_size(cfg.max_preview)))
     if not cfg.safe and host in ("0.0.0.0", "::", ""):
         print("-" * 68)
         print(" ⚠ 局域网内任何人都能读取上述目录下的全部文件（含隐藏文件）。")
@@ -2072,6 +2171,11 @@ def main(argv=None):
     root = os.path.abspath(args.root or os.getcwd())
     if not os.path.isdir(root):
         raise SystemExit("--root 不是目录: %s" % root)
+    if args.max_preview is not None:
+        try:
+            CFG.max_preview = _parse_size(args.max_preview)
+        except ValueError as exc:
+            raise SystemExit("参数错误: %s" % exc)
     CFG.root = root
     CFG.safe = args.safe
     CFG.search = not args.no_search
