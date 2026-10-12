@@ -244,6 +244,18 @@ chk "源码文件字节原样"       "$PY_SERVED" "$PY_LOCAL"
 { kill "$SRC_PID" 2>/dev/null; wait "$SRC_PID" 2>/dev/null; }
 rm -rf "$SRCDIR"
 
+echo "== 代码块复制按钮（JS 注入，不产生死按钮） =="
+CB2="$(curl -s "$BASE/guide/code-blocks.md")"
+chk "页面内联了脚本"            "$CB2" 'createElement("button")'
+chk "有 Clipboard API 路径"     "$CB2" 'navigator.clipboard'
+chk "有 http 下的兜底路径"      "$CB2" 'execCommand'
+chk "有悬停显示样式"            "$CB2" '.codeblock:hover .copybtn'
+chk "触屏常显规则"              "$CB2" '@media (hover:none)'
+# 关键：按钮不能出现在 HTML 里（否则禁用 JS 时是个点了没反应的死按钮）
+nchk "HTML 里没有硬编码按钮"    "$CB2" 'class="copybtn"'
+# 没有代码块的页面也必须能正常渲染（脚本不能报错）
+chk "目录索引仍正常"            "$(curl -s -o /dev/null -w '%{http_code}' "$BASE/")" '200'
+
 echo "== 参数开关（另起临时实例） =="
 { kill "$SERVER_PID" 2>/dev/null; wait "$SERVER_PID" 2>/dev/null; } ; sleep 0.3
 

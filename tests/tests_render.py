@@ -269,6 +269,44 @@ class TestRewrites(unittest.TestCase):
         self.assertIn('href="#锚"', r("[x](#锚)"))
 
 
+class TestCopyButton(unittest.TestCase):
+    """代码块复制按钮：由 JS 注入，基线（禁用 JS）下不能出现死按钮。"""
+
+    def test_page_includes_script_once(self):
+        out = m._page("t", "<p>x</p>")
+        self.assertEqual(out.count("<script>"), 1)
+        self.assertIn("</script>", out)
+
+    def test_button_is_injected_not_hardcoded(self):
+        """按钮必须由 JS 创建 —— HTML 里出现 .copybtn 就是死按钮。"""
+        page = m._page("t", m.render_markdown("```python\nx = 1\n```"))
+        self.assertNotIn('class="copybtn"', page)
+        self.assertIn('createElement("button")', page)
+        self.assertIn('className = "copybtn"', page)
+
+    def test_clipboard_paths_covered(self):
+        """必须同时有 Clipboard API 与 http 场景的 execCommand 兜底。"""
+        page = m._page("t", "")
+        self.assertIn("navigator.clipboard", page)
+        self.assertIn("isSecureContext", page)
+        self.assertIn("execCommand", page)
+
+    def test_extracts_rendered_text_from_code(self):
+        """复制的内容取自 pre>code 的 innerText，不含按钮自身文字。"""
+        page = m._page("t", "")
+        self.assertIn('querySelector("pre > code")', page)
+        self.assertIn("innerText", page)
+        # 反馈文案存在，且复制按钮有 aria 标签（可访问性）
+        self.assertIn("aria-label", page)
+
+    def test_css_has_hover_and_touch_rules(self):
+        page = m._page("t", "")
+        self.assertIn(".copybtn", page)
+        self.assertIn(".codeblock:hover .copybtn", page)
+        self.assertIn("@media (hover:none)", page)   # 触屏无 hover，需要常显
+        self.assertIn("@media print{.copybtn{display:none}}", page)
+
+
 class TestTextExtensions(unittest.TestCase):
     """源码/配置类文件必须按 UTF-8 文本发送，否则中文乱码或直接下载。
 

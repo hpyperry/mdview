@@ -5,8 +5,8 @@
 
 | 项目 | 命令 | 结果 |
 |------|------|------|
-| 渲染器单元测试 | `python3 tests/tests_render.py` | **50 项全部通过**（`Ran 50 tests ... OK`） |
-| 端到端 HTTP 验证 | `bash tests/selftest.sh` | **119 项断言全部通过**（`PASS=119 FAIL=0`） |
+| 渲染器单元测试 | `python3 tests/tests_render.py` | **55 项全部通过**（`Ran 55 tests ... OK`） |
+| 端到端 HTTP 验证 | `bash tests/selftest.sh` | **126 项断言全部通过**（`PASS=126 FAIL=0`） |
 | 语法兼容性 | `ast` 扫描 | 无 walrus / `match` / 3.9+ 独有语法 → 3.6+ 可运行 |
 | `--safe` | 见下 §3 | 只放行 `.md` 与图片，其余 404 |
 | `--no-search` | 见下 §3 | 路由与界面搜索框同时消失 |
@@ -35,7 +35,7 @@ OK
 
 ---
 
-## 2. 端到端 HTTP 验证（`bash tests/selftest.sh`，119 项）
+## 2. 端到端 HTTP 验证（`bash tests/selftest.sh`，126 项）
 
 脚本自己在 `127.0.0.1:8731` 起临时实例，跑完自动关闭。关键断言与实测：
 
@@ -125,7 +125,7 @@ OK
   ok   端口占用自动回退                  "端口 8739 不可用（Address already in use），尝试 8740…"
   ok   回退后端口可用                    http://127.0.0.1:8740/ -> 200
 
-PASS=119 FAIL=0
+PASS=126 FAIL=0
 全部通过 ✔
 ```
 
@@ -213,8 +213,8 @@ $ curl -s 'http://127.0.0.1:8731/../../../../etc/passwd' | grep -c 'root:'
 
 ```bash
 cd /Users/hpy/Documents/deepseek-harness/md-preview
-python3 tests/tests_render.py      # 50 项
-bash tests/selftest.sh             # 119 项（自动起停临时服务）
+python3 tests/tests_render.py      # 55 项
+bash tests/selftest.sh             # 126 项（自动起停临时服务）
 ```
 
 `tests/selftest.sh` 支持 `PORT=9000 bash tests/selftest.sh` 换端口；结束时打印
@@ -311,3 +311,31 @@ md-preview/
 验证：单元测试 50 项（+5：源码扩展名判定、`.ts` 非视频、无扩展名文件名、
 二进制仍为二进制、二进制表项未被影响）；端到端 119 项（+11：
 7 种源码文件的 charset、`.ts` 非视频、图片类型、字节 sha256 原样）。
+
+---
+
+## 11. 代码块复制按钮
+
+需求：给代码块加复制按钮。约束是**不破坏已有承诺**——零第三方依赖、禁用 JS 也能阅读。
+
+实现要点：
+
+| 设计 | 理由 |
+|------|------|
+| 按钮**由 JS 注入**，HTML 里没有 `.copybtn` | 禁用 JS 时不会出现"点了没反应"的死按钮（有断言盯住这一点） |
+| 纯原生 JS，内联进页面 | 不引外部文件、不发额外请求，符合零依赖 |
+| 文本取自 `pre > code` 的 `innerText` | 复制的是渲染后文本：不带高亮标签，也不含按钮自身文字（浏览器实测确认） |
+| `navigator.clipboard` + `execCommand` 双路径 | 内网多为 `http://`，非安全上下文没有 Clipboard API，必须兜底 |
+| 悬停显现、触屏常显、打印隐藏 | 不干扰阅读；`@media (hover:none)` 与 `@media print` 分别处理 |
+| 带 `aria-label` | 可访问性 |
+
+验证：
+
+- 浏览器内探针（`--dump-dom`）：2 个代码块都注入成功；`innerText` 含中文、
+  且**不含**"复制"二字（证明没把按钮文字一起复制）
+- `node --check` 通过内联 JS 语法检查
+- 无代码块的页面（目录索引、搜索结果）执行脚本无运行时错误，页面正常
+- 单元测试 55 项（+5：脚本只注入一次、HTML 无硬编码按钮、双剪贴板路径、
+  文本取法、悬停/触屏/打印样式）
+- 端到端 126 项（+7：内联脚本、Clipboard 路径、兜底路径、悬停样式、
+  触屏规则、HTML 无死按钮、目录索引仍正常）

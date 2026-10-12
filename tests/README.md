@@ -5,15 +5,15 @@
 
 | 文件 | 作用 | 命令 |
 |------|------|------|
-| `tests_render.py` | 渲染器回归测试（50 项，纯 `unittest`，不联网不起服务） | `python3 tests/tests_render.py` |
-| `selftest.sh` | 端到端 HTTP 冒烟测试（119 项断言，自己起临时服务、跑完自清理） | `bash tests/selftest.sh` |
+| `tests_render.py` | 渲染器回归测试（55 项，纯 `unittest`，不联网不起服务） | `python3 tests/tests_render.py` |
+| `selftest.sh` | 端到端 HTTP 冒烟测试（126 项断言，自己起临时服务、跑完自清理） | `bash tests/selftest.sh` |
 
 ## 一套跑完
 
 ```bash
 # 在仓库根执行
-python3 tests/tests_render.py      # 50 项单元测试
-bash tests/selftest.sh             # 119 项端到端断言
+python3 tests/tests_render.py      # 55 项单元测试
+bash tests/selftest.sh             # 126 项端到端断言
 ```
 
 两个命令都是零依赖、可重复执行的，不需要 `pip install`。
@@ -29,6 +29,7 @@ bash tests/selftest.sh             # 119 项端到端断言
 列表嵌套与松紧、表格对齐、搜索文件名命中，等等。
 
 **`selftest.sh`** —— 真起服务、真发 HTTP：
+代码块的复制按钮必须由 JS 注入（HTML 里不能有硬编码的死按钮）；
 目录索引、渲染结果、`?raw=1` 源码视图的行锚点（并核对第 5 行内容与源文件一致）、
 子目录与图片相对路径、301 补斜杠、深度树、全文搜索分栏、断链检查（页面里每个
 `href`/`src` 逐个请求）、路径穿越不外泄、以及 `--safe` / `--no-search` /

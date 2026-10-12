@@ -37,6 +37,18 @@ class MarkdownView:
         return "\n".join(parts) or f"{len(paths)} files, {PI=}"
 ```
 
+### 1.1.1 复制按钮
+
+每个代码块右上角有一个「复制」按钮（鼠标悬停显现；触屏设备常显）。
+点击后按钮短暂变成「已复制」，复制的是**渲染后的代码文本**——不含高亮标签、
+也不含按钮自己的文字。
+
+按钮是**由脚本注入**的：禁用 JavaScript 时页面上不会出现一个点了没反应的死按钮，
+代码依然可以正常阅读和手动选择复制。
+
+> 如果你在 `http://` 下访问（内网常见），`navigator.clipboard` 因非安全上下文不可用，
+> 脚本会自动回落到 `document.execCommand("copy")`，功能不受影响。
+
 ### 1.2 JavaScript / TypeScript（`javascript` `js` `typescript` `ts`）
 
 期望：模板字符串、箭头函数、`const`/`let`/`async` 着色。

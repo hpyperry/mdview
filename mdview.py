@@ -11,7 +11,8 @@
 
 设计约束（来自需求评审）:
     * 严格零第三方依赖：只用 stdlib（http.server / socketserver / re / html / urllib.parse / argparse）。
-    * 服务端渲染：Markdown -> HTML 在 Python 侧完成，页面无需任何 JS 即可阅读。
+    * 服务端渲染：Markdown -> HTML 在 Python 侧完成，**禁用 JS 也能正常阅读**。
+      唯一的 JS 是代码块的复制按钮，由脚本注入（无 JS 时不会出现死按钮）。
     * 默认 0.0.0.0 + 任意文件可读：等同于一个好看一点的静态文件服务器；启动 banner 会
       显式打印真实暴露范围。需要收紧时用 --safe。
     * 路径穿越防护：解决后的路径必须仍在 root 内，否则 403。
@@ -212,6 +213,17 @@ mark{background:var(--mark);color:var(--markfg);border-radius:3px;padding:0 2px}
 .codeblock .codehdr:empty{display:none}
 .codeblock pre{margin:0;border:0;border-radius:0;background:var(--soft)}
 .codeblock pre code{background:none;border:0;padding:0;font-size:.86em}
+/* 复制按钮：由 JS 注入，所以基线（禁用 JS）下页面上不会出现死按钮 */
+.codeblock{position:relative}
+.copybtn{position:absolute;top:6px;right:6px;z-index:1;
+  background:var(--soft);color:var(--muted);border:1px solid var(--line);
+  border-radius:6px;padding:2px 9px;font-size:12px;line-height:1.7;cursor:pointer;
+  font-family:inherit;opacity:0;transition:opacity .12s}
+.codeblock:hover .copybtn,.copybtn:focus{opacity:1}
+.copybtn.done{color:#1a7f37;border-color:#1a7f37}
+.copybtn.bad{color:var(--t-kw);border-color:var(--t-kw)}
+@media (hover:none){.copybtn{opacity:1}}     /* 触屏没有 hover，常显 */
+@media print{.copybtn{display:none}}
 .kw{color:var(--t-kw)} .str{color:var(--t-str)} .com{color:var(--t-com);font-style:italic}
 .num{color:var(--t-num)} .fn{color:var(--t-fn)} .op{color:var(--t-op)}
 .dirlist{list-style:none;padding:0;margin:0}
@@ -250,6 +262,54 @@ pre.rawsrc .srcline:target{background:var(--mark);color:var(--markfg);
 # SECTION 3  TEMPLATES
 # ============================================================================
 
+COPY_JS = """
+(function () {
+  var LABEL = "\u590d\u5236", DONE = "\u5df2\u590d\u5236", FAIL = "\u5931\u8d25";
+  function flash(btn, text, cls) {
+    btn.textContent = text; btn.classList.remove("done", "bad");
+    if (cls) btn.classList.add(cls);
+    setTimeout(function () {
+      btn.textContent = LABEL; btn.classList.remove("done", "bad");
+    }, 1500);
+  }
+  function fallback(text) {                 // http 下没有 navigator.clipboard
+    var ta = document.createElement("textarea");
+    ta.value = text;
+    ta.setAttribute("readonly", "");
+    ta.style.cssText = "position:fixed;top:-1000px;opacity:0";
+    document.body.appendChild(ta);
+    ta.select();
+    var ok = false;
+    try { ok = document.execCommand("copy"); } catch (e) { ok = false; }
+    document.body.removeChild(ta);
+    return ok;
+  }
+  document.addEventListener("click", function (ev) {
+    var btn = ev.target.closest ? ev.target.closest(".copybtn") : null;
+    if (!btn) return;
+    var block = btn.closest(".codeblock");
+    var code = block && block.querySelector("pre > code");
+    if (!code) return;
+    var text = code.innerText;              // 取渲染后的文本，不含按钮自身
+    function ok(flag) { flash(btn, flag ? DONE : FAIL, flag ? "done" : "bad"); }
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(text).then(function () { ok(true); },
+        function () { ok(fallback(text)); });
+    } else {
+      ok(fallback(text));
+    }
+  });
+  document.querySelectorAll(".codeblock").forEach(function (block) {
+    var btn = document.createElement("button");
+    btn.type = "button"; btn.className = "copybtn";
+    btn.textContent = LABEL;
+    btn.setAttribute("aria-label", "\u590d\u5236\u4ee3\u7801");
+    block.appendChild(btn);
+  });
+})();
+"""
+
+
 def _page(title, body, nav_right="", show_search=True, search_q="", depth_nav=""):
     """包一层完整 HTML 页面。样式内联，页面零额外请求。"""
     search = ""
@@ -265,8 +325,8 @@ def _page(title, body, nav_right="", show_search=True, search_q="", depth_nav=""
         "<title>%s</title>\n<style>%s</style>\n</head>\n<body>\n<div class=\"wrap\">\n"
         "<header class=\"bar\"><a class=\"brand\" href=\"/\">mdview</a>"
         "%s<div class=\"spacer\"></div>%s%s</header>\n"
-        "%s\n</div>\n</body>\n</html>\n"
-    ) % (html.escape(title), CSS, depth_nav, search, nav_right, body)
+        "%s\n</div>\n<script>%s</script>\n</body>\n</html>\n"
+    ) % (html.escape(title), CSS, depth_nav, search, nav_right, body, COPY_JS)
 
 
 def _crumbs(rel_path):

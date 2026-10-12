@@ -18,7 +18,7 @@ python3 mdview.py --root docs          # 打开 http://127.0.0.1:8000/
 |------|----------|------------|------|
 | 打包 marked.js / markdown-it | 40–100 KB JS | 一次性内置后可用 | 解析最全，但引入第三方代码，内网审计麻烦 |
 | 浏览器端内联 mini-markdown | 6–8 KB JS | 可用 | 页面能看，但解析能力受自研限制 |
-| **服务端 Python 渲染（本方案）** | **0 额外文件** | **天然可用** | 页面无需 JS，任何浏览器/手机都能看 |
+| **服务端 Python 渲染（本方案）** | **0 额外文件** | **天然可用** | 禁用 JS 也能阅读，任何浏览器/手机都能看 |
 
 本方案选了第三条：**服务端渲染**，所以交付目录里除了自己写的源码，没有任何第三方文件，
 `pip` 也不需要联网。
@@ -74,6 +74,7 @@ python3 mdview.py --root docs --safe
 | 行内代码 | 单反引号与多反引号定界（`` `a**b**c` `` 里的 `**` 不会被解析） |
 | 反斜杠转义 | `\*`、`` \` ``、`\[` 等，渲染为带虚线标记的字面字符 |
 | 围栏代码块 | ``` 与 ~~~，可带语言标识；内容一律不解析 Markdown |
+| 代码块复制 | 每个代码块右上角有「复制」按钮：纯原生 JS、无依赖，内联进页面（不发额外请求）。按钮**由脚本注入**，所以禁用 JS 时页面里不会出现点了没反应的死按钮；`http://` 下没有 `navigator.clipboard` 时自动回落到 `execCommand` |
 | 代码高亮 | 内置 **17 种**：Python / JS / TS / Go / Rust / Java / C / C++ / Shell / SQL / JSON / YAML / TOML / INI / Makefile / **Dockerfile** / **Docker Compose**。**只有带语言标识的围栏才高亮**；标识未知时退化为通用规则（注释/字符串/数字着色）；不写语言或写 `text`/`plaintext`/`txt` 则整块素色。Dockerfile、Makefile、INI 按**大小写不敏感**匹配 |
 | 列表 | 有序/无序，任意层级嵌套；有序列表支持 `start`（`4.` 开头就输出 `<ol start="4">`） |
 | 任务列表 | `- [ ]` / `- [x]` → 禁用的 checkbox |
@@ -205,8 +206,8 @@ md-preview/
 ├─ README.md            # 本文
 ├─ SELFTEST.md          # 验证结果与缺陷修复台账
 ├─ tests/               # 测试（见 tests/README.md）
-│  ├─ tests_render.py   #   渲染器回归测试（50 项，纯 unittest）
-│  └─ selftest.sh       #   端到端 HTTP 冒烟测试（119 项断言）
+│  ├─ tests_render.py   #   渲染器回归测试（55 项，纯 unittest）
+│  └─ selftest.sh       #   端到端 HTTP 冒烟测试（126 项断言）
 └─ docs/                # 示例语料：表格/任务列表/嵌套列表/代码块/相对链接/图片
 ```
 
@@ -215,8 +216,8 @@ md-preview/
 ## 8. 测试
 
 ```bash
-python3 tests/tests_render.py      # 渲染器单元测试：50 项
-bash tests/selftest.sh             # 端到端 HTTP 验证：119 项断言
+python3 tests/tests_render.py      # 渲染器单元测试：55 项
+bash tests/selftest.sh             # 端到端 HTTP 验证：126 项断言
 ```
 
 三者都是零依赖、可重复执行的。`tests/selftest.sh` 会在 `127.0.0.1:8731` 起一个临时实例，
