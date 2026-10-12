@@ -39,7 +39,10 @@ SECTION 导航（本文件按功能分块；每块的标题就是唯一标识，
     * 单层目录不限制条目数，大目录索引可能较慢。
     * 超过 --max-preview（默认 20 MiB）的文件不再预览，改为下载（对 .md、
       图片、PDF 等一切类型生效）；未超限的文本非 UTF-8 用 errors="replace" 解码。
-    * 无扩展名文件按开头 512 字节判文本/二进制（只看有没有 NUL，与 VS Code 同法）。
+    * 文件类型三层判定：白名单（源码/配置，不读文件）-> 内置 MIME 表（图片/PDF…）
+      -> 内容嗅探兜底（看开头 512 字节有无 NUL，与 VS Code 同法）。
+      所以**没登记过的文本文件也能预览**；代价是前 512 字节无 NUL 的二进制
+      （纯 ASCII 头的 tar、改名的 PNG、本质是 ZIP 的 docx）会显示乱码而不是下载。
     * 强制下载时用 filename + filename* 双写给出文件名（RFC 6266/5987）。
     * 隐藏目录（.git / .svn / node_modules 等）不进索引与搜索，但仍可直接按 URL 访问。
     * 只有 .md 被特殊处理；源码/配置类文本按 text/plain; charset=utf-8 发送，
@@ -212,23 +215,33 @@ def _is_binary(path, nbytes=BINARY_SNIFF_BYTES):
 def resolve_ctype(path, force_download=False):
     """决定响应的 Content-Type。返回 (类型, 是否附加强制下载头)。
 
-    优先级（前者优先）：
-      1. 源码/配置类扩展名或文件名 -> text/plain; charset=utf-8
-      2. 内置 MIME 表（图片/PDF/HTML…）
-      3. 无扩展名 -> 嗅探开头 512 字节：有 NUL 判二进制，否则按文本
-      4. 其余 -> application/octet-stream（浏览器自然下载）
+    三层，各自管一段（缺一不可）：
+
+      1. **白名单**（`_is_textual`）：源码/配置类扩展名与文件名 -> text/plain。
+         它不读文件、零开销，且给出比嗅探更准的类型（`text/plain` 而不是
+         猜出来的二进制判定），所以**继续维护它是有价值的**。
+      2. **内置 MIME 表**：已知格式的准确类型（图片/PDF/JSON/XML…）。
+         它是 PDF 能被内联显示的**唯一**原因 —— PDF 前 512 字节几乎是
+         纯 ASCII、没有 NUL，嗅探会把它判成文本。
+      3. **内容嗅探**（`_is_binary`，只看开头 512 字节有无 NUL）：
+         前两层都没意见时兜底。于是 `weird.random`、`.plist`、任何没列进
+         白名单的文本文件都能预览，不必逐个登记。
+
+    已知代价（有意的）：**前 512 字节里没有 NUL 的二进制文件**会被判成文本，
+    例如纯 ASCII 头的 `.tar`、改名成 `.bak` 的 PNG、`.docx`/`.xlsx`
+    （它们本质是 ZIP，头 512 字节可能全是 ASCII）。这类会显示乱码而不是下载。
+    这是"让未知文本自动可预览"必须付的代价，已在测试里显式记录。
 
     force_download=True 时（超过预览上限，或用户点了下载按钮）**保留上面算出的
     准确类型**，只额外要求强制下载 —— 不把类型退化成 octet-stream。
     """
     ext = os.path.splitext(path)[1].lower()
     if _is_textual(path):
-        ctype = MIME.get(ext, TEXT_MIME_DEFAULT)
+        ctype = MIME.get(ext, TEXT_MIME_DEFAULT)       # 第 1 层：白名单
     elif ext in MIME:
-        ctype = MIME[ext]
-    elif not ext and not _is_binary(path):
-        # 无扩展名且开头无 NUL -> 当文本（.git/HEAD 这类）
-        ctype = TEXT_MIME_DEFAULT
+        ctype = MIME[ext]                              # 第 2 层：MIME 表
+    elif not _is_binary(path):
+        ctype = TEXT_MIME_DEFAULT                      # 第 3 层：嗅探判为文本
     else:
         ctype = BINARY_MIME
     # 需要强制下载时仍保留上面算出的准确类型（不退化成 octet-stream）

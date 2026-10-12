@@ -560,6 +560,71 @@ chk "pom.xml 仍是 XML"        "$(printf '<a/>' > "$ECO/pom.xml"; curl -s -o /d
 { kill "$ECOPID" 2>/dev/null; wait "$ECOPID" 2>/dev/null; }
 rm -rf "$ECO"
 
+echo "== 第三层兜底：没登记过的文本也能预览（嗅探）=="
+SN="$(mktemp -d -t mdview-sniff)"
+printf '纯文本，无 NUL\n' > "$SN/weird.random"
+printf 'another unknown ext\n' > "$SN/notes.xyz"
+printf '<?xml version="1.0"?><plist/>\n' > "$SN/x.plist"
+printf 'no extension text\n' > "$SN/noext_plain"
+printf 'header\x00\x01binary' > "$SN/blob.dat"
+printf 'header\x00\x01binary' > "$SN/noext_binary"
+printf '\x89PNG\r\n\x1a\n' > "$SN/fake.png"
+printf 'x\x00\x00' > "$SN/weird.py"
+SNPID="$(serve_root "$((PORT+13))" "$SN")"; SNB="http://127.0.0.1:$((PORT+13))"
+chk "未知扩展名文本 -> 预览"   "$(curl -s -o /dev/null -w '%{content_type}' "$SNB/weird.random")" 'text/plain; charset=utf-8'
+chk "另一个未知扩展名"        "$(curl -s -o /dev/null -w '%{content_type}' "$SNB/notes.xyz")" 'text/plain; charset=utf-8'
+chk "文本 .plist -> 预览"     "$(curl -s -o /dev/null -w '%{content_type}' "$SNB/x.plist")" 'text/plain; charset=utf-8'
+chk "无扩展名文本 -> 预览"    "$(curl -s -o /dev/null -w '%{content_type}' "$SNB/noext_plain")" 'text/plain; charset=utf-8'
+chk "未知扩展名含 NUL -> 下载" "$(curl -s -o /dev/null -w '%{content_type}' "$SNB/blob.dat")" 'application/octet-stream'
+chk "无扩展名含 NUL -> 下载"  "$(curl -s -o /dev/null -w '%{content_type}' "$SNB/noext_binary")" 'application/octet-stream'
+# 前两层优先：白名单即使内容含 NUL 也按文本；MIME 表保住图片类型
+chk "白名单优先（含 NUL 的 .py）" "$(curl -s -o /dev/null -w '%{content_type}' "$SNB/weird.py")" 'text/plain; charset=utf-8'
+chk "MIME 表优先（.png 类型不变）" "$(curl -s -o /dev/null -w '%{content_type}' "$SNB/fake.png")" 'image/png'
+{ kill "$SNPID" 2>/dev/null; wait "$SNPID" 2>/dev/null; }
+rm -rf "$SN"
+
+# 基线回归：对着**真实服务**逐个核对各类文件的 Content-Type 判定，
+# 确保"加嗅探兜底"没有改变已登记类型的既有行为。
+echo "== 基线回归：已登记类型的判定不变 =="
+BR="$(mktemp -d -t mdview-base)"
+printf '# 标题\n' > "$BR/a.md"
+printf 'x = 1\n' > "$BR/a.py"
+printf 'plain\n' > "$BR/a.txt"
+printf '{}\n' > "$BR/a.json"
+printf '<a/>\n' > "$BR/a.xml"
+printf 'a,b\n' > "$BR/a.csv"
+printf 'k: v\n' > "$BR/a.yaml"
+printf 'k=1\n' > "$BR/a.ini"
+printf 'x\n' > "$BR/a.log"
+printf '\x89PNG\r\n\x1a\n' > "$BR/a.png"
+printf 'GIF89a\n' > "$BR/a.gif"
+printf '%%PDF-1.4\n' > "$BR/a.pdf"
+printf '<svg/>\n' > "$BR/a.svg"
+printf 'body{}\n' > "$BR/a.css"
+printf 'var a=1;\n' > "$BR/a.js"
+printf '# 中文\nall:\n' > "$BR/Makefile"
+printf 'FROM x\n' > "$BR/Dockerfile"
+BRPID="$(serve_root "$((PORT+14))" "$BR")"; BRB="http://127.0.0.1:$((PORT+14))"
+chk "基线 .md 渲染"        "$(curl -s -o /dev/null -w '%{content_type}' "$BRB/a.md")" 'text/html; charset=utf-8'
+chk "基线 .py 文本"        "$(curl -s -o /dev/null -w '%{content_type}' "$BRB/a.py")" 'text/plain; charset=utf-8'
+chk "基线 .txt 文本"       "$(curl -s -o /dev/null -w '%{content_type}' "$BRB/a.txt")" 'text/plain; charset=utf-8'
+chk "基线 .json 类型"      "$(curl -s -o /dev/null -w '%{content_type}' "$BRB/a.json")" 'application/json; charset=utf-8'
+chk "基线 .xml 类型"       "$(curl -s -o /dev/null -w '%{content_type}' "$BRB/a.xml")" 'application/xml; charset=utf-8'
+chk "基线 .csv 文本"       "$(curl -s -o /dev/null -w '%{content_type}' "$BRB/a.csv")" 'text/plain; charset=utf-8'
+chk "基线 .yaml 文本"      "$(curl -s -o /dev/null -w '%{content_type}' "$BRB/a.yaml")" 'text/plain; charset=utf-8'
+chk "基线 .ini 文本"       "$(curl -s -o /dev/null -w '%{content_type}' "$BRB/a.ini")" 'text/plain; charset=utf-8'
+chk "基线 .log 文本"       "$(curl -s -o /dev/null -w '%{content_type}' "$BRB/a.log")" 'text/plain; charset=utf-8'
+chk "基线 .png 图片"       "$(curl -s -o /dev/null -w '%{content_type}' "$BRB/a.png")" 'image/png'
+chk "基线 .gif 图片"       "$(curl -s -o /dev/null -w '%{content_type}' "$BRB/a.gif")" 'image/gif'
+chk "基线 .pdf 类型"       "$(curl -s -o /dev/null -w '%{content_type}' "$BRB/a.pdf")" 'application/pdf'
+chk "基线 .svg 图片"       "$(curl -s -o /dev/null -w '%{content_type}' "$BRB/a.svg")" 'image/svg+xml'
+chk "基线 .css 文本"       "$(curl -s -o /dev/null -w '%{content_type}' "$BRB/a.css")" 'text/css; charset=utf-8'
+chk "基线 .js 类型"        "$(curl -s -o /dev/null -w '%{content_type}' "$BRB/a.js")" 'text/javascript; charset=utf-8'
+chk "基线 Makefile 文本"   "$(curl -s -o /dev/null -w '%{content_type}' "$BRB/Makefile")" 'text/plain; charset=utf-8'
+chk "基线 Dockerfile 文本" "$(curl -s -o /dev/null -w '%{content_type}' "$BRB/Dockerfile")" 'text/plain; charset=utf-8'
+{ kill "$BRPID" 2>/dev/null; wait "$BRPID" 2>/dev/null; }
+rm -rf "$BR"
+
 echo "== 参数开关（另起临时实例） =="
 
 { kill "$SERVER_PID" 2>/dev/null; wait "$SERVER_PID" 2>/dev/null; } ; sleep 0.3

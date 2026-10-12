@@ -6,7 +6,7 @@
 | 项目 | 命令 | 结果 |
 |------|------|------|
 | 渲染器单元测试 | `python3 tests/tests_render.py` | **119 项全部通过**（`Ran 85 tests ... OK`） |
-| 端到端 HTTP 验证 | `bash tests/selftest.sh` | **198 项断言全部通过**（`PASS=249 FAIL=0`） |
+| 端到端 HTTP 验证 | `bash tests/selftest.sh` | **198 项断言全部通过**（`PASS=274 FAIL=0`） |
 | 语法兼容性 | `ast` 扫描 | 无 walrus / `match` / 3.9+ 独有语法 → 3.6+ 可运行 |
 | `--safe` | 见下 §3 | 只放行 `.md` 与图片，其余 404 |
 | `--no-search` | 见下 §3 | 路由与界面搜索框同时消失 |
@@ -124,7 +124,7 @@ OK
   ok   端口占用自动回退                  "端口 8739 不可用（Address already in use），尝试 8740…"
   ok   回退后端口可用                    http://127.0.0.1:8740/ -> 200
 
-PASS=249 FAIL=0
+PASS=274 FAIL=0
 全部通过 ✔
 ```
 
@@ -858,3 +858,69 @@ ECONNRESET 会冒泡给 `socketserver.handle_error`，每个 RST 打一整段回
 - **基线回归**：把仓库现有 73 个文件的 `resolve_ctype` 结果做成快照，
   扩容前后**逐条比对，改变数 = 0**
 - 压缩版已同步重新生成
+
+---
+
+## 21. 类型判定改为三层：白名单 + MIME 表 + 嗅探兜底
+
+用户提议："已经有判断二进制文件的方法了，为什么还要搞白名单？不如全都按这个判断。"
+
+### 先测量，再决定
+
+**嗅探的规则极窄**：只读开头 512 字节、只看有没有 NUL。所以它有确定的盲区，
+实测出来的反例：
+
+| 文件 | 前 512 字节有 NUL？ | 单靠嗅探 |
+|------|-------------------|---------|
+| `real.pdf`（真实 PDF） | **没有** | 判成文本 → 无法内联显示 PDF |
+| `doc.docx` / `sheet.xlsx` | 没有 | 判成文本 |
+| 纯 ASCII 头的 `backup.tar` | 没有 | 判成文本 |
+| 改名成 `.bak` 的 PNG | 没有 | 判成文本 |
+
+`real.pdf` 是关键证据：**PDF 能正确内联，靠的是 MIME 表那条显式声明，不是嗅探。**
+
+反过来嗅探也能修正扩展名的错：`audio.mod`（音频）被判二进制、
+`.plist`（XML 文本）能预览、任何没登记过的文本文件都能预览。
+
+### 结论：三者不是替代关系
+
+| 手段 | 管什么 | 单靠它漏什么 |
+|------|--------|-------------|
+| 白名单 | 源码/配置 → `text/plain`；**不读文件** | 要维护；但只是"默认值"问题 |
+| MIME 表 | 已知格式的**准确类型** | 只认识 23 种 |
+| 嗅探 | 前两层没意见时兜底 | 头 512 字节无 NUL 的二进制会显示乱码 |
+
+### 最终实现（用户选的方案 A）
+
+    def resolve_ctype(path):
+        if _is_textual(path):          # 1. 白名单（不读文件）
+            ctype = MIME.get(ext, TEXT_MIME_DEFAULT)
+        elif ext in MIME:              # 2. MIME 表
+            ctype = MIME[ext]
+        elif not _is_binary(path):     # 3. 嗅探兜底
+            ctype = TEXT_MIME_DEFAULT
+        else:
+            ctype = BINARY_MIME
+
+**白名单继续维护**（用户明确要求）—— 它换来两件事：不读文件的零开销，
+以及比嗅探更准的类型（`text/plain` 而不是猜出来的判定）。
+
+### 新增能力与已知代价
+
+新增：任何没登记过的文本文件都能预览（`weird.random`、`notes.xyz`、
+文本 `.plist`、无扩展名文本）。
+
+**已知代价（显式记录，不要当 bug 反复"修"）**：前 512 字节无 NUL 的二进制
+会被判成文本、显示乱码而不是下载。测试里用 `test_known_tradeoff_*` 把这个
+行为**钉住**，并断言这段说明必须留在 `resolve_ctype` 的 docstring 里。
+
+### 验证
+
+- 单元 127 项（+8）：未登记文本可预览、文本 `.plist`、含 NUL 的未登记文件仍下载、
+  白名单优先（含 NUL 的 `.py` 仍按文本）、**MIME 表优先（PDF 无 NUL 仍内联）**、
+  图片类型不变、已知代价三条、docstring 必须写明代价
+- 端到端 274 项（+25）：真实服务上逐项核对第三层行为，
+  外加 **17 项基线回归**（`.md/.py/.txt/.json/.xml/.csv/.yaml/.ini/.log/.png/`
+  `.gif/.pdf/.svg/.css/.js/Makefile/Dockerfile` 的判定必须一字不变）
+- 过程中发现并修掉一处**自己的问题**：我一度加了一条 do-nothing 的
+  "基线回归占位"断言（循环体是空的），那等于假测试，已替换为真实断言

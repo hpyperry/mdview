@@ -17,6 +17,7 @@ import unittest
 # mdview.py 在仓库根（本文件位于 tests/），把它加入 sys.path。
 # MDVIEW_FILE 可用于指向别处的同名实现（例如压缩版），校验行为一致：
 #   MDVIEW_FILE=dist/mdview.min.py python3 tests/tests_render.py
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _ALT = os.environ.get("MDVIEW_FILE")
 if _ALT:
     import importlib.util as _ilu
@@ -474,6 +475,105 @@ class TestParentLinkAtRootBoundary(unittest.TestCase):
 
     def test_parent_link_empty_at_root(self):
         self.assertEqual(m.Handler._parent_link(""), "")
+
+
+class TestSniffingFallback(unittest.TestCase):
+    """第三层：前两层（白名单 / MIME 表）都没意见时，用内容嗅探兜底。
+
+    这让"没登记过的文本文件"自动可预览，代价是"前 512 字节无 NUL 的二进制"
+    会被当成文本（下面 test_known_tradeoff_* 显式记录这一点）。
+    """
+
+    def setUp(self):
+        self.d = tempfile.mkdtemp()
+
+    def tearDown(self):
+        shutil.rmtree(self.d, ignore_errors=True)
+
+    def _write(self, name, data):
+        p = os.path.join(self.d, name)
+        with open(p, "wb") as fh:
+            fh.write(data)
+        return p
+
+    # ---- 新增能力：没登记过的文本也能预览 ----
+    def test_unregistered_text_previews(self):
+        for name in ("weird.random", "notes.xyz", "data.unknown", "x.plist",
+                     "a.bin", "no-extension-at-all"):
+            p = self._write(name, "纯文本内容，没有 NUL\n".encode())
+            ctype, download = m.resolve_ctype(p)
+            self.assertEqual(ctype, m.TEXT_MIME_DEFAULT,
+                             "%s 应当靠嗅探预览" % name)
+            self.assertFalse(download)
+
+    def test_plist_text_now_previews(self):
+        """XML 文本的 .plist 不再被下载 —— 嗅探修正了扩展名表的盲区。"""
+        p = self._write("x.plist",
+                        b'<?xml version="1.0"?>\n<plist><dict/></plist>\n')
+        self.assertEqual(m.resolve_ctype(p)[0], m.TEXT_MIME_DEFAULT)
+
+    def test_unregistered_binary_downloads(self):
+        for name in ("blob.dat", "x.qwerty", "noext"):
+            p = self._write(name, b"header\x00\x01\x02binary")
+            self.assertEqual(m.resolve_ctype(p)[0], m.BINARY_MIME,
+                             "%s 含 NUL，应当下载" % name)
+
+    # ---- 前两层优先：不能被嗅探抢走 ----
+    def test_whitelist_wins_over_sniffing(self):
+        """白名单命中就**不读文件**：即使内容里有 NUL 也按文本发。
+
+        这是白名单的价值之一（零开销 + 类型更准）。
+        """
+        p = self._write("weird.py", b"\x00\x00\x00")
+        self.assertEqual(m.resolve_ctype(p)[0], m.TEXT_MIME_DEFAULT)
+
+    def test_mime_table_wins_over_sniffing(self):
+        """PDF 前 512 字节几乎全是 ASCII、没有 NUL ——
+        嗅探会判成文本，只有 MIME 表能保住它内联显示。"""
+        # 用仓库根定位夹具，不能按 m.__file__ —— 被测文件可能位于 dist/
+        pdf_path = os.path.join(REPO_ROOT, "docs", "preview", "binary", "real.pdf")
+        with open(pdf_path, "rb") as fh:
+            pdf = fh.read()
+        p = self._write("doc.pdf", pdf)
+        self.assertFalse(m._is_binary(p), "前提：这个 PDF 确实没有 NUL")
+        self.assertEqual(m.resolve_ctype(p)[0], "application/pdf")
+
+    def test_image_types_unchanged(self):
+        for name, want in (("a.png", "image/png"), ("a.gif", "image/gif"),
+                           ("a.svg", "image/svg+xml"), ("a.pdf", "application/pdf")):
+            p = self._write(name, b"x")
+            self.assertEqual(m.resolve_ctype(p)[0], want)
+
+    # ---- 已知代价：显式记录，避免以后被当成 bug 反复"修" ----
+    def test_known_tradeoff_ascii_headed_binary_displays_as_text(self):
+        """前 512 字节无 NUL 的二进制会被判成文本（有意承担）。
+
+        例子：纯 ASCII 头的 tar、改名成 .bak 的 PNG、本质是 ZIP 的
+        .docx/.xlsx。它们会显示乱码而不是下载 —— 这是"未知文本自动可预览"
+        必须付的代价。
+        """
+        for name, data in (
+            ("photo.png.bak", b"\x89PNG\r\n\x1a\n" + b"x" * 200),
+            ("backup.tar", b"x" * 300),
+            ("doc.docx", b"PK\x03\x04" + b"word/document.xml" * 20),
+        ):
+            p = self._write(name, data)
+            self.assertEqual(m.resolve_ctype(p)[0], m.TEXT_MIME_DEFAULT,
+                             "前提变了：%s 现在不再被判为文本" % name)
+
+    def test_known_tradeoff_documented_in_module(self):
+        """这个代价必须写在被测实现的 resolve_ctype docstring 里。
+
+        对**被测文件本身**断言（而不是去读 mdview.py）—— 否则用
+        MDVIEW_FILE 指向别的实现时，这条断言永远在检查另一个文件，形同虚设。
+        压缩版刻意去掉所有 docstring，那条路径显式 skip，并说明原因。
+        """
+        doc = m.resolve_ctype.__doc__
+        if not doc:
+            self.skipTest("被测实现去掉了 docstring（压缩构建），"
+                          "该契约由源码 mdview.py 的测试覆盖")
+        self.assertIn("512", doc)
+        self.assertIn("代价", doc)
 
 
 class TestPathAndFileKind(unittest.TestCase):

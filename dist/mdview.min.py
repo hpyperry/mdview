@@ -101,7 +101,7 @@ def resolve_ctype(path, force_download=False):
         ctype = MIME.get(ext, TEXT_MIME_DEFAULT)
     elif ext in MIME:
         ctype = MIME[ext]
-    elif not ext and not _is_binary(path):
+    elif not _is_binary(path):
         ctype = TEXT_MIME_DEFAULT
     else:
         ctype = BINARY_MIME
