@@ -756,6 +756,25 @@ class TestImageZoom(unittest.TestCase):
         self.assertIn('setAttribute("stroke", "currentColor")', m.COPY_JS)
         self.assertNotIn('textContent = "\u00d7"', m.COPY_JS)   # 不再用字体字形
 
+    def test_open_focus_lands_on_the_dialog_not_the_button(self):
+        """打开后的初始焦点必须落在遮罩自己，不能落在 × 上。
+
+        showModal() 会把焦点送给 dialog 里第一个可聚焦元素 —— 那颗 ×。上一轮交互若是
+        键盘（例如刚用 Esc 关过一次），这次**程序化**聚焦就会命中 `:focus-visible`：
+        再打开时按钮带着一圈白边，看起来像被"选中"了（用户报告，SELFTEST §31）。
+        修法是给遮罩 `tabindex="-1"` 并在 showModal() 之后把焦点收回来。
+        注意不能为了消白边把键盘焦点指示一起删掉 —— 按 Tab 走到 × 时那圈白环照旧要有。
+        """
+        self.assertIn("d.tabIndex = -1", m.COPY_JS)
+        self.assertIn("zoom.showModal();", m.COPY_JS)
+        self.assertIn("zoom.focus();", m.COPY_JS)
+        # focus() 必须排在 showModal() 之后，否则会被 showModal() 的自动聚焦盖回去
+        self.assertLess(m.COPY_JS.index("zoom.showModal();"),
+                        m.COPY_JS.index("zoom.focus();"))
+        flat = re.sub(r"/\*.*?\*/", "", m.CSS, flags=re.S).replace(" ", "").replace("\n", "")
+        self.assertIn("dialog.zoomdlg:focus{outline:none}", flat)      # 遮罩不是控件
+        self.assertIn("dialog.zoomdlg.zoomclose:focus-visible{outline:2pxsolid#fff", flat)
+
     def test_no_dead_overlay_without_js(self):
         """基线 HTML 里不能有写死的遮罩/关闭按钮；它们全由那段 JS 创建。"""
         page = m._page("t", m.render_markdown("![x](p.png)"))

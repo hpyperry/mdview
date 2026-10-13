@@ -76,7 +76,13 @@
       log("labelledby", dlg.getAttribute("aria-labelledby"));
       log("aria_label", dlg.getAttribute("aria-label"));
       log("zoomlock", d.documentElement.classList.contains("zoomlock"));
-      log("focus_on_close", d.activeElement === dlg.querySelector(".zoomclose"));
+      // 打开后的初始焦点必须落在**遮罩自己**（tabindex="-1"），不能落在 × 上。
+      // showModal() 默认会聚焦 dialog 里第一个可聚焦元素（也就是 ×）；上一轮交互若是
+      // 键盘（比如刚用 Esc 关过一次），这次程序化聚焦就命中 :focus-visible，按钮带着
+      // 一圈白边，像被"选中"了（SELFTEST §31）。
+      log("open_focus_is_dialog", d.activeElement === dlg);
+      log("open_dialog_outline", w.getComputedStyle(dlg).outlineStyle);
+      log("dlg_tabindex", dlg.getAttribute("tabindex"));
       log("backdrop", w.getComputedStyle(dlg, "::backdrop").backgroundColor);
       log("fitted", Math.round(r.width) + "x" + Math.round(r.height) +
           " viewport=" + w.innerWidth + "x" + w.innerHeight +

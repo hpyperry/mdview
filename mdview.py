@@ -442,6 +442,10 @@ dialog.zoomdlg .zoomclose{position:absolute;top:8px;right:8px;width:34px;height:
 dialog.zoomdlg .zoomclose svg{display:block;width:24px;height:24px}
 dialog.zoomdlg .zoomclose:hover{background:rgb(0 0 0 / .8)}
 dialog.zoomdlg .zoomclose:focus-visible{outline:2px solid #fff;outline-offset:2px}
+/* 遮罩自己是 tabindex="-1" 的**焦点落脚点**（打开时把初始焦点从 × 收回来，见 COPY_JS）。
+   它是容器不是控件，不该画环 —— 否则 Esc 关过之后再打开，整块遮罩会套一圈焦点框。
+   真正的操作对象是 ×，那圈白环在上一条里。 */
+dialog.zoomdlg:focus{outline:none}
 /* 锁滚动：hidden 负责锁，scrollbar-gutter 负责别让滚动条槽位消失（否则整页右移） */
 html.zoomlock{overflow:hidden;scrollbar-gutter:stable}
 @media print{dialog.zoomdlg{display:none}}
@@ -606,6 +610,9 @@ COPY_JS = """
     var d = document.createElement("dialog"), big = document.createElement("img");
     var cap = document.createElement("p"), btn = document.createElement("button");
     d.className = "zoomdlg";
+    // 遮罩自己是打开时的**焦点落脚点**（见 showModal() 之后那次 focus()）：
+    // tabindex="-1" 让它可以被脚本聚焦、又不进 Tab 顺序。
+    d.tabIndex = -1;
     big.alt = "";
     cap.className = "zoomcap"; cap.id = "zoomcap";
     btn.type = "button"; btn.className = "zoomclose";
@@ -626,11 +633,9 @@ COPY_JS = """
     icon.appendChild(line);
     btn.appendChild(icon);
     btn.setAttribute("aria-label", "\u5173\u95ed\u653e\u5927\u89c6\u56fe");
-    // 不写 autofocus 也照样有焦点：showModal() 自己会把焦点给 dialog 里第一个
-    // 可聚焦元素（Chrome 实测就是这颗按钮），所以 autofocus 是多余的。
-    // 代价是按钮一打开就命中 :focus-visible、带着焦点环（看起来像"被按住"），
-    // 因此那圈 outline 在 CSS 里刻意写成白色 + offset，让它看起来是"焦点"
-    // 而不是默认控件的激活态（SELFTEST §27）。
+    // 不写 autofocus：showModal() 本来就会聚焦 dialog 里第一个可聚焦元素。但打开后的
+    // 初始焦点会被下面那次 zoom.focus() 收回遮罩本身 —— 所以"打开"这个动作不画焦点环，
+    // CSS 里那圈白色 outline 只服务于**用 Tab 走过来的**键盘用户（SELFTEST §31）。
     d.appendChild(big); d.appendChild(cap); d.appendChild(btn);
     btn.addEventListener("click", function () { d.close(); });
     // 点遮罩空白处关闭：::backdrop 上的点击 target 就是 dialog 自身。
@@ -670,6 +675,12 @@ COPY_JS = """
     zoomOpener = a;                             // 归还焦点要还给链接，见 close
     document.documentElement.classList.add("zoomlock");
     zoom.showModal();
+    // showModal() 会把焦点送给 dialog 里第一个可聚焦元素 —— 也就是 ×。上一轮交互
+    // 若是键盘（比如刚用 Esc 关过一次），这次**程序化**聚焦就会命中 :focus-visible：
+    // 再打开时那颗按钮带着一圈白边，看起来像被"选中"了（SELFTEST §31）。
+    // 把初始焦点收回到遮罩自己（buildZoom 里写了 tabindex="-1"）即可：焦点仍在 modal
+    // 内、Tab 第一步照样落到 × 上并显示焦点环，但"打开"这个动作本身不再画任何环。
+    zoom.focus();
   });
 })();
 """

@@ -100,6 +100,11 @@ python3 tools/minify.py                          # 改完 mdview.py 必须重新
   居中，且各字体偏得还不一样（22px 下 macOS 系统字体差 ~2.3px，Arial 几乎为零），
   写死任何 px 校正值都会在别的平台偏回去。两条对角线对称于 viewBox 中心，按钮 flex
   居中即可；`stroke` 走 `currentColor`，强制色彩模式下也不会被压没（SELFTEST §30）。
+- **遮罩的初始焦点落在遮罩自己，不要落在 × 上**：`showModal()` 会聚焦 dialog 里第一个
+  可聚焦元素（那颗 ×），而"上一轮交互是键盘"（比如刚用 Esc 关过）时，程序化聚焦会命中
+  `:focus-visible` —— 再打开就带一圈白边。写法是 `d.tabIndex = -1` +
+  `showModal()` 之后 `zoom.focus()`（顺序不能反），遮罩自身 `outline:none`；× 的
+  `:focus-visible` 白环要留着，那是键盘用户的焦点指示（SELFTEST §31）。
 - **压缩器只做三件语义安全的事**（删注释 / docstring / 空行），用 `tokenize` 定位，
   **字符串字面量里的空行必须保留**（`COPY_JS` 里有一个）。不要改成正则实现。
 - **浏览器侧验证用 `tools/zoom-probe.html`**：本机 Chrome 跑 `--dump-dom` 会挂着不退出，

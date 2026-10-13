@@ -1393,6 +1393,7 @@ closed_by_backdrop: true    still_one_dialog: 1      active_element_after_close:
 - 端到端 **320 -> 321 项**：新增「关闭按钮贴在图片上」
 - 截图重新生成 [`docs/media/screenshot-zoom.png`](docs/media/screenshot-zoom.png)
   （按钮已贴在图片右上角，带那圈白色焦点环）
+  （**§31 后再次重新生成**：初始焦点不再落在按钮上，白环只在按 Tab 走到它时出现）
 - 压缩版同步重新生成，两套检查对 `dist/mdview.min.py` 各跑一遍
 
 ## 28. 关闭动画把遮罩重排成一行：× 飞到视口右缘、图片名挤成右侧一列
@@ -1559,4 +1560,55 @@ line.setAttribute("stroke-width", "2");
   `COPY_JS` 必须画 SVG、`fill:none`、`stroke:currentColor`，且不再往按钮里写字形文本）
 - 端到端 **328 -> 332 项**：新增「关闭图标由 SVG 绘制 / 图标描边用 currentColor /
   关闭按钮 flex 居中 / 关闭图标 24×24」
+- 压缩版同步重新生成，两套检查对 `dist/mdview.min.py` 各跑一遍
+
+## 31. Esc 关过之后再打开，右上角的 × 带着白边：初始焦点不该落在按钮上
+
+**现象**（用户报告）："图片放大后，使用 ESC 关闭，再次打开后，右上角的关闭按钮竟然是有
+白边的选中状态。"
+
+**实测**（Chromium + CDP 派发**真实**鼠标/键盘事件，`docs/preview/index.md`）：
+
+| 步骤 | 修复前 | 修复后 |
+|---|---|---|
+| 鼠标点图打开 | `activeElement=BUTTON.zoomclose`，无白边 | `activeElement=DIALOG.zoomdlg`，无白边 |
+| Esc 关闭 | `A.zoom`（焦点还给包裹链接） | `A.zoom` |
+| **再点图打开** | `BUTTON.zoomclose`，**`:focus-visible` 命中 → 白边** | `DIALOG.zoomdlg`，**无白边** |
+| 再按 Tab | 焦点溜到 `BODY`（遮罩里没有别的可聚焦元素） | 焦点进 `BUTTON.zoomclose`，白环出现（键盘用户该看见的） |
+
+**根因**：`showModal()` 的 dialog focusing steps 会把焦点送给 dialog 里第一个可聚焦
+元素 —— 那颗 ×。而 `:focus-visible` 的判定看的是**最近一次交互是不是键盘**：刚用 Esc
+关过，模态就是键盘，于是这次**程序化**聚焦被算作键盘聚焦，CSS 里那圈
+`outline:2px solid #fff` 就画出来了。第一次用鼠标点开时模态还是指针，所以看不到 ——
+这也是为什么它只在"Esc 关过之后再打开"这条路径上暴露。
+
+**修法**：给遮罩 `tabindex="-1"`，并在 `showModal()` 之后把焦点收回遮罩自己：
+
+```js
+d.tabIndex = -1;      // buildZoom()：遮罩作焦点落脚点，但不进 Tab 顺序
+…
+zoom.showModal();
+zoom.focus();         // "打开"这个动作本身不画任何环
+```
+
+```css
+dialog.zoomdlg:focus{outline:none}   /* 遮罩是容器不是控件，别套一圈焦点框 */
+```
+
+焦点仍在 modal 内、Tab 第一步照样落到 × 上并显示键盘焦点环 —— 没有拿无障碍换观感；
+而且初始化时屏幕阅读器宣布的是这个 dialog 而不是那颗按钮，读起来更准确。修复前 Tab
+反而会从 × 溜到 `BODY`，这一并理顺了。
+
+**验证**：
+
+- 探针把 `focus_on_close`（旧代码里它其实是在断言"焦点落在 × 上"）换成
+  `open_focus_is_dialog` / `open_dialog_outline` / `dlg_tabindex`；上表那两步"Esc 关过
+  再打开"的真实键鼠路径由 CDP 脚本跑出来
+- 单元 **191 -> 192 项**：`test_open_focus_lands_on_the_dialog_not_the_button`
+  （`tabIndex = -1`；`zoom.focus()` 必须排在 `zoom.showModal()` **之后**，否则会被自动
+  聚焦盖回去；遮罩自身 `outline:none`；同时钉住 × 的 `:focus-visible` 白环不许被删）
+- 端到端 **332 -> 336 项**：新增「遮罩可作焦点落脚点 / 打开后焦点收回遮罩 /
+  遮罩自身不画焦点环」，另加一条反向断言「键盘焦点环没被删掉」
+- 截图 [`docs/media/screenshot-zoom.png`](docs/media/screenshot-zoom.png) 重新生成 ——
+  旧图里那颗 × 正带着白圈，而现在是"打开不画环"，同框同尺寸（1200×820）
 - 压缩版同步重新生成，两套检查对 `dist/mdview.min.py` 各跑一遍

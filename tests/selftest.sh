@@ -188,6 +188,12 @@ chk "遮罩排版在基础规则"    "$GFLAT" 'flex-direction:column;align-items
 chk "[open] 只切 display"   "$GFLAT" 'dialog.zoomdlg[open]{display:flex}'
 chk "关闭按钮 flex 居中"    "$GFLAT" 'display:flex;align-items:center;justify-content:center}'
 chk "关闭图标 24×24"        "$GFLAT" 'dialog.zoomdlg.zoomclosesvg{display:block;width:24px;height:24px}'
+# 打开后的初始焦点落在遮罩自己（tabindex="-1"）而不是 × 上：否则上一轮交互是键盘时，
+# 程序化聚焦会命中 :focus-visible，再打开时 × 带一圈白边（SELFTEST §31）
+chk "遮罩可作焦点落脚点"    "$G" 'd.tabIndex = -1'
+chk "打开后焦点收回遮罩"    "$G" 'zoom.focus();'
+chk "遮罩自身不画焦点环"    "$GFLAT" 'dialog.zoomdlg:focus{outline:none}'
+nchk "键盘焦点环没被删掉"   "$GFLAT" 'zoomclose:focus-visible{outline:none'
 # 只做入场动画：不许有出场过渡（allow-discrete 会把退场拖成 150ms，图片在淡出而
 # × / caption 原地亮着 —— "关掉之后关闭按钮还停留一下"，SELFTEST §29）
 nchk "退场不做过渡（无 allow-discrete）" "$GFLAT" 'allow-discrete'
