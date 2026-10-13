@@ -1191,6 +1191,29 @@ def _tail_is_blank_or_title(rest):
     return False
 
 
+_IMG_ALT_ATTR_RE = re.compile(r'<img\b[^>]*?\balt="([^"]*)"[^>]*>')
+_ANY_TAG_RE = re.compile(r"<[^>]*>")
+
+
+def _alt_text(html_label):
+    """把标签的**渲染结果**拍成纯文本，用作 `alt` 属性值。
+
+    `alt` 是属性值，而 `render_label()` 返回的是标签内容 —— 可能含
+    `<strong>` / `<code>`，嵌套图片时还含我们自己生成的 `<img>`。旧实现把它
+    整个塞进 `alt="…"`，而 `html.escape(..., quote=False)` 不转义引号，于是
+    `![a" onerror="alert(1)](p.png)` 真的产出可执行的 `onerror` 属性
+    （SELFTEST §25）。CommonMark / markdown-it 的 alt 本来就是标签的纯文本
+    （`![**粗**](p.png)` -> `alt="粗"`），这里照做。
+
+    剥标签对本函数的输入是安全的：输入只可能是「已转义的源文本 + 我们自己
+    生成的标签」——源文本里的 `<` 早已是 `&lt;`，属性值里的 `<`/`>`/`"`/`&`
+    要么被 `safe_href` 的 `quote=True` 转义、要么被逐段百分号编码。
+    """
+    # 嵌套图片按 CommonMark 的规则贡献它自己的 alt 文本
+    text = _IMG_ALT_ATTR_RE.sub(r"\1", html_label)
+    return html.unescape(_ANY_TAG_RE.sub("", text))
+
+
 def parse_inline(text, ctx):
     """行内解析：受保护区间（转义/行内码/标签/自动链接/实体）先抽成 token，最后还原。
 
@@ -1227,6 +1250,26 @@ def parse_inline(text, ctx):
             return html.unescape(val)           # 文本：还原成原始字符
         # 此刻 token 的定界符可能已被换成 _TOKEN_SHIELD（行内码屏蔽阶段），
         # 所以匹配要把两种形式都算上。
+        return re.sub(_TOKEN_SHIELD + r"MK(\d+)" + _TOKEN_SHIELD, one,
+                      _TOKEN_RE.sub(one, s))
+
+    def read_tokens_markup(s):
+        """token 的第二种读法：**原样**取出，不反转义文本 token。
+
+        同一个 token 表有两个消费方向，必须分开读：
+          * 属性 / 纯文本（URL、title、alt、说明文字）—— 走 read_tokens 反转义，
+            随后由调用方自己转义一次（`safe_href` / `html.escape`）；
+          * **标记内容**（链接标签）—— 走这里。文本 token 存的就是已转义形态
+            （`_TAG_RE` 存的是 `&lt;script&gt;`），再 `html.unescape` 一遍就等于
+            把源文本里的裸 HTML 放回页面：`[<script>alert(1)</script>](u.md)`
+            曾经真的产出可执行的 script 标签（SELFTEST §25）。
+        两个方向不能合并成一个函数 —— 合并的那一版就是上面这个洞。
+        """
+        def one(mm):
+            idx = int(mm.group(1))
+            if not (0 <= idx < len(tokens)):
+                return mm.group(0)
+            return tokens[idx]
         return re.sub(_TOKEN_SHIELD + r"MK(\d+)" + _TOKEN_SHIELD, one,
                       _TOKEN_RE.sub(one, s))
 
@@ -1304,10 +1347,6 @@ def parse_inline(text, ctx):
 
     text = html.escape(text, quote=False)
 
-    # 引用式链接：完整式 [t][r] -> 折叠式 [r][] -> 简写 [r]
-    text = _REF_DEF_LINK(text, ctx)
-    text = _REF_SHORT_RE.sub(lambda m: _shortcut_ref(m, ctx), text)
-
     def render_link(label_raw, dest_raw, title_raw):
         """构造 <a>。转义与协议过滤统一在这里做（B1 的修复点）。"""
         # 先解 token，再解 HTML 实体：写成 &amp; 的 URL 要还原成 &，
@@ -1336,21 +1375,25 @@ def parse_inline(text, ctx):
         必须递归：`[![i](p.png)](u)` 这种徽章写法里，外层链接扫描会一口气
         吃掉整个区间，内层图片的 token 是在**外层**扫描时产生的；
         只对剩下的字面量再扫一遍，图片才能被渲染成 <img> 而不是文本。
+
+        返回值是**标记内容**，所以用 read_tokens_markup 而非 read_tokens：
+        标签里写的裸 HTML 必须保持转义形态（它是内容，不是标记）。
         """
         inner = scan_inline(plain)          # 嵌套图片/链接 -> token
-        return read_tokens(parse_emphasis(inner))
+        return read_tokens_markup(parse_emphasis(inner))
 
     def render_image(alt_raw, dest_raw, title_raw):
         """构造 <img>；协议被拒时退化成转义后的字面量。"""
         dest = html.unescape(read_tokens(dest_raw))
         src = safe_href(ctx.rewrite_target(dest))
-        alt = render_label(alt_raw)
         if not src:
             return None
         tattr = (' title="%s"' % html.escape(title_raw, quote=True)
                  if title_raw else "")
-        # alt 里可能已含 token（不会），转义时保留 token 不被破坏
-        return '<img src="%s" alt="%s"%s>' % (src, alt, tattr)
+        # alt 必须是**纯文本**并整段转义：属性值里不允许出现裸引号或标签
+        # （标签内容里的 <strong>/<img> 直接塞进来就是属性注入，见 _alt_text）
+        return '<img src="%s" alt="%s"%s>' % (
+            src, html.escape(_alt_text(render_label(alt_raw)), quote=True), tattr)
 
     def scan_inline(text):
         """单趟扫描 ![alt](src) 与 [label](dest)，就地替换成 token。
@@ -1390,6 +1433,15 @@ def parse_inline(text, ctx):
         out.append(text[pos:])
         return "".join(out)
 
+    # 引用式链接：完整式 [t][r] -> 折叠式 [r][] -> 简写 [r]。
+    # 位置：必须在 scan_inline **之前**（行内扫描要能看见展开后的标记），
+    # 也必须在 render_label / scan_inline 定义**之后** —— 展开时要用它们渲染
+    # 标签内容（旧实现把字面 HTML 写回文本，靠外层 parse_emphasis 顺手解析标签，
+    # 属性也顺带被解析，见 _REF_DEF_LINK 的注释）。
+    text = _REF_DEF_LINK(text, ctx, render_label, stash)
+    text = _REF_SHORT_RE.sub(lambda m: _shortcut_ref(m, ctx, render_label, stash),
+                             text)
+
     text = scan_inline(text)
 
     text = parse_emphasis(text)
@@ -1407,8 +1459,11 @@ def parse_inline(text, ctx):
     return text
 
 
-def _ref_link_html(ctx, url, title, label):
-    """引用式链接的统一渲染：协议白名单 + 属性/文本转义。"""
+def _ref_link_html(ctx, url, title, label_html):
+    """引用式链接的统一渲染：协议白名单 + 属性转义。
+
+    `label_html` 是**已渲染的标签内容**（调用方用行内解析器产出），这里只拼装。
+    """
     decoded = urllib.parse.unquote(url)
     if re.match(r"^[A-Za-z][A-Za-z0-9+.-]*:", decoded):
         href, extra = safe_href(decoded), ' rel="noreferrer noopener"'
@@ -1417,16 +1472,17 @@ def _ref_link_html(ctx, url, title, label):
     attr = ' href="%s"' % href if href else ""
     return '<a%s%s%s>%s</a>' % (
         attr, ' title="%s"' % html.escape(title, quote=True) if title else "",
-        extra, html.escape(label, quote=False))
+        extra, label_html)
 
 
-def _ref_image_html(ctx, url, title, label):
+def _ref_image_html(ctx, url, title, alt_text):
     """引用式图片 `![alt][ref]`（含简写 `![ref]`）。
 
     协议被拒时返回 None，调用方按原文输出 —— 与行内图片的退化方式一致。
-    alt 直接用标签原文（不再跑一遍行内解析）：引用式渲染发生在行内语法之前，
-    这里拿不到行内解析器；与 `![x][ref]` 在 VS Code 里的结果差异仅限标签内含
-    行内语法时，记录在 README §9。
+    `alt_text` 是**纯文本**（调用方对行内解析结果再跑一次 _alt_text），与行内式
+    同一条口径：`![**粗**][r]` -> `alt="粗"`，与 VS Code 一致。alt 是属性值，
+    所以必须 `quote=True` 转义 —— 标签里手写的一个 `"` 否则就能闭合属性、
+    注入新属性（SELFTEST §25）。
     """
     decoded = urllib.parse.unquote(url)
     if re.match(r"^[A-Za-z][A-Za-z0-9+.-]*:", decoded):
@@ -1437,11 +1493,21 @@ def _ref_image_html(ctx, url, title, label):
         return None
     tattr = ' title="%s"' % html.escape(title, quote=True) if title else ""
     return '<img src="%s" alt="%s"%s>' % (
-        src, html.escape(label, quote=False), tattr)
+        src, html.escape(alt_text, quote=True), tattr)
 
 
-def _REF_DEF_LINK(text, ctx):
-    """[text][ref] 与折叠式 [ref][]；图片形式 ![text][ref] 走同一条路。"""
+def _REF_DEF_LINK(text, ctx, render_label, stash):
+    """[text][ref] 与折叠式 [ref][]；图片形式 ![text][ref] 走同一条路。
+
+    两个参数都是必需的，且都是这条路的**修复点**：
+      * `render_label` —— 标签内容走与行内式同一个行内解析器；
+      * `stash`        —— 产出的 HTML 立刻变成 token。
+
+    旧实现把 `<a>`/`<img>` **字面**写回文本，于是后面的 parse_emphasis 把它当
+    markdown 又解析了一遍：`[r]: _x_.png` 的 href 被插入 `<em>` 变成坏链接，
+    `![**粗**][r]` 的 alt 里长出 `<strong>`（SELFTEST §25）。行内式从来没有这个
+    问题 —— 它的 <a>/<img> 一直是 token。两条路现在收敛到同一形态。
+    """
     def sub(m):
         bang, label, ref = m.group(1), m.group(2), m.group(3)
         key = (ref or label).strip().lower()
@@ -1450,13 +1516,14 @@ def _REF_DEF_LINK(text, ctx):
             return m.group(0)
         url, title = target
         if bang:
-            img = _ref_image_html(ctx, url, title, label)
-            return img if img is not None else m.group(0)
-        return _ref_link_html(ctx, url, title, label or key)
+            img = _ref_image_html(ctx, url, title,
+                                  _alt_text(render_label(label)))
+            return stash(img) if img is not None else m.group(0)
+        return stash(_ref_link_html(ctx, url, title, render_label(label or key)))
     return _REF_LINK_RE.sub(sub, text)
 
 
-def _shortcut_ref(m, ctx):
+def _shortcut_ref(m, ctx, render_label, stash):
     """简写式引用 [ref] 与图片 ![ref]：只有 refs 里确实定义了才替换。"""
     bang, label = m.group(1), m.group(2)
     target = ctx.refs.get(label.strip().lower())
@@ -1464,9 +1531,9 @@ def _shortcut_ref(m, ctx):
         return m.group(0)
     url, title = target
     if bang:
-        img = _ref_image_html(ctx, url, title, label)
-        return img if img is not None else m.group(0)
-    return _ref_link_html(ctx, url, title, label)
+        img = _ref_image_html(ctx, url, title, _alt_text(render_label(label)))
+        return stash(img) if img is not None else m.group(0)
+    return stash(_ref_link_html(ctx, url, title, render_label(label)))
 
 
 def _is_punct(ch):

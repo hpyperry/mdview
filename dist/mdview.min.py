@@ -787,6 +787,11 @@ def _tail_is_blank_or_title(rest):
         if t.startswith(open_q) and t.endswith(close_q) and len(t) >= 2 * len(open_q):
             return True
     return False
+_IMG_ALT_ATTR_RE = re.compile(r'<img\b[^>]*?\balt="([^"]*)"[^>]*>')
+_ANY_TAG_RE = re.compile(r"<[^>]*>")
+def _alt_text(html_label):
+    text = _IMG_ALT_ATTR_RE.sub(r"\1", html_label)
+    return html.unescape(_ANY_TAG_RE.sub("", text))
 def parse_inline(text, ctx):
     tokens = []
     def stash(s):
@@ -801,6 +806,14 @@ def parse_inline(text, ctx):
             if val.startswith("<"):
                 return val
             return html.unescape(val)
+        return re.sub(_TOKEN_SHIELD + r"MK(\d+)" + _TOKEN_SHIELD, one,
+                      _TOKEN_RE.sub(one, s))
+    def read_tokens_markup(s):
+        def one(mm):
+            idx = int(mm.group(1))
+            if not (0 <= idx < len(tokens)):
+                return mm.group(0)
+            return tokens[idx]
         return re.sub(_TOKEN_SHIELD + r"MK(\d+)" + _TOKEN_SHIELD, one,
                       _TOKEN_RE.sub(one, s))
     text = _ESC_RE.sub(
@@ -844,8 +857,6 @@ def parse_inline(text, ctx):
                            for chunk, rendered in batches)
     text = _ENTITY_RE.sub(lambda m: stash(_entity_sub(m)), text)
     text = html.escape(text, quote=False)
-    text = _REF_DEF_LINK(text, ctx)
-    text = _REF_SHORT_RE.sub(lambda m: _shortcut_ref(m, ctx), text)
     def render_link(label_raw, dest_raw, title_raw):
         dest = html.unescape(read_tokens(dest_raw))
         try:
@@ -864,16 +875,16 @@ def parse_inline(text, ctx):
         return '<a%s%s%s>%s</a>' % (attr, tattr, extra, render_label(label_raw))
     def render_label(plain):
         inner = scan_inline(plain)
-        return read_tokens(parse_emphasis(inner))
+        return read_tokens_markup(parse_emphasis(inner))
     def render_image(alt_raw, dest_raw, title_raw):
         dest = html.unescape(read_tokens(dest_raw))
         src = safe_href(ctx.rewrite_target(dest))
-        alt = render_label(alt_raw)
         if not src:
             return None
         tattr = (' title="%s"' % html.escape(title_raw, quote=True)
                  if title_raw else "")
-        return '<img src="%s" alt="%s"%s>' % (src, alt, tattr)
+        return '<img src="%s" alt="%s"%s>' % (
+            src, html.escape(_alt_text(render_label(alt_raw)), quote=True), tattr)
     def scan_inline(text):
         spans = _scan_link_spans(text)
         if not spans:
@@ -902,6 +913,9 @@ def parse_inline(text, ctx):
             pos = dest_end
         out.append(text[pos:])
         return "".join(out)
+    text = _REF_DEF_LINK(text, ctx, render_label, stash)
+    text = _REF_SHORT_RE.sub(lambda m: _shortcut_ref(m, ctx, render_label, stash),
+                             text)
     text = scan_inline(text)
     text = parse_emphasis(text)
     def resolve_token(mm):
@@ -913,7 +927,7 @@ def parse_inline(text, ctx):
     text = re.sub(re.escape(_CODE_OPEN) + r"(\d+)" + re.escape(_CODE_CLOSE),
                   lambda m: "<code>%s</code>" % code_spans[int(m.group(1))], text)
     return text
-def _ref_link_html(ctx, url, title, label):
+def _ref_link_html(ctx, url, title, label_html):
     decoded = urllib.parse.unquote(url)
     if re.match(r"^[A-Za-z][A-Za-z0-9+.-]*:", decoded):
         href, extra = safe_href(decoded), ' rel="noreferrer noopener"'
@@ -922,8 +936,8 @@ def _ref_link_html(ctx, url, title, label):
     attr = ' href="%s"' % href if href else ""
     return '<a%s%s%s>%s</a>' % (
         attr, ' title="%s"' % html.escape(title, quote=True) if title else "",
-        extra, html.escape(label, quote=False))
-def _ref_image_html(ctx, url, title, label):
+        extra, label_html)
+def _ref_image_html(ctx, url, title, alt_text):
     decoded = urllib.parse.unquote(url)
     if re.match(r"^[A-Za-z][A-Za-z0-9+.-]*:", decoded):
         src = safe_href(decoded)
@@ -933,8 +947,8 @@ def _ref_image_html(ctx, url, title, label):
         return None
     tattr = ' title="%s"' % html.escape(title, quote=True) if title else ""
     return '<img src="%s" alt="%s"%s>' % (
-        src, html.escape(label, quote=False), tattr)
-def _REF_DEF_LINK(text, ctx):
+        src, html.escape(alt_text, quote=True), tattr)
+def _REF_DEF_LINK(text, ctx, render_label, stash):
     def sub(m):
         bang, label, ref = m.group(1), m.group(2), m.group(3)
         key = (ref or label).strip().lower()
@@ -943,20 +957,21 @@ def _REF_DEF_LINK(text, ctx):
             return m.group(0)
         url, title = target
         if bang:
-            img = _ref_image_html(ctx, url, title, label)
-            return img if img is not None else m.group(0)
-        return _ref_link_html(ctx, url, title, label or key)
+            img = _ref_image_html(ctx, url, title,
+                                  _alt_text(render_label(label)))
+            return stash(img) if img is not None else m.group(0)
+        return stash(_ref_link_html(ctx, url, title, render_label(label or key)))
     return _REF_LINK_RE.sub(sub, text)
-def _shortcut_ref(m, ctx):
+def _shortcut_ref(m, ctx, render_label, stash):
     bang, label = m.group(1), m.group(2)
     target = ctx.refs.get(label.strip().lower())
     if target is None:
         return m.group(0)
     url, title = target
     if bang:
-        img = _ref_image_html(ctx, url, title, label)
-        return img if img is not None else m.group(0)
-    return _ref_link_html(ctx, url, title, label)
+        img = _ref_image_html(ctx, url, title, _alt_text(render_label(label)))
+        return stash(img) if img is not None else m.group(0)
+    return stash(_ref_link_html(ctx, url, title, render_label(label)))
 def _is_punct(ch):
     if not ch:
         return False

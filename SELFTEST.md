@@ -1179,3 +1179,77 @@ GFM 只认半角标点，于是中文文档里 `见 https://e.com/a。结束` �
   剩余 **0 个**（`docs/guide/code-blocks.md` 的 `http://127.0.0.1:8000/` 在 4 空格
   缩进块里、`README.md:7` 在围栏块里，都按代码显示，属预期）
 - 压缩版同步重新生成，两套检查对 `dist/mdview.min.py` 各跑一遍
+
+## 25. 标签渲染的三个出口缺陷：alt 属性注入、裸 HTML 反转义、引用式属性被再解析
+
+**发现方式**：做「放大视图显示 alt」时顺手量了一下 `alt` 到底装了什么 —— 发现它是
+**活的 XSS**。顺着同一个出口又挖出另外两个同族缺陷。三处都在「标签渲染」这一个环节：
+**没有区分「纯文本消费方」与「标记内容消费方」**。
+
+### 现象（三条都能在 Chrome 里真的执行）
+
+```
+![a" onerror="alert(1)](p.png)
+  -> <img src="/docs/p.png" alt="a" onerror="alert(1)">         ← 属性注入（行内式）
+
+![a" onerror="alert(1)][r]   /   ![a" onerror="alert(1)]
+  -> 同上                                                       ← 引用式、简写式一样中招
+
+[<script>alert(1)</script>](u.md)
+  -> <a href="/docs/u.md"><script>alert(1)</script></a>         ← 裸 HTML 变成真标记
+
+[x][r]   +   [r]: _x_.png
+  -> <a href="/docs/<em>x</em>.png">x</a>                       ← href 被强调解析插了标签
+![i][r]  +   [r]: _x_.png
+  -> <img src="/docs/<em>x</em>.png" alt="i">                   ← src 同样坏掉
+![**粗**][r]
+  -> <img src="/docs/p.png" alt="<strong>粗</strong>">          ← alt 又长出标记
+```
+
+README 与 SELFTEST §3.2 都写着「裸 HTML 全部转义」—— 在**段落文本**里成立，在
+**链接标签**里不成立。
+
+### 根因（三处，同一个病灶的三种形态）
+
+1. **alt 是属性值，却塞进了标记内容。** `render_image` / `_ref_image_html` 把
+   `render_label()` 的返回值（可能含 `<strong>`、嵌套时甚至含我们生成的 `<img>`）
+   直接写进 `alt="…"`；而这一步之前只有 `html.escape(text, quote=False)` ——
+   `quote=False` 不转义引号，于是一个手写的 `"` 就能闭合属性。
+   （`title` 两条路都用了 `quote=True`，所以它是安全的：同一个函数里两种写法并存。）
+2. **`read_tokens` 被用在了错的消费方向。** 它是给「取出来 -> 自己再转义一次」的
+   消费方（URL / title / alt）设计的，会把文本 token 反转义成原始字符；
+   而 `render_label` 需要的是**标记内容**。源文本里的 `<script>` 早已被 `_TAG_RE`
+   转义成 `&lt;script&gt;` 存进 token，被它反转义回来就成了真标签。
+3. **引用式展开把标记字面写回了文本。** `_REF_DEF_LINK` 在 `html.escape` 之后把
+   `<a>`/`<img>` 字符串直接拼进文本流，后面的 `parse_emphasis` 于是把它们当 markdown
+   又解析了一遍 —— 属性值里的 `_x_`、`**粗**` 都成了 `<em>`/`<strong>`。
+   行内式从来没有这个问题：它的 `<a>`/`<img>` 一直是 token，后处理碰不到。
+
+### 修法
+
+| 出口 | 修法 |
+|------|------|
+| `alt` | 新增 `_alt_text()`：把标签的渲染结果拍成**纯文本**（先让嵌套图片贡献自己的 alt，再剥标签、解实体），调用方再 `html.escape(quote=True)`。两条路共用 |
+| 标记内容 | 新增 `read_tokens_markup()`：与 `read_tokens` 并列的**第二种读法**，原样取出 token、不反转义；`render_label` 改用它。两个消费方向不再合并成同一个函数 |
+| 引用式 | `_REF_DEF_LINK` / `_shortcut_ref` 收 `render_label` + `stash` 两个参数：标签内容走行内解析器，产出的 HTML 立刻变成 token；调用点移到嵌套函数定义之后、`scan_inline` 之前 |
+
+副作用是两条路**收敛**了：引用式图片的 alt 现在也是行内解析后的纯文本
+（`![**粗**][r]` -> `alt="粗"`，与 markdown-it / VS Code 一致），README §9 里那条
+「引用式图片的 alt 不跑行内解析」的偏差随之作废 —— 它不是设计，是这个 bug 的表象。
+
+### 验证
+
+- 单元 **187 项**（173 旧 + 14 新，**旧期望值一行未改**）：`TestLinkSafety` 的载荷
+  清单加 6 条（三条 alt 注入、三条标签裸 HTML），新增
+  `test_alt_cannot_escape_its_attribute`、`test_raw_html_in_label_stays_escaped`、
+  `test_image_alt_is_plain_text`、`test_reference_attributes_are_not_reparsed_as_markdown`
+- 端到端 **320 项**：断链巡检、示例语料、`?raw=1`、搜索等全部照旧通过
+- `TestLinkSafety.test_no_unexpected_attributes_anywhere` 是这条防线的判据：
+  渲染出的每个标签的属性名必须落在白名单内（`onerror` 这类直接判失败）
+
+### 一处观察到、本次**不**修的既有缺陷
+
+`[![i][r]](u.md)`（引用式图片嵌在引用式链接里）本来就产出坏标记，HEAD 上是
+`<a href="/docs/p.png"><img src="/docs/u.md" alt="i</a>">` —— `_REF_LINK_RE` 用
+`[^\]]*` 抓标签，会从外层的 `[` 开始匹配、把内层 `[i]` 当标签内容。本次改动后形态
+变了（少了凭空造出的 `src`）但**仍是坏的**，属于同一个正则的老问题，未纳入本次范围。

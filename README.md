@@ -65,9 +65,9 @@ python3 mdview.py --root docs --safe
 
 | | 字节 | 行数 |
 |---|---|---|
-| `mdview.py`（源码，给人看） | 135,830 | 2,966 |
-| `dist/mdview.min.py`（运行版） | **88,621** | 2,061 |
-| 减少 | **47,209（34.8%）** | |
+| `mdview.py`（源码，给人看） | 139,928 | 3,033 |
+| `dist/mdview.min.py`（运行版） | **89,450** | 2,076 |
+| 减少 | **50,478（36.1%）** | |
 
 ```bash
 python3 tools/minify.py                  # 重新生成
@@ -82,7 +82,7 @@ python3 tools/minify.py --check          # 只看体积
 等价性用两套测试 + 逐路径差分验证（测试支持指向替代实现）：
 
 ```bash
-MDVIEW_FILE=dist/mdview.min.py python3 tests/tests_render.py   # 173 项 OK
+MDVIEW_FILE=dist/mdview.min.py python3 tests/tests_render.py   # 177 项 OK
 MDVIEW=dist/mdview.min.py bash tests/selftest.sh               # 309 项 PASS
 ```
 
@@ -286,7 +286,7 @@ md-preview/
 ├─ GLOSSARY.md          # 术语表（目标 / 根相对 URL / 双重编码 …）
 ├─ docs/adr/            # 决策记录（目标路径的编码语义为什么以 VS Code 为准）
 ├─ tests/               # 测试（见 tests/README.md）
-│  ├─ tests_render.py   #   渲染器回归测试（173 项，纯 unittest）
+│  ├─ tests_render.py   #   渲染器回归测试（177 项，纯 unittest）
 │  └─ selftest.sh       #   端到端 HTTP 冒烟测试（309 项断言）
 ├─ tools/minify.py      #   生成运行版（去注释/docstring/空行）
 ├─ dist/mdview.min.py   #   ★ 压缩运行版（87 KB，可单独拿去运行）
@@ -301,7 +301,7 @@ md-preview/
 ## 8. 测试
 
 ```bash
-python3 tests/tests_render.py      # 渲染器单元测试：173 项
+python3 tests/tests_render.py      # 渲染器单元测试：177 项
 bash tests/selftest.sh             # 端到端 HTTP 验证：309 项断言
 ```
 
@@ -327,8 +327,9 @@ bash tests/selftest.sh             # 端到端 HTTP 验证：309 项断言
 - **字面含 `%xx` 的文件名要写 `%25xx`**：`a%2520b.png` 命中 `a%20b.png`。这一处
   **故意与 VS Code 不同** —— 它的相对路径实际解码两次，文件名里真含 `%20` 的文件在它那里
   用相对路径打不开；我们只解一次，保持可达。理由见 [`docs/adr/0001`](docs/adr/0001-markdown-target-encoding.md)。
-- **引用式图片的 alt 不跑行内解析**：`![**x**][ref]` 的 alt 是字面 `**x**`（VS Code 会渲染成粗体）
-  —— 引用式渲染发生在行内语法之前；行内式 `![**x**](p.png)` 不受影响。
+- **引用式图片嵌在引用式链接里**（`[![i][r]](u)`）本来就产出坏标记：`_REF_LINK_RE` 用
+  `[^\]]*` 抓标签，会从外层 `[` 开始匹配、把内层 `[i]` 当成标签内容。行内式写法
+  （`[![i](p.png)](u)`）不受影响。
 
 ## 10. 想扩展时
 

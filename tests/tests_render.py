@@ -133,6 +133,21 @@ class TestInline(unittest.TestCase):
         self.assertNotIn("<script>", out)
         self.assertIn("&lt;script&gt;", out)
 
+    def test_image_alt_is_plain_text(self):
+        """alt 取标签的**纯文本**（与 markdown-it / VS Code 一致）。
+
+        旧实现把渲染后的标签 HTML 整个塞进 alt，于是 alt 里会出现 `<strong>`，
+        嵌套图片时甚至是一个完整的 `<img …>`；而 alt 是属性值，那既是坏标记
+        也是注入点（SELFTEST §25）。行内式与引用式现在同一条口径 ——
+        引用式旧实现靠外层 parse_emphasis 顺手解析标签，alt 里因此长出标记。
+        """
+        self.assertIn('alt="粗"', r("![**粗**](p.png)"))
+        self.assertIn('alt="i"', r("![![i](i.png)](p.png)"))
+        self.assertIn('alt="a&lt;b&gt;c"', r("![a<b>c](p.png)"))
+        self.assertIn('alt="a&amp;b"', r("![a&amp;b](p.png)"))
+        self.assertIn('alt="粗"', r("![**粗**][r]\n\n[r]: p.png"))
+        self.assertIn('alt="粗"', r("![**粗**][]\n\n[**粗**]: p.png"))
+
     def test_entities(self):
         self.assertIn("©", r("&copy;"))
         self.assertIn("&amp;", r("&amp;"))
@@ -431,6 +446,26 @@ class TestReferenceImages(unittest.TestCase):
     def test_reference_image_title(self):
         self.assertIn('<img src="/docs/a.png" alt="x" title="t">',
                       r("![x][pic]\n\n[pic]: a.png \"t\""))
+
+    def test_reference_attributes_are_not_reparsed_as_markdown(self):
+        """引用式产出的 <a>/<img> 必须是 token，不能再过一遍行内解析。
+
+        旧实现把它们字面写回文本，后面的 parse_emphasis 于是把属性值也当
+        markdown：`[r]: _x_.png` 的 href 里被插进 `<em>`，链接直接坏掉
+        （图片同理，src 坏掉）。行内式没有这个问题（它的 <a>/<img> 一直是
+        token），两条路现在收敛（SELFTEST §25）。
+        """
+        out = r("[x][r]\n\n[r]: _x_.png")
+        self.assertIn('href="/docs/_x_.png"', out)
+        self.assertNotIn("<em>", out)
+        out = r("![i][r]\n\n[r]: _x_.png")
+        self.assertIn('src="/docs/_x_.png"', out)
+        self.assertNotIn("<em>", out)
+        # 引用式标签仍然走行内解析：强调该生效的照旧生效
+        self.assertIn('<a href="/docs/u.md"><strong>粗</strong></a>',
+                      r("[**粗**][r]\n\n[r]: u.md"))
+        self.assertIn('<a href="/docs/u.md"><em>斜</em></a>',
+                      r("[_斜_][r]\n\n[r]: u.md"))
 
     def test_rejected_protocol_stays_literal(self):
         # javascript:/data: 一律不产出属性；图片与链接的退化方式一致（按原文）
@@ -1013,6 +1048,14 @@ class TestLinkSafety(unittest.TestCase):
             '<img src=x onerror=alert(1)>',
             '[x](javascript:alert(1))',
             '![x](javascript:alert(1))',
+            # 标签内容里的裸 HTML 曾经被反转义成真标记（SELFTEST §25）
+            '[a<b>c](u.md)',
+            '[<script>alert(1)</script>](u.md)',
+            '[<img src=x onerror=alert(1)>](u.md)',
+            # alt 曾经不转义引号：手写一个 " 就能凭空多出属性（SELFTEST §25）
+            '![a" onerror="alert(1)](p.png)',
+            '![a" onerror="alert(1)][r]\n\n[r]: p.png',
+            '![a" onerror="alert(1)]\n\n[a" onerror="alert(1)]: p.png',
         ]
         for payload in payloads:
             out = m.render_markdown(payload + "\n")
@@ -1042,6 +1085,44 @@ class TestLinkSafety(unittest.TestCase):
         out = m.render_markdown('<http://e.com/x"y>\n')
         self.assertNotIn('"y"', out.replace("&quot;", ""))
         self.assertIn("&quot;", out)
+
+    def test_alt_cannot_escape_its_attribute(self):
+        """alt 是属性值：引号必须转义，否则能凭空注入属性（SELFTEST §25）。
+
+        三条路都要覆盖：行内式、完整引用式、简写引用式。修复前它们都产出
+        `<img src="…" alt="a" onerror="alert(1)">` —— Chrome 里 onerror 是活的。
+        """
+        payloads = [
+            '![a" onerror="alert(1)](p.png)',
+            '![a" onerror="alert(1)][r]\n\n[r]: p.png',
+            '![a" onerror="alert(1)]\n\n[a" onerror="alert(1)]: p.png',
+        ]
+        for payload in payloads:
+            out = m.render_markdown(payload + "\n")
+            self.assertIn("<img", out, payload)
+            img = re.search(r"<img\b[^>]*>", out).group(0)
+            self.assertEqual(self._attr_names(img), ["src", "alt"], payload)
+            alt = re.search(r'\balt="([^"]*)"', img).group(1)
+            self.assertNotIn('"', alt, payload)
+            self.assertIn("&quot;", alt, payload)
+
+    def test_raw_html_in_label_stays_escaped(self):
+        """链接标签是**内容**，里面的裸 HTML 必须保持转义（SELFTEST §25）。
+
+        修复前 `[<script>alert(1)</script>](u.md)` 产出活的 script 标签、`a<b>c`
+        产出活的 `<b>` —— 因为标签渲染把文本 token 又反转义了一遍。
+        """
+        for payload in ("[<script>alert(1)</script>](u.md)",
+                        "[<img src=x onerror=alert(1)>](u.md)",
+                        "[a<b>c](u.md)"):
+            out = m.render_markdown(payload + "\n")
+            self.assertNotIn("<script", out, payload)
+            self.assertNotIn("<b>", out, payload)
+            self.assertNotIn("<img src=x", out, payload)
+            self.assertIn("&lt;", out, payload)
+        # 行内语法在标签里照旧生效，只是裸 HTML 不再被放行
+        out = m.render_markdown("[**粗**<script>x</script>](u.md)\n")
+        self.assertIn("<strong>粗</strong>&lt;script&gt;x&lt;/script&gt;", out)
 
     def test_javascript_scheme_rejected(self):
         for payload in ('[x](javascript:alert(1))',
