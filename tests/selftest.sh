@@ -514,7 +514,7 @@ printf '\211PNG\r\n\032\n' > "$B10DIR/img dir/nested pic.png"
 printf '\211PNG\r\n\032\n' > "$B10DIR/带 空格.png"
 printf '\211PNG\r\n\032\n' > "$B10DIR/x%20y.png"          # 文件名里字面的 %20
 printf '# hash\n' > "$B10DIR/a#b.md"
-printf '![a](img%%20dir/nested%%20pic.png)\n\n![b](带%%20空格.png)\n\n[x](a%%23b.md)\n' \
+printf '![a](img%%20dir/nested%%20pic.png)\n\n![b](带%%20空格.png)\n\n![c](<img dir/nested pic.png>)\n\n![d](img dir/nested pic.png)\n\n![e][ref]\n\n[x](a%%23b.md)\n\n[y](a b.md)\n\n[ref]: img%%20dir/nested%%20pic.png\n' \
     > "$B10DIR/doc.md"
 printf '![b](x%%2520y.png)\n' > "$B10DIR/literal.md"
 B10PID="$(serve_root "$((PORT+15))" "$B10DIR")"; B10B="http://127.0.0.1:$((PORT+15))"
@@ -526,12 +526,23 @@ chk "中文+空格图片可取"      "$(code "$B10B/%E5%B8%A6%20%E7%A9%BA%E6%A0%
 nchk "渲染结果里没有 %25"    "$P10" '%25'
 chk "含 # 的文件名按 %23 输出" "$P10" 'href="/a%23b.md"'
 chk "含 # 的文件可取"        "$(code "$B10B/a%23b.md")" '200'
+# 尖括号写法、百分号写法、引用式定义三条路必须收敛到同一个 src
+chk "三种写法渲染出同一个 src" \
+    "$(printf '%s' "$P10" | grep -o 'src="/img%20dir/nested%20pic.png"' | wc -l | tr -d ' ')" '3'
+chk "裸空格图片退化成字面文本" "$P10" '![d](img dir/nested pic.png)'
+chk "裸空格链接退化成字面文本" "$P10" '[y](a b.md)'
 L10="$(curl -s "$B10B/literal.md")"
 chk "字面 %20 文件名写 %2520" "$L10" 'src="/x%2520y.png"'
 chk "字面 %20 文件可取"      "$(code "$B10B/x%2520y.png")" '200'
 chk "断链仍然 404（对照）"   "$(code "$B10B/nope.png")" '404'
 { kill "$B10PID" 2>/dev/null; wait "$B10PID" 2>/dev/null; }
 rm -rf "$B10DIR"
+
+# B11：docs/media 里那个真的带空格文件（尖括号 + %20 两种写法在示例页里各出现一次）
+#      断链巡检会顺带请求它们，这里再明确断言一次渲染结果。
+GD="$(curl -s "$BASE/guide/install.md")"
+chk "示例页尖括号写法"       "$GD" 'src="/media/%E5%B8%A6%20%E7%A9%BA%E6%A0%BC.png"'
+chk "带空格示例图可取"       "$(code "$BASE/media/%E5%B8%A6%20%E7%A9%BA%E6%A0%BC.png")" '200'
 
 echo "== 上级目录链接（根边界：不能出现 //）=="
 PL="$(mktemp -d -t mdview-parent)"

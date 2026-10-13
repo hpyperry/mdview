@@ -75,7 +75,9 @@ __version__ = "1.0.0"
 MD_EXT = ".md"
 IMAGE_EXT = {".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".bmp", ".ico", ".avif"}
 # 简写式引用链接 [ref]：必须放在完整式/折叠式替换之后，且排除紧跟 ( [ 的情况
-_REF_SHORT_RE = re.compile(r"\[([^\[\]]+)\](?![\(\[(])")
+# `(?<!\])`：不把「完整式/折叠式引用的后半截」再当简写匹配一遍
+# （否则 `![x][r]` 在协议被拒时会渲染成 `![x]` + 一个诡异的空链接）。
+_REF_SHORT_RE = re.compile(r"(?<!\])(!?)\[([^\[\]]+)\](?![\(\[(])")
 SAFE_EXT = {MD_EXT} | IMAGE_EXT
 # 索引与搜索时跳过的目录（一处定义，所有遍历/探测都引用它）
 SKIP_DIRS = {".git", ".svn", ".hg", ".idea", ".vscode", "node_modules", "__pycache__",
@@ -853,8 +855,43 @@ _ENTITY_RE = re.compile(r"&(#[0-9]{1,7}|#[xX][0-9a-fA-F]{1,6}|[A-Za-z][A-Za-z0-9
 _CODE_SPAN_RE = re.compile(r"(?<!`)(`+)(?!`)(.+?)(?<!`)\1(?!`)", re.DOTALL)
 _IMAGE_RE = re.compile(r"!\[([^\]]*)\]\(([^)\s]+)(?:\s+&quot;([^&]*)&quot;|\s+\"([^\"]*)\")?\)")
 _LINK_RE = re.compile(r"(?<!!)\[([^\]]*)\]\(([^)\s]+)(?:\s+&quot;([^&]*)&quot;|\s+\"([^\"]*)\")?\)")
-_REF_LINK_RE = re.compile(r"(?<!!)\[([^\]]*)\]\[([^\]]*)\]")
-_REF_DEF_RE = re.compile(r"^ {0,3}\[([^\]]+)\]:\s*(\S+)(?:\s+(?:\"([^\"]*)\"|'([^']*)'|\(([^)]*)\)))?\s*$")
+# 引用式链接与图片共用一张引用表：`![x][ref]` 的 `!` 由第一组捕获。
+_REF_LINK_RE = re.compile(r"(!?)\[([^\]]*)\]\[([^\]]*)\]")
+# 定义里的目标有两种写法：普通 `\S+`，或 CommonMark 的 `<...>`（内部允许空格
+# 与括号，按规范不允许换行与裸 `<`）。后者的编码统一交给 _encode_angle_inner。
+_REF_DEF_RE = re.compile(
+    r"^ {0,3}\[([^\]]+)\]:\s*(<[^<>\n]*>|\S+)"
+    r"(?:\s+(?:\"([^\"]*)\"|'([^']*)'|\(([^)]*)\)))?\s*$")
+# 尖括号目标内部保留原样的字符：markdown-it（mdurl.encode 的 defaultChars）再加
+# `%` —— 既有的 %xx 不能重新编码（keepEscaped），否则又变成双重编码。
+# 圆括号**不**保留：区间扫描器靠括号配对找目标结尾，`<>` 里的括号必须先变成
+# %28/%29，否则 `](<a)b.md>)` 会在中间那个 ) 处提前收尾。
+_ANGLE_SAFE = ";/?:@&=+$,-_.!~*'#%"
+_ANGLE_DEST_RE = re.compile(
+    r"\]\(<([^<>\x00-\x1f]*)>\s*(\"[^\"]*\"|'[^']*'|\([^)]*\))?\s*\)")
+
+
+def _encode_angle_inner(inner):
+    """`<...>` 目标内部的编码：与 markdown-it 的 mdurl.encode 收敛到同一结果。"""
+    return urllib.parse.quote(inner, safe=_ANGLE_SAFE)
+
+
+def _normalize_angle_dest(text):
+    """`<a b.png>` -> `a%20b.png`；不是尖括号形式就原样返回（引用式定义用）。"""
+    if len(text) >= 2 and text.startswith("<") and text.endswith(">"):
+        return _encode_angle_inner(text[1:-1])
+    return text
+
+
+def _angle_dest_sub(m):
+    """把 `](<a b.png> "t")` 规约成 `](a%20b.png "t")`。
+
+    `[^<>\x00-\x1f]` 排除 token 占位符：`<>` 内部出现反斜杠转义的 `<` / `>`
+    时（`](<a\\<b.png>)`）这一趟不认，原样交给后面的管线 —— 已知限制，见
+    README §9。
+    """
+    inner, title = m.group(1), m.group(2)
+    return "](" + _encode_angle_inner(inner) + (" " + title if title else "") + ")"
 _DELIM_SYMBOLS = ("***", "___", "**", "__", "~~", "*", "_", "~")
 _DELIM_RUN_RE = re.compile(r"\*+|_+|~+")
 _PUNCT = set("!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~")
@@ -947,11 +984,28 @@ def _scan_link_spans(text):
     return spans
 
 
+# title 的四种定界（含实体转义过的引号）。解析与「尾部是否合法」共用同一张表，
+# 免得两处判断漂移。
+_TITLE_QUOTES = (("\"", "\""), ("'", "'"), ("(", ")"), ("&quot;", "&quot;"))
+
+
 def _split_link_tail(tail):
-    """把「目标 ) 与 ) 之间」的尾巴拆成 (目标, title)。
+    """把「目标 ) 与 ) 之间」的尾巴拆成 (目标, title, 尾部是否合法)。
 
     目标里允许括号配对；其后可跟 ` "标题" ` / ` '标题' ` / ` (标题)`。
+
+    第三个返回值是 CommonMark 的合法性判定：目标之后只允许空白或一个 title。
+    裸空格会把目标截断（`[x](a b.md)` 的目标是 `a`，残留 `b.md)`），VS Code 与
+    CommonMark 都会让**整条链接不成立**、按字面文本输出；早期实现把它截成一条
+    指向 `/a` 的链接 —— 若恰好存在名为 a 的文件，就是静默链错文件。
     """
+    if tail.startswith("<"):
+        # 正常路径下 `<...>` 已在 parse_inline 的预处理里被规约掉，这里只是
+        # 兜底（例如经引用式定义进来的目标）。
+        j = tail.find(">", 1)
+        if j > 0 and "\n" not in tail[:j]:
+            rest = tail[j + 1:]
+            return tail[1:j], _parse_link_title(rest), _tail_is_blank_or_title(rest)
     i, n, depth = 0, len(tail), 0
     while i < n:
         ch = tail[i]
@@ -964,7 +1018,8 @@ def _split_link_tail(tail):
         elif ch.isspace() and depth == 0:
             break
         i += 1
-    return tail[:i], _parse_link_title(tail[i:])
+    rest = tail[i:]
+    return tail[:i], _parse_link_title(rest), _tail_is_blank_or_title(rest)
 
 
 def _parse_link_title(tail):
@@ -972,11 +1027,21 @@ def _parse_link_title(tail):
     t = tail.strip()
     if len(t) < 2:
         return ""
-    for open_q, close_q in (("\"", "\""), ("'", "'"), ("(", ")"),
-                            ("&quot;", "&quot;")):
+    for open_q, close_q in _TITLE_QUOTES:
         if t.startswith(open_q) and t.endswith(close_q) and len(t) >= 2 * len(open_q):
             return t[len(open_q):-len(close_q)]
     return ""
+
+
+def _tail_is_blank_or_title(rest):
+    """目标之后的残留是否只是空白或一个合法 title（否则整条链接不成立）。"""
+    t = rest.strip()
+    if not t:
+        return True
+    for open_q, close_q in _TITLE_QUOTES:
+        if t.startswith(open_q) and t.endswith(close_q) and len(t) >= 2 * len(open_q):
+            return True
+    return False
 
 
 def parse_inline(text, ctx):
@@ -1062,6 +1127,12 @@ def parse_inline(text, ctx):
     for _ in range(shield_count["`"]):
         shielded = shielded.replace(_BT_SHIELD, "`", 1)
     text = shielded
+    # 尖括号目标 `](<a b.png>)`：CommonMark 允许用它包住含空格的路径，而 VS Code
+    # 拖拽/粘贴插入的正是这种写法（它把裸空格写进 <>，全程不做百分号编码）。
+    # 必须在这一步做：行内码与反斜杠转义此刻已成 token（不会被误改），而裸 HTML
+    # 标签还没被 _TAG_RE 摘走 —— `<a b.md>` 恰好长得像一个 <a> 标签，晚一步就只
+    # 剩一个占位符（这正是它一直没被支持的原因）。
+    text = _ANGLE_DEST_RE.sub(_angle_dest_sub, text)
     text = _TAG_RE.sub(lambda m: stash(html.escape(m.group(0), quote=False)), text)
     text = _AUTOLINK_RE.sub(lambda m: stash(_autolink_sub(m)), text)
     text = _ENTITY_RE.sub(lambda m: stash(_entity_sub(m)), text)
@@ -1135,7 +1206,11 @@ def parse_inline(text, ctx):
             if cut < pos:
                 continue
             dest_and_tail = text[lab_end + 2:dest_end - 1]
-            dest_raw, title_raw = _split_link_tail(dest_and_tail)
+            dest_raw, title_raw, tail_ok = _split_link_tail(dest_and_tail)
+            if not tail_ok:
+                # 目标被裸空格截断，或后面跟着解析不出的残留 —— 整条链接不成立，
+                # 按字面文本输出（CommonMark 与 VS Code 是同一判定）。
+                continue
             label_raw = text[lab_start:lab_end]
             if is_img:
                 html_img = render_image(label_raw, dest_raw, title_raw)
@@ -1180,26 +1255,52 @@ def _ref_link_html(ctx, url, title, label):
         extra, html.escape(label, quote=False))
 
 
+def _ref_image_html(ctx, url, title, label):
+    """引用式图片 `![alt][ref]`（含简写 `![ref]`）。
+
+    协议被拒时返回 None，调用方按原文输出 —— 与行内图片的退化方式一致。
+    alt 直接用标签原文（不再跑一遍行内解析）：引用式渲染发生在行内语法之前，
+    这里拿不到行内解析器；与 `![x][ref]` 在 VS Code 里的结果差异仅限标签内含
+    行内语法时，记录在 README §9。
+    """
+    decoded = urllib.parse.unquote(url)
+    if re.match(r"^[A-Za-z][A-Za-z0-9+.-]*:", decoded):
+        src = safe_href(decoded)
+    else:
+        src = safe_href(ctx.rewrite_target(url))
+    if not src:
+        return None
+    tattr = ' title="%s"' % html.escape(title, quote=True) if title else ""
+    return '<img src="%s" alt="%s"%s>' % (
+        src, html.escape(label, quote=False), tattr)
+
+
 def _REF_DEF_LINK(text, ctx):
-    """[text][ref] 与折叠式 [ref][]。"""
+    """[text][ref] 与折叠式 [ref][]；图片形式 ![text][ref] 走同一条路。"""
     def sub(m):
-        label = m.group(1)
-        key = (m.group(2) or label).strip().lower()
+        bang, label, ref = m.group(1), m.group(2), m.group(3)
+        key = (ref or label).strip().lower()
         target = ctx.refs.get(key)
         if target is None:
             return m.group(0)
         url, title = target
+        if bang:
+            img = _ref_image_html(ctx, url, title, label)
+            return img if img is not None else m.group(0)
         return _ref_link_html(ctx, url, title, label or key)
     return _REF_LINK_RE.sub(sub, text)
 
 
 def _shortcut_ref(m, ctx):
-    """简写式引用链接 [ref]：只有 refs 里确实定义了才替换。"""
-    label = m.group(1).strip()
-    target = ctx.refs.get(label.lower())
+    """简写式引用 [ref] 与图片 ![ref]：只有 refs 里确实定义了才替换。"""
+    bang, label = m.group(1), m.group(2)
+    target = ctx.refs.get(label.strip().lower())
     if target is None:
         return m.group(0)
     url, title = target
+    if bang:
+        img = _ref_image_html(ctx, url, title, label)
+        return img if img is not None else m.group(0)
     return _ref_link_html(ctx, url, title, label)
 
 
@@ -1728,7 +1829,8 @@ def render_markdown(text, rel_path=""):
         m = _REF_DEF_RE.match(line)
         if m and "|" not in line and not RE_ULIST.match(line):
             refs.setdefault(m.group(1).strip().lower(),
-                            (m.group(2), m.group(3) or m.group(4) or m.group(5) or ""))
+                            (_normalize_angle_dest(m.group(2)),
+                             m.group(3) or m.group(4) or m.group(5) or ""))
             kept.append("")
         else:
             kept.append(line)

@@ -357,6 +357,93 @@ class TestTargetEncoding(unittest.TestCase):
         self.assertIn('src="%6aavascript:alert(1)"',
                       r("![x](%6aavascript:alert(1))"))
 
+    def test_angle_destination_encodes_inner(self):
+        """`](<a b.md>)`：CommonMark 的尖括号目标。
+
+        VS Code 拖拽/粘贴插入的正是这种写法（它把裸空格写进 <>，全程不做百分号
+        编码），markdown-it 再把内部空格编成 %20。所以两条路要收敛到同一个结果。
+        """
+        self.assertIn('href="/docs/a%20b.md"', r("[x](<a b.md>)"))
+        self.assertIn('href="/docs/a%20b.md" title="t"', r("[x](<a b.md> \"t\")"))
+
+    def test_angle_and_percent_forms_are_identical(self):
+        # markdown-it 里 md.normalizeLink 对两种写法返回同一个串：输出必须逐字节相同
+        self.assertEqual(r("![x](img/my%20file.png)"), r("![x](<img/my file.png>)"))
+        self.assertEqual(r("[x](a%20b.md)"), r("[x](<a b.md>)"))
+
+    def test_angle_destination_keeps_inner_paren(self):
+        # `<>` 内的 ) 是字面量（裸写法会在这里结束目标）；编成 %29 后仍指向同一个文件
+        self.assertIn('href="/docs/a%29b.md"', r("[x](<a)b.md>)"))
+
+    def test_angle_destination_with_scheme(self):
+        self.assertIn('href="https://e.com/a%20b" rel="noreferrer noopener"',
+                      r("[x](<https://e.com/a b>)"))
+
+    def test_angle_destination_not_touched_inside_code_span(self):
+        # 预处理发生在行内码之后：代码里写的语法示例必须原样显示
+        self.assertIn("<code>![](&lt;a b.png&gt;)</code>", r("`![](<a b.png>)`"))
+
+    def test_nested_angle_image_in_link(self):
+        self.assertIn('<a href="/docs/y.md"><img src="/docs/a%20b.png" alt="i"></a>',
+                      r("[![i](<a b.png>)](y.md)"))
+
+    def test_bare_space_destination_is_not_a_link(self):
+        """裸空格：VS Code 与 CommonMark 都让整条链接不成立，按字面文本输出。
+
+        早期实现把它截断成一条指向 /docs/a 的链接 —— 若恰好存在名为 a 的文件，
+        就是静默链错文件（这也是本次一并对齐的原因）。
+        """
+        out = r("[x](a b.md)")
+        self.assertNotIn("<a", out)
+        self.assertIn("[x](a b.md)", out)
+        self.assertNotIn("<img", r("![x](img/my file.png)"))
+
+    def test_trailing_space_and_title_still_are_links(self):
+        # 反方向：目标后只有空白、或只有一个合法 title，链接必须仍然成立
+        self.assertIn('href="/docs/a"', r("[x](a  )"))
+        self.assertIn('href="/docs/a" title="t"', r("[x](a \"t\")"))
+        self.assertNotIn("<a", r("[x](a \"t\" junk)"))
+
+
+class TestReferenceImages(unittest.TestCase):
+    """引用式图片：`![x][ref]` / `![x][]` / `![x]`。
+
+    README §4 一直把「引用式」算作链接与图片都支持，但实现里 `_REF_LINK_RE`
+    带着 `(?<!!)`，图片形式从未生效。VS Code（markdown-it）三种写法都能渲染。
+    """
+
+    def test_full_reference_image(self):
+        self.assertIn('<img src="/docs/img/my%20file.png" alt="x">',
+                      r("![x][pic]\n\n[pic]: img/my%20file.png"))
+
+    def test_collapsed_reference_image(self):
+        self.assertIn('<img src="/docs/img/my%20file.png" alt="x">',
+                      r("![x][]\n\n[x]: img/my%20file.png"))
+
+    def test_shortcut_reference_image(self):
+        self.assertIn('<img src="/docs/a%20b.png" alt="x">',
+                      r("![x]\n\n[x]: a%20b.png"))
+
+    def test_reference_image_with_angle_definition(self):
+        self.assertIn('<img src="/docs/a%20b.png" alt="x">',
+                      r("![x][pic]\n\n[pic]: <a b.png>"))
+
+    def test_reference_image_title(self):
+        self.assertIn('<img src="/docs/a.png" alt="x" title="t">',
+                      r("![x][pic]\n\n[pic]: a.png \"t\""))
+
+    def test_rejected_protocol_stays_literal(self):
+        # javascript:/data: 一律不产出属性；图片与链接的退化方式一致（按原文）
+        for src in ("![x][r]\n\n[r]: javascript:alert(1)",
+                    "![x][r]\n\n[r]: data:text/html,x"):
+            out = r(src)
+            self.assertNotIn("<img", out)
+            self.assertNotIn("href=", out)
+
+    def test_reference_image_needs_definition(self):
+        # 没定义就按原文输出，不能凭空造出图片
+        self.assertNotIn("<img", r("![x][nope]"))
+
 
 class TestCopyButton(unittest.TestCase):
     """代码块复制按钮：由 JS 注入，基线（禁用 JS）下不能出现死按钮。"""
