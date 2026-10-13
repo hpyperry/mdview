@@ -227,11 +227,11 @@ a.zoom:hover img{box-shadow:0 0 0 2px var(--accent)}
    早期版本把按钮写成 position:fixed，它就钉在**视口**右上角：既盖在页面内容
    （裂图时是浏览器画出来的 alt 文字，也就是文件名）上面，又把"点空白处关闭"
    的点击抢走（SELFTEST §27）。
-   定位与排版必须写在**基础规则**里，[open] 只切换 display：关闭时 [open] 已摘掉，
-   而 `transition:display … allow-discrete` 还要把盒子显示约半程 —— 留在 [open]
-   里的属性此刻会退回初始值，三个子元素按默认的 row + stretch 重排，× 飞到视口
-   右缘、图片名（caption）被挤成右侧一列，看上去就是"一关就冒出右上角的关闭按钮、
-   顺带显示图片名"（SELFTEST §28）。 */
+   定位与排版写在**基础规则**里、[open] 只切 display：几何不随可见性开关变化。
+   只做入场动画（见下）时这层分离不是必需的，但它是**结构保险** —— 将来谁把出场
+   做成过渡，摘掉 [open] 后盒子还会多显示约半程，留在 [open] 里的属性会退回初始值，
+   三个子元素按 row + stretch 重排，× 飞到视口右缘、图片名（caption）挤成右侧一列
+   （SELFTEST §28）。 */
 dialog.zoomdlg{max-width:none;max-height:none;padding:0;border:0;
   position:fixed;inset:0;margin:auto;
   flex-direction:column;align-items:center;gap:10px;
@@ -258,15 +258,17 @@ dialog.zoomdlg .zoomclose:focus-visible{outline:2px solid #fff;outline-offset:2p
 html.zoomlock{overflow:hidden;scrollbar-gutter:stable}
 @media print{dialog.zoomdlg{display:none}}
 @media (prefers-reduced-motion: no-preference){
-  /* <dialog> 从 display:none 切到 flex，纯 CSS 过渡必须声明 display/overlay 的
-     allow-discrete 并给 @starting-style 起始值（2024 起 Baseline）。 */
-  dialog.zoomdlg{transition:display .15s allow-discrete,overlay .15s allow-discrete}
+  /* 只做**入场**动画：@starting-style 给首帧起始值，图片与遮罩从透明缩放到原位
+     （2024 起 Baseline）。
+     **刻意不给出场过渡**：一旦给 dialog 写上 `transition:display … allow-discrete`，
+     退场那 150ms 里图片与遮罩在淡出，而 × 与 caption 没有 opacity 过渡，会**原地
+     原样亮着**直到 display:none —— 用户看到的就是"关掉之后关闭按钮还停留一下"
+     （SELFTEST §29）。退场必须瞬时：摘掉 [open] 就立刻 display:none。 */
   dialog.zoomdlg img{opacity:0;transform:scale(.97);
     transition:opacity .15s ease,transform .15s ease}
   dialog.zoomdlg[open] img{opacity:1;transform:none}
   @starting-style{dialog.zoomdlg[open] img{opacity:0;transform:scale(.97)}}
-  dialog.zoomdlg::backdrop{opacity:0;
-    transition:opacity .15s ease,display .15s allow-discrete,overlay .15s allow-discrete}
+  dialog.zoomdlg::backdrop{opacity:0;transition:opacity .15s ease}
   dialog.zoomdlg[open]::backdrop{opacity:1}
   @starting-style{dialog.zoomdlg[open]::backdrop{opacity:0}}
 }

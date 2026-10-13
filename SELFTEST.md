@@ -1428,16 +1428,72 @@ dialog.zoomdlg[open]{display:flex}
 ```
 
 基础规则里的 `position`/`inset`/`margin` 与 flex 属性在关闭态（`display:none`）没有副作用，
-却能让出场过渡保持与入场一致的几何；`display` 仍留给 `[open]`，UA 的
+却让几何不随可见性开关变化。`display` 仍留给 `[open]`，UA 的
 `dialog:not([open]){display:none}` 才管得住隐藏（写进基础规则会让遮罩常驻）。
+（§29 把退场改成瞬时之后，这条搬家成了**结构保险** —— 将来谁再加回出场过渡也不会重演。）
 
 **验证**：
 
 - 探针新增三条"关闭首帧"断言（`close_keeps_column` / `close_btn_pos_stable` /
   `close_caption_pos_stable`），修复前后各跑一遍，见上表
+  （**§29 后已替换**：退场改成瞬时，那三条几何断言不再可能为假，探针改为断言
+  `close_is_instant`；本条的结构约束由单元测试继续钉着）
 - 单元 **189 -> 190 项**：新增 `test_overlay_layout_survives_the_close_animation`
   （基础规则必须含定位与 flex 排版，`[open]` 里不许再出现它们），
   并改写 `test_close_button_is_anchored_to_the_dialog`（modal 定位的落点随之下移到基础规则）
 - 端到端 **321 -> 324 项**：新增「遮罩定位在基础规则 / 遮罩排版在基础规则 /
   `[open]` 只切 display」（先把文档页压掉空白再比对）
+- 压缩版同步重新生成，两套检查对 `dist/mdview.min.py` 各跑一遍
+
+## 29. 退场过渡让 × 与 caption 原地停留：关闭必须瞬时
+
+**现象**（用户报告）："关闭图片后，关闭按钮会停留在原位置很短的时间，不符合要求。"
+点掉遮罩后图片与遮罩在淡出，但那颗 × 与图片名却**原地原样亮着**，直到
+`display:none` 才一起消失。§28 修的是"退场期间排版被打乱"，这一条是同一个出场过渡的
+另一半 —— 本就不该有出场过渡。
+
+**探针实测**（[`tools/zoom-probe.html`](tools/zoom-probe.html)；`window 1200x520`，
+`docs/preview/index.md` 的 1600×900 大图；**必须去掉** `--force-prefers-reduced-motion`，
+否则 `transition` 与 `@starting-style` 整段被关掉，两个判据都失去意义）：
+
+| 判据 | 修复前 | 修复后 |
+|---|---|---|
+| `close_is_instant`（close 首帧 display 已是 `none`、按钮盒子已归零） | **false** | **true** |
+| `entrance_animates`（打开首帧图片 opacity ≠ 1） | true | **true**（入场必须保住） |
+| 关闭后 0 / 20 / 50 / 100ms 的 `display` | `flex`，图片 opacity `1 → 1 → 0.65 → 0.26` | 一律 `none` |
+
+时间线（Chromium 实测，150ms 过渡）：点关闭后图片与遮罩一路淡出，而 × 全程
+`btnVisible: true`、位置不动 —— 因为它没有 opacity 过渡，只能等 ~150ms 时
+`display` 翻成 `none` 才"啪"地消失。
+
+**根因**：`dialog.zoomdlg{transition:display .15s allow-discrete,overlay .15s allow-discrete}`
+把**退场**也做成了 150ms 过渡：`allow-discrete` 让 `display:none` 推迟到过渡中点，
+元素因此多渲染约半程。`img` / `::backdrop` 有 opacity 过渡、`×` 与 `caption` 没有 ——
+看上去就是"关掉之后关闭按钮还停留一下"。ADR 0002 写的本来就只有**入场**动画。
+
+**修法**：只做入场动画，退场瞬时。删掉 dialog 上那条 `transition:display … allow-discrete`
+与 `overlay …`，`::backdrop` 的过渡只留 `opacity`；入场那条 `@starting-style` 路径原样保留：
+
+```css
+@media (prefers-reduced-motion: no-preference){
+  dialog.zoomdlg img{opacity:0;transform:scale(.97);
+    transition:opacity .15s ease,transform .15s ease}
+  dialog.zoomdlg[open] img{opacity:1;transform:none}
+  @starting-style{dialog.zoomdlg[open] img{opacity:0;transform:scale(.97)}}
+  dialog.zoomdlg::backdrop{opacity:0;transition:opacity .15s ease}
+  …
+}
+```
+
+`display` 不写过渡也照样有入场动画：`@starting-style` 在元素**首次渲染**时提供起始值；
+摘掉 `[open]` 则立刻 `display:none`（实测打开首帧 `opacity:0`、逐帧升到 1）。
+
+**验证**：
+
+- 探针把 §28 的三条关闭几何断言换成 `close_is_instant`，并新增 `entrance_animates`
+  —— 防止"为了瞬时关闭把入场动画一起删掉"，修复前后各跑一遍，见上表
+- 单元 **190 -> 191 项**：`test_close_is_instant_not_an_exit_animation`（全文不许出现
+  `allow-discrete` / `transition:display`，入场三件套一件不能少）；§28 那条改为结构保险
+- 端到端 **324 -> 328 项**：新增「退场不做过渡」两条（`allow-discrete`、`transition:display`）
+  与「入场动画仍在」两条（图片 `@starting-style`、`::backdrop` 只过渡 opacity）
 - 压缩版同步重新生成，两套检查对 `dist/mdview.min.py` 各跑一遍

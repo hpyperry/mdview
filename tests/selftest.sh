@@ -175,12 +175,19 @@ chk "遮罩样式已内联"        "$G" 'dialog.zoomdlg'
 chk "滚动锁样式已内联"      "$G" 'html.zoomlock'
 # 关闭按钮必须贴在图片右上角（不是钉在视口右上角抢走"点空白处"的点击，SELFTEST §27）
 chk "关闭按钮贴在图片上"    "$G" 'dialog.zoomdlg .zoomclose{position:absolute'
-# 遮罩的定位与排版必须在基础规则里，[open] 只切 display：否则关闭动画那半程会按
-# row 重排，× 飞到视口右缘、图片名挤成右侧一列（SELFTEST §28）。压掉空白再比对。
-GFLAT="$(printf '%s' "$G" | tr -d ' \n')"
+# 遮罩的定位与排版在基础规则里，[open] 只切 display：几何不随可见性开关变化
+# （SELFTEST §28）。先剥掉 CSS 注释再压掉空白 —— 注释里会引用那条错写法，
+# 不剥的话下面的 nchk 会被自己的注释命中。
+GFLAT="$(printf '%s' "$G" | python3 -c 'import re,sys; s=sys.stdin.read(); sys.stdout.write(re.sub(r"\s+", "", re.sub(r"/\*.*?\*/", "", s, flags=re.S)))')"
 chk "遮罩定位在基础规则"    "$GFLAT" 'dialog.zoomdlg{max-width:none;max-height:none;padding:0;border:0;position:fixed;inset:0;margin:auto;'
 chk "遮罩排版在基础规则"    "$GFLAT" 'flex-direction:column;align-items:center;gap:10px;'
 chk "[open] 只切 display"   "$GFLAT" 'dialog.zoomdlg[open]{display:flex}'
+# 只做入场动画：不许有出场过渡（allow-discrete 会把退场拖成 150ms，图片在淡出而
+# × / caption 原地亮着 —— "关掉之后关闭按钮还停留一下"，SELFTEST §29）
+nchk "退场不做过渡（无 allow-discrete）" "$GFLAT" 'allow-discrete'
+nchk "退场不做过渡（无 transition:display）" "$GFLAT" 'transition:display'
+chk "入场动画仍在（图片）"  "$GFLAT" '@starting-style{dialog.zoomdlg[open]img{opacity:0;transform:scale(.97)}}'
+chk "入场动画仍在（遮罩）"  "$GFLAT" 'dialog.zoomdlg::backdrop{opacity:0;transition:opacity.15sease}'
 # 基线（无 JS）里不能有写死的遮罩或关闭按钮 —— 那会是点不动的死元素
 nchk "正文里没有写死的 dialog" "$(printf '%s' "$G" | sed -n '/<body>/,/<script>/p')" '<dialog'
 

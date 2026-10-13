@@ -11,18 +11,21 @@
   为什么用 --screenshot 而不是 --dump-dom：本机 Chrome（headless 与 headless=new）
   跑 --dump-dom 会一直挂着不退出，--screenshot 正常。所以结果渲染进页面，截图取回。
 
-  用法（把 docs 拷到一个临时根，再把本文件放进去 —— docs/ 本身不留探针）：
+  用法（把 docs 拷到一个临时根，再把本文件放进去 —— docs/ 本身不留探针）。
+  **不要**加 --force-prefers-reduced-motion：入场/退场相关的断言都要求动画开着，
+  带上它等于把 `@media (prefers-reduced-motion: no-preference)` 整段关掉：
 
     ROOT=$(mktemp -d) && cp -R docs/. "$ROOT/" && cp tools/zoom-probe.html "$ROOT/"
     python3 mdview.py --root "$ROOT" --port 8797 --host 127.0.0.1 &
     "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless --no-sandbox \
-      --disable-gpu --force-prefers-reduced-motion --window-size=1200,1000 \
+      --disable-gpu --window-size=1200,1000 \
       --virtual-time-budget=4000 --screenshot=/tmp/zoom-probe.png \
       "http://127.0.0.1:8797/zoom-probe.html?src=/preview/index.md&img=sample-large"
     kill %1; rm -rf "$ROOT"
 
-  然后读 /tmp/zoom-probe.png（下半部分是逐条结果）。历史上它抓到过一个真缺陷：
-  关闭遮罩后焦点没回到触发元素（img 不可聚焦，focus() 是空操作）。
+  然后读 /tmp/zoom-probe.png（下半部分是逐条结果）。历史上它抓到过两个真缺陷：
+  关闭遮罩后焦点没回到触发元素（img 不可聚焦，focus() 是空操作）；
+  以及出场过渡让 × / caption 原地停留（退场必须瞬时，SELFTEST §29）。
 -->
 <style>
   html,body{margin:0;background:#fff}
@@ -65,6 +68,9 @@
       var r = big.getBoundingClientRect();
       log("dialog_open", dlg.open);
       log("is_modal", dlg.matches(":modal"));
+      // 入场动画：@starting-style 让图片从 opacity:0 / scale(.97) 起，读值必须还没到 1。
+      // 这条也是"退场改成瞬时"没有把入场一起删掉的证据（SELFTEST §29）。
+      log("entrance_animates", w.getComputedStyle(big).opacity !== "1");
       log("big_src", big.getAttribute("src"));
       log("caption", JSON.stringify(dlg.querySelector(".zoomcap").textContent));
       log("labelledby", dlg.getAttribute("aria-labelledby"));
@@ -87,25 +93,17 @@
       var hit = d.elementFromPoint(w.innerWidth - 20, 20);
       log("topright_hit_is_close_btn", hit === dlg.querySelector(".zoomclose"));
 
-      var capEl = dlg.querySelector(".zoomcap");
-      var br0 = dlg.querySelector(".zoomclose").getBoundingClientRect();
-      var cr0 = capEl.getBoundingClientRect();
       click(w, dlg.querySelector(".zoomclose"));
       log("closed_by_button", !dlg.open);
-      // 关闭动画：摘掉 [open] 后 `transition:display … allow-discrete` 还会把盒子
-      // 显示约半程；此刻凡留在 [open] 里的排版属性都退回初始值，三个子元素按 row
-      // 重排 —— × 飞到视口右缘、caption 被挤成右侧一列（SELFTEST §28）。
-      // 这里在 close 的同一个任务里读值，拿到的是过渡首帧的几何。图片自身的
-      // scale(.97) 是**出场动画**、不参与布局，所以按钮与 caption 的盒位置必须
-      // 逐像素不动。
+      // 退场必须**瞬时**：不许给 dialog 写 `transition:display … allow-discrete`。
+      // 有出场过渡时图片与遮罩在淡出，而 × 与 caption 没有 opacity 过渡，会原地
+      // 原样亮着直到 display:none —— 用户报告"关闭图片后，关闭按钮会停留在原位置
+      // 很短的时间"（SELFTEST §29）。在 close 的同一个任务里读值，拿到的就是关闭
+      // 首帧：display 必须已经是 none、按钮盒子必须已经归零。
       var cs1 = w.getComputedStyle(dlg);
       var br1 = dlg.querySelector(".zoomclose").getBoundingClientRect();
-      var cr1 = capEl.getBoundingClientRect();
-      log("close_keeps_column", cs1.flexDirection + "/" + cs1.alignItems);
-      log("close_btn_pos_stable", Math.abs(br1.left - br0.left) < 1 &&
-          Math.abs(br1.top - br0.top) < 1);
-      log("close_caption_pos_stable", Math.abs(cr1.left - cr0.left) < 1 &&
-          Math.abs(cr1.width - cr0.width) < 1);
+      log("close_is_instant", cs1.display === "none" &&
+          br1.width === 0 && br1.height === 0);
       dlg.dispatchEvent(new w.Event("close"));         // 浏览器派发的 close 等价物
       log("unlocked", !d.documentElement.classList.contains("zoomlock"));
       log("focus_returned_to_link", d.activeElement === a);

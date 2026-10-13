@@ -684,12 +684,13 @@ class TestImageZoom(unittest.TestCase):
         self.assertIn("position:fixed;inset:0;margin:auto", self._rule(flat, "dialog.zoomdlg"))
 
     def test_overlay_layout_survives_the_close_animation(self):
-        """定位与 flex 排版必须留在**基础规则**里，`[open]` 只切换 display。
+        """定位与 flex 排版留在**基础规则**里，`[open]` 只切换 display。
 
-        关闭时 [open] 立刻被摘掉，但 `transition:display … allow-discrete` 还要把
-        盒子显示约半程；谁留在 [open] 里，谁就在这半程退回初始值 —— 三个子元素按
-        默认的 row + stretch 重排，× 飞到视口右缘、图片名（caption）挤成右侧一列，
-        用户看到的是"一关就冒出右上角的关闭按钮、顺带显示图片名"（SELFTEST §28）。
+        §28 记录的形态：出场一旦有过渡，摘掉 [open] 后盒子还会显示约半程，谁留在
+        [open] 里谁就在这半程退回初始值 —— 三个子元素按默认的 row + stretch 重排，
+        × 飞到视口右缘、图片名（caption）挤成右侧一列。§29 把出场改成瞬时的，
+        所以这条现在是**结构保险**：几何不随可见性开关变化，将来谁再加回出场过渡
+        也不会重演。
         """
         flat = re.sub(r"/\*.*?\*/", "", m.CSS, flags=re.S).replace(" ", "").replace("\n", "")
         base = self._rule(flat, "dialog.zoomdlg")
@@ -701,6 +702,25 @@ class TestImageZoom(unittest.TestCase):
         for decl in ("position", "inset", "margin", "flex-direction",
                      "align-items", "gap"):
             self.assertNotIn(decl, opened)
+
+    def test_close_is_instant_not_an_exit_animation(self):
+        """遮罩必须**只做入场动画**：关掉就立刻消失，不许有出场过渡。
+
+        曾经给 dialog 写了 `transition:display .15s allow-discrete,overlay …` ——
+        退场那 150ms 里图片与遮罩在淡出，而 × 与 caption 没有 opacity 过渡，会原地
+        原样亮着直到 display:none：用户报告"关闭图片后，关闭按钮会停留在原位置很
+        短的时间，不符合要求"（SELFTEST §29）。入场那条 @starting-style 路径必须
+        原样保留，否则会把入场动画一起删掉。
+        """
+        css = re.sub(r"/\*.*?\*/", "", m.CSS, flags=re.S)   # 注释里会引用那条错写法
+        flat = css.replace(" ", "").replace("\n", "")
+        self.assertNotIn("allow-discrete", flat)
+        self.assertNotIn("transition:display", flat)
+        # 入场动画的三件套一件都不能少
+        self.assertIn("@starting-style{dialog.zoomdlg[open]img{opacity:0;transform:scale(.97)}}", flat)
+        self.assertIn("transition:opacity.15sease,transform.15sease", flat)
+        self.assertIn("@starting-style{dialog.zoomdlg[open]::backdrop{opacity:0}}", flat)
+        self.assertIn("transition:opacity.15sease}", flat)     # ::backdrop 只过渡 opacity
 
     @staticmethod
     def _rule(flat_css, selector):
