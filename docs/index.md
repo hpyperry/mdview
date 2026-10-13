@@ -17,6 +17,20 @@
 
 转义写法：\*不是斜体\*、\`不是代码\`。
 
+## 裸 URL 自动链接
+
+正文里手写的 URL 不必包成链接，直接就是可点的：访问 https://example.com/mdview 看看。
+
+行内代码与围栏代码块里的 URL **不会**被链接化，按字面显示：`https://example.com/code`。
+
+URL 紧邻句末标点时，标点归句子而不进链接：见 https://example.com/a. 结束。
+全角句号同样处理：见 https://example.com/b。结束。
+括号按配平判定：https://en.wikipedia.org/wiki/A_(b) 保留整个地址，
+而这一句的收尾括号 (见 https://example.com/c) 归句子。
+
+已写成链接的写法不受影响：[外链](https://example.com/d)；
+链接标签内部的 URL 也不会嵌套成链接：见 [https://example.com/e 说明](guide/install.md)。
+
 ## 列表
 
 紧凑列表（条目间无空行）：

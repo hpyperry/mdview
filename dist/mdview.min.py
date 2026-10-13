@@ -174,7 +174,7 @@ body{margin:0;background:var(--bg);color:var(--fg);
   font:16px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans CJK SC",
   "PingFang SC","Microsoft YaHei",Helvetica,Arial,sans-serif}
 .wrap{max-width:900px;margin:0 auto;padding:28px 20px 72px}
-a{color:var(--accent);text-decoration:none}
+a{color:var(--accent);text-decoration:none;overflow-wrap:anywhere}
 a:hover{text-decoration:underline}
 header.bar{display:flex;align-items:center;gap:14px;flex-wrap:wrap;
   border-bottom:1px solid var(--line);padding-bottom:10px;margin-bottom:22px}
@@ -629,10 +629,92 @@ def _entity_sub(m):
 def _autolink_sub(m):
     target = m.group(1)
     text = html.escape(target, quote=False)
-    if "@" in target and "://" not in target:
+    if "@" in target and "://" not in target and not _SCHEME_RE.match(target):
         return '<a href="%s">%s</a>' % (safe_href("mailto:" + target), text)
     return '<a href="%s" rel="noreferrer noopener">%s</a>' % (
         safe_href(target), text)
+_BARE_URL_RE = re.compile(r"https?://[^\s<>\x00`]+", re.I)
+_TAIL_PUNCT = ".,:;!?"
+_TAIL_PUNCT_CJK = "。，、；：！？"
+_CJK_TAIL_RE = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]+$")
+_CJK_PUNCT_RE = re.compile(r"[%s]" % re.escape(_TAIL_PUNCT_CJK))
+_TAIL_QUOTES = "\"'\u201c\u201d"
+_AMP_AT_END_RE = re.compile(r"&(?:#[0-9]{1,7}|#[xX][0-9a-fA-F]{1,6}|[A-Za-z][A-Za-z0-9]{1,31})?$")
+_REF_DEF_MARK_RE = re.compile(r"^\s{0,3}\[[^\]\n]*\]:\s", re.M)
+def _trim_bare_url(text, start, end):
+    while end > start:
+        ch = text[end - 1]
+        m = _CJK_TAIL_RE.search(text, start, end)
+        if m:
+            if m.start() == start:
+                pass
+            elif _CJK_PUNCT_RE.match(text, m.start() - 1):
+                end = m.start()
+                continue
+        if ch in ")]":
+            n = 0
+            for i in range(start, end - 1):
+                c = text[i]
+                if c == "(":
+                    n += 1
+                elif c == ")":
+                    n -= 1
+            if n <= 0:
+                end -= 1
+                continue
+            break
+        if ch == ";" and _AMP_AT_END_RE.search(text, start, end - 1):
+            break
+        if "&" in text[start:end] and _AMP_AT_END_RE.search(text, start, end):
+            break
+        if ch in _TAIL_PUNCT or ch in _TAIL_PUNCT_CJK or ch in _TAIL_QUOTES:
+            end -= 1
+            continue
+        break
+    return end
+def _link_dest_spans(text):
+    out = []
+    if "](" not in text:
+        return out
+    for _, _, _, dest_end in _scan_link_spans(text):
+        out.append((dest_end - 2, dest_end))
+    return out
+def _bare_url_sub(text, protected=None):
+    if "://" not in text:
+        return None
+    out = []
+    pos = 0
+    line_start = 0
+    def covered(s, e):
+        if not protected:
+            return False
+        for ps, pe in protected:
+            if s < pe and e > ps:
+                return True
+        return False
+    for m in _BARE_URL_RE.finditer(text):
+        start = m.start()
+        end = _trim_bare_url(text, start, m.end())
+        if end <= start or covered(start, end):
+            continue
+        nl = text.find("\n", line_start, start)
+        if nl >= 0:
+            line_start = nl + 1
+        m2 = _REF_DEF_MARK_RE.match(text, line_start, start)
+        if m2:
+            continue
+        url = text[start:end]
+        href = safe_href(url)
+        if not href:
+            continue
+        out.append((text[pos:start], False))
+        out.append(('<a href="%s" rel="noreferrer noopener">%s</a>'
+                    % (href, html.escape(url, quote=False)), True))
+        pos = end
+    if not out:
+        return None
+    out.append((text[pos:], False))
+    return out
 def _bracket_pairs(text):
     pairs = {}
     stack = []
@@ -754,6 +836,12 @@ def parse_inline(text, ctx):
     text = _ANGLE_DEST_RE.sub(_angle_dest_sub, text)
     text = _TAG_RE.sub(lambda m: stash(html.escape(m.group(0), quote=False)), text)
     text = _AUTOLINK_RE.sub(lambda m: stash(_autolink_sub(m)), text)
+    if "://" in text:
+        protected = list(_bracket_pairs(text).items()) + _link_dest_spans(text)
+        batches = _bare_url_sub(text, protected)
+        if batches is not None:
+            text = "".join(stash(chunk) if rendered else chunk
+                           for chunk, rendered in batches)
     text = _ENTITY_RE.sub(lambda m: stash(_entity_sub(m)), text)
     text = html.escape(text, quote=False)
     text = _REF_DEF_LINK(text, ctx)

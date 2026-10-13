@@ -65,9 +65,9 @@ python3 mdview.py --root docs --safe
 
 | | 字节 | 行数 |
 |---|---|---|
-| `mdview.py`（源码，给人看） | 127,052 | 2,801 |
-| `dist/mdview.min.py`（运行版） | **85,534** | 1,973 |
-| 减少 | **41,518（32.7%）** | |
+| `mdview.py`（源码，给人看） | 135,830 | 2,966 |
+| `dist/mdview.min.py`（运行版） | **88,621** | 2,061 |
+| 减少 | **47,209（34.8%）** | |
 
 ```bash
 python3 tools/minify.py                  # 重新生成
@@ -82,8 +82,8 @@ python3 tools/minify.py --check          # 只看体积
 等价性用两套测试 + 逐路径差分验证（测试支持指向替代实现）：
 
 ```bash
-MDVIEW_FILE=dist/mdview.min.py python3 tests/tests_render.py   # 111 项 OK
-MDVIEW=dist/mdview.min.py bash tests/selftest.sh               # 239 项 PASS
+MDVIEW_FILE=dist/mdview.min.py python3 tests/tests_render.py   # 173 项 OK
+MDVIEW=dist/mdview.min.py bash tests/selftest.sh               # 309 项 PASS
 ```
 
 差分覆盖 21 条路径（渲染页/源码视图/下载/搜索/目录索引/二进制/无扩展名/404/
@@ -114,6 +114,7 @@ CJK 文件名），**正文哈希与响应头全部一致**；`--help` 与错误
 | 引用 | `>`，支持嵌套与内部块结构 |
 | 表格 | GFM 表格，支持 `:--` `:-:` `--:` 左/中/右对齐；单元格可含行内语法 |
 | 链接与图片 | 行内式、引用式（`[t][r]`、`[r][]`、简写 `[r]` —— **链接与图片都支持**）、自动链接 `<https://…>`、邮件地址；目标支持 `<...>` 写法（内部可含空格与 `)`） |
+| 裸 URL 点击化 | 正文里手写的 `http://` / `https://` **自动变成可点链接**（GFM autolink literal），不必写成 `[](…)` 或 `<>`。只认这两种协议：`www.example.com` 与裸邮件刻意不做（前者要猜协议，后者误报率高）。遵循 GFM 的尾部规则：句末 `.` `,` `:` `;` `!` `?` 与成对引号归句子，括号按配平判定，尾部 `/` `#` 与查询串保留。**刻意偏离 GFM 一处**：全角句末标点 `。，、；：！？` 也算句子标点（GFM 只认半角），但 URL 里的汉字（`/wiki/中文条目`）照旧保留。反引号与围栏代码块内的 URL 不受影响 |
 | 分隔线 | `---`、`***`、`___` |
 | HTML 实体 | `&copy;`、`&amp;`、`&#65;` 等 |
 
@@ -161,6 +162,35 @@ CommonMark 的 flanking 公式在「两侧都是 CJK」时会把 `*` 判成不�
   [`docs/guide/install.md`](docs/guide/install.md) 的「路径里有空格」一节。
 - **裸空格不是合法写法**：`[x](a b.md)`、`![x](a b.png)` 与 VS Code/CommonMark 一样，
   整行按字面文本显示（不会截断成一条指向 `a` 的链接）。
+
+### 裸 URL 怎么点击化
+
+正文里手写的 URL 不必再包成链接，`https://…` 直接可点：
+
+```markdown
+见 https://example.com/a 说明        →  <a href="https://example.com/a" rel="noreferrer noopener">https://example.com/a</a>
+```
+
+边界规则（GFM autolink literal）：
+
+| 情况 | 结果 |
+|------|------|
+| 句末 `.` `,` `:` `;` `!` `?` | 归句子，不进 URL：`…/a.` → URL 是 `…/a` |
+| 尾部引号 `"` `'` `“` `”` | 归句子 |
+| 括号 | 按配平判定：`wiki/A_(b)` 保留，`A_(b))` 与 `(见 …/a)` 的收尾 `)` 归句子 |
+| 全角句末标点 `。，、；：！？` | **归句子**（刻意偏离 GFM，见下） |
+| 尾部 `/`、`#片段`、`?查询串` | 保留，属于 URL |
+| 查询串里的 `&` | 转义一次：`href="?a=1&amp;b=2"` |
+| 反引号内、围栏代码块内 | **不**链接化（按代码显示） |
+| `[文字](https://…)` 的目标 | 不重复链接化（它本来就是链接目标） |
+| 链接标签内部 `[见 https://… 说明](u)` | **不**链接化：HTML 不允许 `<a>` 嵌 `<a>` |
+| `www.example.com`、`a@b.com` | **不**链接化：前者要猜协议，后者误报率高 |
+
+一处**刻意偏离 GFM**：GFM 只把半角标点当句末，于是 `见 https://e.com/a。结束` 会把
+「。结束」整段吃进链接。中文技术文档里 URL 后面跟全角句号是常态，所以这里把
+`。，、；：！？` 也算句子标点。**URL 里的汉字不受影响** ——
+`https://zh.wikipedia.org/wiki/中文条目` 完整保留（只有"汉字串左边紧跟全角句末标点"
+时才算句子尾巴）。
 
 **以 `/` 开头的站内路径按「服务根」解析**（标准站点语义：同一个 URL 永远指向同一个文件）。
 所以文档里的 `/media/logo.svg` 只有在 `--root` 恰好指向文档库根时才有效：
@@ -256,14 +286,14 @@ md-preview/
 ├─ GLOSSARY.md          # 术语表（目标 / 根相对 URL / 双重编码 …）
 ├─ docs/adr/            # 决策记录（目标路径的编码语义为什么以 VS Code 为准）
 ├─ tests/               # 测试（见 tests/README.md）
-│  ├─ tests_render.py   #   渲染器回归测试（153 项，纯 unittest）
-│  └─ selftest.sh       #   端到端 HTTP 冒烟测试（289 项断言）
+│  ├─ tests_render.py   #   渲染器回归测试（173 项，纯 unittest）
+│  └─ selftest.sh       #   端到端 HTTP 冒烟测试（309 项断言）
 ├─ tools/minify.py      #   生成运行版（去注释/docstring/空行）
-├─ dist/mdview.min.py   #   ★ 压缩运行版（85 KB，可单独拿去运行）
+├─ dist/mdview.min.py   #   ★ 压缩运行版（87 KB，可单独拿去运行）
 └─ docs/                # 示例语料
-   ├─ index.md          #   表格/任务列表/嵌套列表/代码高亮/相对链接
+   ├─ index.md          #   表格/任务列表/嵌套列表/代码高亮/相对链接/裸 URL 点击化
    ├─ guide/            #   安装、边界、代码块专项
-   └─ preview/          #   ★ 支持内联渲染的文件样例（36 个）+ 总览页 + 生成脚本
+   └─ preview/          #   ★ 支持内联渲染的文件样例（55 个）+ 总览页 + 生成脚本
 ```
 
 ---
@@ -271,8 +301,8 @@ md-preview/
 ## 8. 测试
 
 ```bash
-python3 tests/tests_render.py      # 渲染器单元测试：153 项
-bash tests/selftest.sh             # 端到端 HTTP 验证：289 项断言
+python3 tests/tests_render.py      # 渲染器单元测试：173 项
+bash tests/selftest.sh             # 端到端 HTTP 验证：309 项断言
 ```
 
 三者都是零依赖、可重复执行的。`tests/selftest.sh` 会在 `127.0.0.1:8731` 起一个临时实例，

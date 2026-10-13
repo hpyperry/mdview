@@ -359,7 +359,7 @@ body{margin:0;background:var(--bg);color:var(--fg);
   font:16px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans CJK SC",
   "PingFang SC","Microsoft YaHei",Helvetica,Arial,sans-serif}
 .wrap{max-width:900px;margin:0 auto;padding:28px 20px 72px}
-a{color:var(--accent);text-decoration:none}
+a{color:var(--accent);text-decoration:none;overflow-wrap:anywhere}
 a:hover{text-decoration:underline}
 header.bar{display:flex;align-items:center;gap:14px;flex-wrap:wrap;
   border-bottom:1px solid var(--line);padding-bottom:10px;margin-bottom:22px}
@@ -926,10 +926,157 @@ def _autolink_sub(m):
     """
     target = m.group(1)
     text = html.escape(target, quote=False)
-    if "@" in target and "://" not in target:
+    # `@` 判定之前必须先看有没有 scheme：旧写法无条件补 mailto:，于是
+    # `<mailto:a@b.com>` 产出 href="mailto:mailto:a@b.com"（死链）。
+    if "@" in target and "://" not in target and not _SCHEME_RE.match(target):
         return '<a href="%s">%s</a>' % (safe_href("mailto:" + target), text)
     return '<a href="%s" rel="noreferrer noopener">%s</a>' % (
         safe_href(target), text)
+
+
+# 裸 URL（GFM autolink literal）：正文里手写的 http(s):// 直接可点。
+# 只认 http/https —— www.example.com 需要猜协议、裸邮件误报率高，都不做。
+# 字符类里排除 NUL 与反引号：此刻 token 占位符、行内码占位符、实体占位符
+# 都在文本里，URL 绝不允许跨过它们（否则会把占位符吃进 href）。
+_BARE_URL_RE = re.compile(r"https?://[^\s<>\x00`]+", re.I)
+# GFM 规定：URL 尾部的这些字符归句子，不属于 URL。
+_TAIL_PUNCT = ".,:;!?"
+# 全角句末标点 —— 这是**刻意偏离 GFM** 的一处：GFM 只认半角标点，于是
+# `见 https://e.com/a。结束` 会把「。结束」整段吃进链接（浏览器地址栏里看着像
+# 一条超长 URL），而中文技术文档里 URL 后面跟全角句号是常态。
+# 只收句末标点，**不收 CJK 汉字**：`https://zh.wikipedia.org/wiki/中文条目`
+# 这类 URL 里的汉字不是标点，照旧完整保留。
+_TAIL_PUNCT_CJK = "。，、；：！？"
+# 结尾的 CJK 汉字串（用于识别「URL 后面还跟着一句中文」）。
+_CJK_TAIL_RE = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]+$")
+# 全角句末标点（判断上面那串汉字左边是不是句子边界）。
+_CJK_PUNCT_RE = re.compile(r"[%s]" % re.escape(_TAIL_PUNCT_CJK))
+# 尾部的成对引号与右括号同样归句子（括号需配平判定）。
+_TAIL_QUOTES = "\"'\u201c\u201d"
+# 结尾的 `&name` / `&#38`：它是 HTML 实体的前半段，不能当成普通文本处理。
+_AMP_AT_END_RE = re.compile(r"&(?:#[0-9]{1,7}|#[xX][0-9a-fA-F]{1,6}|[A-Za-z][A-Za-z0-9]{1,31})?$")
+# 引用式定义 `[r]: 目标` 的竖标志（同一行前缀里出现它就说明这个 URL 是定义目标）。
+_REF_DEF_MARK_RE = re.compile(r"^\s{0,3}\[[^\]\n]*\]:\s", re.M)
+
+
+def _trim_bare_url(text, start, end):
+    """按 GFM 规则剥掉 URL 尾部的句子标点，返回真正的结束下标。
+
+    括号判定用的是 GFM 的原话："去掉那个尾部 `)`/`]` 之后，剩下的部分里
+    配成对的括号仍平衡、且没有多余的 `)`/`]`"。所以 `A_(b)` 保留，`A_(b))`
+    去掉一个，`(见 …/a)` 把那个收尾的 `)` 归还给句子。
+    顺序有意如此：**先**判实体/括号（它们是"实质内容"），**再**剥标点。
+    反例说明为什么不能只剥标点：`https://e.com/a&copy;` 的 `;` 若被当标点剥掉，
+    文本就漏出半截实体 `&copy`，页面上显示成 "&copy"。
+    """
+    while end > start:
+        ch = text[end - 1]
+        # 全角句末标点如果**不在最末尾**（`https://e.com/a。结束`），下面的标点分支
+        # 永远够不到它 —— URL 的字符类是允许 CJK 的，整句都被吃进来了。
+        # 所以先做一次"CJK 句末"规约：末尾的汉字只有在它左边紧跟全角句末标点时
+        # 才算句子尾巴；`wiki/中文条目` 左边是 `/`，不在其列，照旧保留。
+        m = _CJK_TAIL_RE.search(text, start, end)
+        if m:
+            if m.start() == start:
+                # 整段都是汉字且没有左边标点 -> 不是"标点+中文句子"形态，交给下面
+                pass
+            elif _CJK_PUNCT_RE.match(text, m.start() - 1):
+                end = m.start()
+                continue
+        if ch in ")]":
+            n = 0
+            for i in range(start, end - 1):
+                c = text[i]
+                if c == "(":
+                    n += 1
+                elif c == ")":
+                    n -= 1
+            # 前面还有没配对的 `(` -> 这个收尾括号是 URL 的一部分（`A_(b)`）；
+            # 否则它属于句子（`(见 …/a)`、`A_(b))` 的最后一个）。
+            if n <= 0:
+                end -= 1
+                continue
+            break
+        # 结尾是 `&name;` 这类完整实体的收尾 `;` -> 前面那个 `&` 是实体开头，
+        # 这个分号属于它，停手。
+        if ch == ";" and _AMP_AT_END_RE.search(text, start, end - 1):
+            break
+        # 结尾是 `&` 或 `&amp`（没有分号）-> 也是实体开头，`;` 属于它；
+        # 若这里是句末标点 `;`，上面的 `)`/`]` 分支已处理，这里只管停手。
+        if "&" in text[start:end] and _AMP_AT_END_RE.search(text, start, end):
+            break
+        if ch in _TAIL_PUNCT or ch in _TAIL_PUNCT_CJK or ch in _TAIL_QUOTES:
+            end -= 1
+            continue
+        break
+    return end
+
+
+def _link_dest_spans(text):
+    """行内链接与图片的**目标区间** [(起点, 终点)]，用于排除自动链接。
+
+    目标里本来就是个 URL（`[t](https://…)`），它是链接目标、不是正文裸 URL。
+    这里只做区间计算，不渲染 —— 渲染仍由 scan_inline 统一负责。
+    """
+    out = []
+    if "](" not in text:
+        return out                       # 快路径：没有行内链接目标，不必配对扫描
+    for _, _, _, dest_end in _scan_link_spans(text):
+        # `](` 的 `(` 在标签终点 +1 处，故目标起点是 dest_end - 2；
+        # 目标止于 dest_end - 1（最后的 `)`），这里多含一位无妨。
+        out.append((dest_end - 2, dest_end))
+    return out
+
+
+def _bare_url_sub(text, protected=None):
+    """把正文里的裸 http(s) URL 变成 <a>，返回 [(片段, 是否已渲染), ...]。
+
+    protected 是若干 (start, end) 区间：方括号标签与链接目标。跨进去的 URL
+    一律不动 —— 标签里的 URL 若也变成链接会产出 <a> 嵌 <a>，目标里的 URL 本来
+    就是链接目标。
+    """
+    # 只有真的含 `://` 才值得做方括号配对与目标扫描（两者都是整段线性扫描）。
+    if "://" not in text:
+        return None
+    out = []
+    pos = 0
+    line_start = 0
+
+    def covered(s, e):
+        if not protected:
+            return False
+        for ps, pe in protected:
+            if s < pe and e > ps:
+                return True
+        return False
+
+    for m in _BARE_URL_RE.finditer(text):
+        start = m.start()
+        end = _trim_bare_url(text, start, m.end())
+        if end <= start or covered(start, end):
+            continue
+        # 引用式定义行里的 URL（`[r]: https://…`）是定义目标。定义通常已在块级
+        # 阶段被摘掉，这里是没被摘掉时的兜底。
+        # 行首用**前进式**指针维护：若改成每次匹配都 rfind 回退，一行 2 万个 URL
+        # 会退化成平方级（实测 1.39s，改后 0.21s，与 S17 的旧链接正则是同一类坑）。
+        nl = text.find("\n", line_start, start)
+        if nl >= 0:
+            line_start = nl + 1
+        m2 = _REF_DEF_MARK_RE.match(text, line_start, start)
+        if m2:
+            continue
+        url = text[start:end]
+        href = safe_href(url)
+        if not href:
+            continue                    # 协议被拒：当普通文本，交给外层转义
+        out.append((text[pos:start], False))
+        out.append(('<a href="%s" rel="noreferrer noopener">%s</a>'
+                    % (href, html.escape(url, quote=False)), True))
+        pos = end
+    if not out:
+        return None
+    out.append((text[pos:], False))
+    return out
 
 
 def _bracket_pairs(text):
@@ -1050,7 +1197,8 @@ def parse_inline(text, ctx):
     顺序至关重要：
       1) 反斜杠转义必须最先 —— 否则 \\` 会被行内码正则当成定界符；
       2) 裸 HTML 标签与自动链接在文本转义之前摘除，避免正则跨标签匹配；
-      3) 强调解析放在最后，且只吃已转义文本，不会碰到 token。
+      3) 裸 URL 自动链接放在文本转义之后、强调之前 —— 见附近注释；
+      4) 强调解析放在最后，且只吃已转义文本，不会碰到 token。
     """
     tokens = []
 
@@ -1135,6 +1283,23 @@ def parse_inline(text, ctx):
     text = _ANGLE_DEST_RE.sub(_angle_dest_sub, text)
     text = _TAG_RE.sub(lambda m: stash(html.escape(m.group(0), quote=False)), text)
     text = _AUTOLINK_RE.sub(lambda m: stash(_autolink_sub(m)), text)
+
+    # 裸 URL 自动链接（GFM autolink literal）。位置必须卡在这里，两个方向都不能挪：
+    #   * 在 _ENTITY_RE **之前** —— `&` 还是字面 `&`，URL 是"源文本形态"：带查询串的
+    #     `?a=1&b=2` 能整段命中（若在实体之后，`&` 已成 token，URL 会被截断）；
+    #     随后 html.escape 统一转义成 href="?a=1&amp;b=2"，不会 double-escape。
+    #   * 在引用式链接展开（下面的 _REF_DEF_LINK）**之前** —— 那一展开会把
+    #     `![a][r]` 变成 `<img src="…">` 写进同一段文本；晚一步的话目标已在属性值
+    #     内部，替换会在里面嵌一个 <a>，产出 src="<a href=…>" 这种坏标记。
+    # 已渲染的 <a>/<img>、行内码、HTML 标签、尖括号自动链接此刻都是 token 占位符
+    # （字符类是 NUL / 反引号），正则碰不到；标签与链接目标区间是禁区。
+    if "://" in text:
+        protected = list(_bracket_pairs(text).items()) + _link_dest_spans(text)
+        batches = _bare_url_sub(text, protected)
+        if batches is not None:
+            text = "".join(stash(chunk) if rendered else chunk
+                           for chunk, rendered in batches)
+
     text = _ENTITY_RE.sub(lambda m: stash(_entity_sub(m)), text)
 
     text = html.escape(text, quote=False)

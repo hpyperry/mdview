@@ -445,6 +445,124 @@ class TestReferenceImages(unittest.TestCase):
         self.assertNotIn("<img", r("![x][nope]"))
 
 
+class TestAutolinkLiteral(unittest.TestCase):
+    """裸 URL（GFM autolink literal）：正文里手写的 http(s):// 直接可点。
+
+    只做 http/https（www. 与裸邮件刻意不做）；尾随标点按 GFM 归还句子。
+    """
+
+    def test_bare_https_becomes_link(self):
+        out = r("访问 https://example.com/a 看看。")
+        self.assertIn('<a href="https://example.com/a" '
+                      'rel="noreferrer noopener">https://example.com/a</a>', out)
+        self.assertIn("访问 ", out)
+
+    def test_bare_http_with_port_and_trailing_slash(self):
+        out = r("打开 http://127.0.0.1:8000/ 即可。")
+        self.assertIn('href="http://127.0.0.1:8000/"', out)
+
+    def test_scheme_is_case_insensitive(self):
+        self.assertIn(">HTTPS://EXAMPLE.COM/A</a>", r("见 HTTPS://EXAMPLE.COM/A 结束"))
+
+    def test_only_http_and_https(self):
+        # www. 与裸邮件刻意不链接化（要猜协议 / 误报率高）
+        self.assertNotIn("<a", r("见 www.example.com 说明"))
+        self.assertNotIn("<a", r("联系 a@b.com 吧"))
+        self.assertNotIn("<a", r("见 javascript:alert(1) 说"))
+
+    def test_trailing_punctuation_belongs_to_sentence(self):
+        for ch in (".", ",", ":", ";", "!", "?"):
+            out = r("见 https://example.com/a%s 结束" % ch)
+            self.assertIn('href="https://example.com/a"', out, ch)
+            self.assertIn("</a>%s" % ch, out, ch)
+
+    def test_full_width_punctuation_is_sentence_punctuation(self):
+        # 刻意偏离 GFM（它只认半角）：中文文档里 URL 后跟全角句号是常态，
+        # 不撇开的话「。结束」会被整段吃进链接。
+        out = r("见 https://example.com/a。结束")
+        self.assertIn('href="https://example.com/a"', out)
+        self.assertIn("</a>。结束", out)
+
+    def test_cjk_inside_url_is_kept(self):
+        # 例外：URL 里的汉字不是标点，不能被当成句子边界剥掉
+        out = r("见 https://zh.wikipedia.org/wiki/中文条目 结束")
+        self.assertIn('href="https://zh.wikipedia.org/wiki/中文条目"', out)
+
+    def test_parentheses_balance_like_gfm(self):
+        # 尾括号在 URL 内部有未配对的 `(` 时属于 URL
+        out = r("见 https://en.wikipedia.org/wiki/A_(b) 结束")
+        self.assertIn('href="https://en.wikipedia.org/wiki/A_(b)"', out)
+        # 多出来的那个 `)` 归还句子
+        out = r("见 https://en.wikipedia.org/wiki/A_(b)) 结束")
+        self.assertIn('href="https://en.wikipedia.org/wiki/A_(b)"', out)
+        self.assertIn("</a>) 结束", out)
+        # 整体被括号包住时，收尾括号归还句子
+        out = r("(见 https://example.com/a)")
+        self.assertIn('href="https://example.com/a"', out)
+        self.assertIn("</a>)", out)
+
+    def test_trailing_quotes_returned_to_sentence(self):
+        out = r('见 "https://example.com/a" 结束')
+        self.assertIn('href="https://example.com/a"', out)
+        self.assertIn('</a>" 结束', out)
+
+    def test_query_string_escaped_once(self):
+        out = r("访问 https://e.com/x?a=1&b=2 结束")
+        self.assertIn('href="https://e.com/x?a=1&amp;b=2"', out)
+        self.assertNotIn("&amp;amp;", out)
+
+    def test_trailing_entity_keeps_its_semicolon(self):
+        # `&copy;` 的 `;` 属于实体，不能被当句末标点剥掉（否则页面漏出 "&copy"）
+        out = r("见 https://e.com/a&copy; 结束")
+        self.assertIn('href="https://e.com/a&amp;copy;"', out)
+        self.assertNotIn("&copy</a>", out)
+
+    def test_not_linkified_inside_code(self):
+        self.assertIn("<code>https://e.com/a</code>", r("写成 `https://e.com/a` 即可"))
+        self.assertNotIn("<a", r("```\nhttps://e.com/a\n```"))
+
+    def test_angle_autolink_still_works(self):
+        self.assertIn('<a href="https://example.com" '
+                      'rel="noreferrer noopener">https://example.com</a>',
+                      r("<https://example.com>"))
+
+    def test_markdown_link_destination_is_not_linkified(self):
+        out = r("见 [x](https://e.com/a) 说明")
+        self.assertIn('<a href="https://e.com/a" rel="noreferrer noopener">x</a>', out)
+        self.assertEqual(out.count("<a "), 1)
+
+    def test_label_url_is_not_nested(self):
+        # HTML 不允许 <a> 嵌 <a>：标签里的 URL 保持纯文本
+        out = r("[见 https://example.com/a 说明](other.md)")
+        self.assertEqual(out.count("<a "), 1)
+        self.assertIn("见 https://example.com/a 说明</a>", out)
+
+    def test_image_alt_is_not_linkified(self):
+        out = r("![见 https://e.com/a](p.png)")
+        self.assertEqual(out.count("<a "), 0)
+        self.assertIn('alt="见 https://e.com/a"', out)
+
+    def test_reference_image_source_is_not_corrupted(self):
+        # 回归：早期实现把定义里的 URL 也链接化，产出 src="<a href=…>"
+        out = r("![a][r]\n\n[r]: https://e.com/p.png")
+        self.assertIn('<img src="https://e.com/p.png" alt="a">', out)
+        self.assertNotIn("<a", out)
+
+    def test_url_after_markdown_link_is_linkified(self):
+        out = r("[x](a.md)https://e.com")
+        self.assertIn('href="/docs/a.md"', out)
+        self.assertIn('href="https://e.com"', out)
+
+    def test_linkified_in_heading_and_table(self):
+        self.assertIn('<a href="https://e.com/a"', r("## 见 https://e.com/a"))
+        out = r("| a |\n|---|\n| https://e.com/x |")
+        self.assertIn('<td><a href="https://e.com/x"', out)
+
+    def test_no_duplicate_when_text_has_no_scheme(self):
+        # 快路径不能漏掉正文：没有 :// 时直接返回原文
+        self.assertNotIn("<a", r("普通一段没有链接的文字"))
+
+
 class TestCopyButton(unittest.TestCase):
     """代码块复制按钮：由 JS 注入，基线（禁用 JS）下不能出现死按钮。"""
 

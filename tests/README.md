@@ -5,15 +5,15 @@
 
 | 文件 | 作用 | 命令 |
 |------|------|------|
-| `tests_render.py` | 渲染器回归测试（153 项，纯 `unittest`，不联网不起服务） | `python3 tests/tests_render.py` |
-| `selftest.sh` | 端到端 HTTP 冒烟测试（289 项断言，自己起临时服务、跑完自清理） | `bash tests/selftest.sh` |
+| `tests_render.py` | 渲染器回归测试（173 项，纯 `unittest`，不联网不起服务） | `python3 tests/tests_render.py` |
+| `selftest.sh` | 端到端 HTTP 冒烟测试（309 项断言，自己起临时服务、跑完自清理） | `bash tests/selftest.sh` |
 
 ## 一套跑完
 
 ```bash
 # 在仓库根执行
-python3 tests/tests_render.py      # 153 项单元测试
-bash tests/selftest.sh             # 289 项端到端断言
+python3 tests/tests_render.py      # 173 项单元测试
+bash tests/selftest.sh             # 309 项端到端断言
 ```
 
 两个命令都是零依赖、可重复执行的，不需要 `pip install`。
@@ -28,15 +28,20 @@ bash tests/selftest.sh             # 289 项端到端断言
 （`C.UTF-8`、`v1.2.3` 不被切）、无语言围栏必须素色、链接与图片重写、路径夹紧、
 **目标路径的编码规则**（`%20`/`%2520`/`%23`/`%3F` 只解一次编一次、`<>` 目标、裸空格
 退化成字面文本、链接与图片同一目标必须逐字节相同、引用式图片三种写法 + 协议被拒）、
-列表嵌套与松紧、表格对齐、搜索文件名命中，等等。
+列表嵌套与松紧、表格对齐、搜索文件名命中；
+等等。
 
 **`selftest.sh`** —— 真起服务、真发 HTTP：
 代码块的复制按钮必须由 JS 注入（HTML 里不能有硬编码的死按钮）；
 搜索跳转的落点必须竖向居中、且对非 L 锚点不生效；
+
 docs/preview 下每个样例都要可访问、图片魔数正确；
+**裸 URL 自动链接**（临时 `bare.md` 真往返，加上示例页 `index.md` 的「裸 URL 自动链接」
+小节逐条断言：可点、查询串只转义一次、括号配平、全角句末标点归句子、中文 URL 保留、
+行内码与围栏块内不链接化、标签里不嵌套 `<a>`）；
 目录索引、渲染结果、`?raw=1` 源码视图的行锚点（并核对第 5 行内容与源文件一致）、
 子目录与图片相对路径、301 补斜杠、深度树、全文搜索分栏、断链检查（页面里每个
-`href`/`src` 逐个请求）、路径穿越不外泄、以及 `--safe` / `--no-search` /
+根相对 `href`/`src` 逐个请求）、路径穿越不外泄、以及 `--safe` / `--no-search` /
 端口占用回退三个参数开关。结束时打印 `PASS=n FAIL=n`，非零退出码表示有失败项。
 
 可用 `PORT=9000 bash tests/selftest.sh` 换一组临时端口（脚本会用到 PORT..PORT+5）。

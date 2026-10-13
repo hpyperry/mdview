@@ -135,6 +135,14 @@ nchk "无未转义 script"    "$MD" '<script>alert'
 chk "样式内联"            "$MD" '<style>'
 nchk "无外部样式表请求"   "$MD" '<link rel="stylesheet"'
 nchk "无外部脚本请求"     "$MD" '<script src='
+# 示例页里的裸 URL 演示小节（docs/index.md「裸 URL 自动链接」）
+chk "示例页有裸 URL 小节"   "$MD" '<h2 id="裸-url-自动链接">'
+chk "示例页裸 URL 可点"     "$MD" '访问 <a href="https://example.com/mdview" rel="noreferrer noopener">https://example.com/mdview</a> 看看'
+chk "示例页句末标点归句子"  "$MD" '</a>. 结束'
+chk "示例页全角句号归句子"  "$MD" '</a>。结束'
+chk "示例页括号配平"        "$MD" 'href="https://en.wikipedia.org/wiki/A_(b)"'
+chk "示例页行内码不链接化"  "$MD" '<code>https://example.com/code</code>'
+nchk "示例页标签不嵌套"     "$MD" '<a href="https://example.com/e"'
 
 echo "== ?raw=1 源码视图（每行带锚点，供搜索跳转）=="
 RAW="$(curl -s "$BASE/index.md?raw=1")"
@@ -294,6 +302,47 @@ chk "有 scrollTo 居中逻辑"      "$RAW2" 'window.scrollTo'
 chk "居中只在 L 锚点生效"       "$RAW2" "charAt(1) !== \"L\""
 chk "上下边界做了夹紧"          "$RAW2" 'if (y > max) y = max;'
 chk "已居中则不重复滚动"        "$RAW2" 'replaceState'
+
+echo "== 裸 URL 自动链接（GFM autolink literal） =="
+# 端到端确认：正文里手写的 http(s):// 真的产出可点的 <a>，且代码块里不受影响
+ALDIR="$(mktemp -d -t mdview-autolink)"
+cat > "$ALDIR/bare.md" <<'MDEOF'
+正文 https://example.com/a 结束。
+
+带查询串 https://e.com/x?a=1&b=2 结束。
+
+括号 https://en.wikipedia.org/wiki/A_(b) 结束。
+
+全角 https://e.com/a。结束。
+
+中文 https://zh.wikipedia.org/wiki/中文条目 结束。
+
+行内码 `https://e.com/code` 与尖括号 <https://e.com/angle>。
+
+标签里 [见 https://e.com/label 说明](other.md)。
+
+```text
+https://e.com/fenced
+```
+MDEOF
+AL_PID="$(serve_root "$((PORT+11))" "$ALDIR")"
+ALB="http://127.0.0.1:$((PORT+11))"
+AL="$(curl -s "$ALB/bare.md")"
+chk "裸 URL 变可点"        "$AL" '<a href="https://example.com/a" rel="noreferrer noopener">https://example.com/a</a>'
+chk "查询串只转义一次"     "$AL" 'href="https://e.com/x?a=1&amp;b=2"'
+nchk "查询串不双重转义"    "$AL" '&amp;amp;'
+chk "括号配平归 URL"       "$AL" 'href="https://en.wikipedia.org/wiki/A_(b)"'
+chk "全角句号归句子"       "$AL" '</a>。结束'
+chk "URL 里的中文保留"     "$AL" 'href="https://zh.wikipedia.org/wiki/中文条目"'
+chk "行内码不链接化"       "$AL" '<code>https://e.com/code</code>'
+nchk "行内码里无 <a>"      "$AL" '<code><a'
+chk "围栏块不链接化"       "$AL" '>https://e.com/fenced</code>'
+nchk "围栏块里无 <a>"      "$AL" '<code class="language-text"><a'
+chk "尖括号自动链接仍在"   "$AL" '<a href="https://e.com/angle" rel="noreferrer noopener">https://e.com/angle</a>'
+chk "标签里的 URL 不嵌套"  "$AL" '>见 https://e.com/label 说明</a>'
+nchk "标签里没有嵌套 <a>"  "$AL" '<a href="https://e.com/label"'
+{ kill "$AL_PID" 2>/dev/null; wait "$AL_PID" 2>/dev/null; }
+rm -rf "$ALDIR"
 
 echo "== 渲染样例（docs/preview）全部可访问且类型正确 =="
 # 逐个请求索引页里链接的样例文件，任何一个不是 200 就算失败

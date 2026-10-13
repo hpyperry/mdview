@@ -5,8 +5,8 @@
 
 | 项目 | 命令 | 结果 |
 |------|------|------|
-| 渲染器单元测试 | `python3 tests/tests_render.py` | **153 项全部通过**（`Ran 153 tests ... OK`） |
-| 端到端 HTTP 验证 | `bash tests/selftest.sh` | **289 项断言全部通过**（`PASS=289 FAIL=0`） |
+| 渲染器单元测试 | `python3 tests/tests_render.py` | **173 项全部通过**（`Ran 173 tests ... OK`） |
+| 端到端 HTTP 验证 | `bash tests/selftest.sh` | **309 项断言全部通过**（`PASS=309 FAIL=0`） |
 | 语法兼容性 | `ast` 扫描 | 无 walrus / `match` / 3.9+ 独有语法 → 3.6+ 可运行 |
 | `--safe` | 见下 §3 | 只放行 `.md` 与图片，其余 404 |
 | `--no-search` | 见下 §3 | 路由与界面搜索框同时消失 |
@@ -418,7 +418,7 @@ padding:9px 14px`、复制按钮无边框、继承字色、悬停变蓝。本实
 
 用户要求：把「当前支持在浏览器里渲染的所有文件」放进 docs 目录，看实际效果。
 
-新增 `docs/preview/`：一个总览页 + 36 个样例文件，覆盖三条内联路径：
+新增 `docs/preview/`：一个总览页 + 55 个样例文件，覆盖三条内联路径：
 
 | 路径 | 样例 |
 |------|------|
@@ -1086,3 +1086,96 @@ B10 的断言里包含「渲染结果里没有 `%25`」，谁把解码改成 `un
 的文件在 VS Code 里用相对路径**打不开**。我们只解一次：`a%2520b.png` 命中字面
 `a%20b.png`。跟了它就是丢能力，所以不跟 —— 理由与其余边角记在
 [`docs/adr/0001`](docs/adr/0001-markdown-target-encoding.md) 与 README §9。
+
+---
+
+## 24. 裸 URL 点击化（GFM autolink literal）
+
+**需求**：正文里手写的 `https://…` 要能点，不必先写成 `[](…)` 或 `<>`。
+
+**改前实测**（`render_markdown("访问 https://example.com/a 看看。")`）：
+
+```
+<p>访问 https://example.com/a 看看。</p>          ← 纯文本，点不了
+```
+
+`_AUTOLINK_RE` 只匹配尖括号形式 `<https://…>`，裸 URL 在正文里没有任何处理器。
+（`?raw=1` 源码视图按设计就是把每一行当纯文本发，所以那里**不会**有链接，不是缺陷。）
+
+### 落点：卡在「实体之前、引用式展开之前」
+
+四步顺序都试过，只有现在这个落点同时满足四个约束（`parse_inline` 内有同款注释）：
+
+| 约束 | 违反后的现象 |
+|------|--------------|
+| 在 `html.escape` **之前** | 放之后则 `?a=1&b=2` 被再转义一次，href 变成 `&amp;amp;` |
+| 在 `_ENTITY_RE` **之前** | 放之后则 `&` 已成 token，URL 被截断在 `&` |
+| 在 `_REF_DEF_LINK` **之前** | 放之后则引用式图片定义已在 `<img src="…">` 内部，替换会把 `src` 写成 `<a href=…>` |
+| 在 `_AUTOLINK_RE` **之后** | 放之前则尖括号自动链接会被重复处理 |
+
+**实测过的两个坏落点**（都真实产出过坏 HTML，记录以免回退）：
+
+```
+# 落点错误 1（在引用式展开之后）：src 被打坏
+![a][r] + [r]: https://e.com/p.png
+  → <img src="<a href="https://e.com/p.png" rel="noreferrer noopener">https://e.com/p.png</a>" alt="a">
+
+# 落点错误 2（在 html.escape 之后）：双重转义
+访问 https://e.com/x?a=1&b=2 结束
+  → href="https://e.com/x?a=1&amp;amp;b=2"
+```
+
+### 边界规则（GFM autolink literal）
+
+| 输入 | 输出 |
+|------|------|
+| `见 https://example.com/a 说明` | 可点，`href="https://example.com/a"` |
+| `https://example.com/a. 结束` | 句号归句子 |
+| `https://en.wikipedia.org/wiki/A_(b)` | 括号配平 -> 整个 URL |
+| `https://en.wikipedia.org/wiki/A_(b))` | 多出的 `)` 归句子 |
+| `(见 https://example.com/a)` | 收尾 `)` 归句子 |
+| `https://e.com/x?a=1&b=2` | `href="…?a=1&amp;b=2"`（只转义一次） |
+| `https://e.com/a&copy;` | 完整实体保留，页面不漏出 `&copy` |
+| `` `https://e.com/a` `` / 围栏块 | 保持 `<code>`，不链接化 |
+| `[x](https://e.com/a)` | 只有外层一个 `<a>`（目标是链接目标） |
+| `[见 https://e.com/a 说明](other.md)` | 只有外层一个 `<a>`（HTML 不允许 `<a>` 嵌 `<a>`） |
+| `www.example.com` / `a@b.com` | 不链接化 |
+
+### 刻意偏离 GFM：全角句末标点
+
+GFM 只认半角标点，于是中文文档里 `见 https://e.com/a。结束` 会把「。结束」整段吃进
+链接。中文技术文档里 URL 后跟全角句号是常态，所以把 `。，、；：！？` 也算句末标点。
+
+**没有连带损失**：URL 里的汉字照旧保留（`/wiki/中文条目` 完整命中）。实现上只有
+「末尾汉字串的左边紧跟全角句末标点」才判为句子尾巴，`/` 开头的不在其列。
+
+### 顺带修掉的历史缺陷
+
+`<mailto:a@b.com>` 曾产出 `href="mailto:mailto:a@b.com"` 死链：`_autolink_sub` 见到
+`@` 就无条件补 `mailto:`，而 `_AUTOLINK_RE` 只接受 `mailto://`，于是 `mailto:` 前缀
+被当成正文又补了一次。现在补之前先看有没有 scheme。
+
+### 安全
+
+属性注入用例逐个走查（`href`/`src` 值里不得出现未转义引号）：`https://e.com/a"onmouseover="x`、
+`https://e.com/a"&gt;`、`https://e.com/a<script>alert(1)</script>` 等全部只产出
+转义后的属性值；`<` 会终止匹配，所以 `<script>` 落在链接外并被转义。
+协议白名单（`safe_href`）对自动链接同样生效。
+
+### 验证
+
+- 单元 **173 项**（153 旧 + 20 新，旧期望值一行未改）：新增 `TestAutolinkLiteral`，
+  覆盖正例、五种半角句末标点、全角句末标点、括号配平三例、引号、查询串单次转义、
+  尾部实体、行内码/围栏块不链接化、标签不嵌套、图片 alt、引用式图片 `src` 不被写坏、
+  紧跟 markdown 链接的裸 URL、标题与表格单元格、无 `://` 的快路径
+- 端到端 **309 项**（289 旧 + 20 新）：`mktemp -d` 造 `bare.md` 真 HTTP 往返，
+  断言可点、查询串只转义一次、括号配平、全角标点归句子、中文 URL 保留、
+  行内码与围栏块内无 `<a>`、尖括号自动链接仍在、标签里不嵌套 `<a>`；
+  另有 7 项盯住示例页（`docs/index.md` 的「裸 URL 自动链接」小节）真的渲染出可点链接
+- **示例语料内建演示**：`docs/index.md` 新增「裸 URL 自动链接」小节，把可点、
+  句末标点（半角 + 全角）、括号配平、行内码不链接化、标签不嵌套五种行为
+  用真实文本演示一遍 —— 它同时落进「站内链接全部可解析」的断链巡检
+- **全库巡检**：渲染全部 12 个 `.md`，产出 HTML 里"可见文本形态的 http(s) URL"
+  剩余 **0 个**（`docs/guide/code-blocks.md` 的 `http://127.0.0.1:8000/` 在 4 空格
+  缩进块里、`README.md:7` 在围栏块里，都按代码显示，属预期）
+- 压缩版同步重新生成，两套检查对 `dist/mdview.min.py` 各跑一遍
