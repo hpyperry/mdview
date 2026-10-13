@@ -786,20 +786,41 @@ class TestImageZoom(unittest.TestCase):
 
 
 class TestBackToTop(unittest.TestCase):
-    """回到顶部：**只在目录页**出现（文件预览页不装），固定在视口右下角，点击回到顶部。
+    """回到顶部：**目录页 / Markdown 预览页 / 源码视图**都有，固定在视口右下角，点击回顶部。
 
     按钮由 COPY_JS 运行时创建，服务端只给 `<body>` 打一个 `data-totop` 标记 —— 与复制
-    按钮、放大遮罩同一哲学：禁用 JS 的基线里不能出现点不动的死按钮。
+    按钮、放大遮罩同一哲学：禁用 JS 的基线里不能出现点不动的死按钮。搜索页与错误页不装。
     """
 
-    def test_only_dir_pages_get_the_marker(self):
-        self.assertEqual('<body data-totop="1">',
-                         self._body_tag(m._page("t", "<p>x</p>", to_top=True)))
+    def test_pages_without_the_button_get_no_marker(self):
         self.assertEqual("<body>", self._body_tag(m._page("t", "<p>x</p>")))   # 默认不装
-        # 搜索页 / 错误页也走默认分支；文件预览页由端到端断言（selftest.sh 里查真页面）
+        # 搜索页 / 错误页也走默认分支
         self.assertEqual("<body>", self._body_tag(
             m.render_search_page("q", [], [], 0, False)))
         self.assertEqual("<body>", self._body_tag(m._error_page("404", "文件不存在")))
+
+    def test_dir_preview_and_raw_pages_get_the_marker(self):
+        """三个出口各查一遍：目录页 / Markdown 预览页 / 源码视图（?raw=1）。
+
+        `_list_view` / `_markdown_page` / `_raw_page` 都是 Handler 的实例方法，但它们
+        只用到 `_read_text`，所以拿一个只挂了这个静态方法的壳就能直接调。
+        """
+        class _Fake(object):
+            _read_text = staticmethod(m.Handler._read_text)
+            _parent_link = staticmethod(m.Handler._parent_link)
+            _index_title = staticmethod(m.Handler._index_title)
+
+        with tempfile.TemporaryDirectory() as d:
+            md_path = os.path.join(d, "a.md")
+            with open(md_path, "w", encoding="utf-8") as fh:
+                fh.write("# 标题\n\n正文\n")
+            for name, call in (
+                    ("目录页", lambda: m.Handler._list_view(_Fake(), d, "")),
+                    ("预览页", lambda: m.Handler._markdown_page(_Fake(), md_path, "a.md")),
+                    ("源码页", lambda: m.Handler._raw_page(_Fake(), md_path, "a.md"))):
+                res = call()
+                page = res[1] if isinstance(res, tuple) else res   # _list_view 直接返页面
+                self.assertEqual('<body data-totop="1">', self._body_tag(page), name)
 
     def test_button_is_injected_by_script_not_baked_in(self):
         page = m._page("t", "<p>x</p>", to_top=True)

@@ -311,8 +311,9 @@ mark{background:var(--mark);color:var(--markfg);border-radius:3px;padding:0 2px}
   border:1px solid var(--line);border-radius:5px;padding:1px 7px;text-decoration:none}
 .dirlist li a.dl:hover{color:var(--accent);border-color:var(--accent);text-decoration:none}
 .dirlist li.d a{font-weight:600}
-/* 回到顶部：**只出现在目录页**（服务端给 <body> 打 data-totop，见 _page()），由脚本
-   运行时创建 —— 与复制按钮、放大遮罩同一哲学：禁用 JS 的基线里没有点不动的死按钮。
+/* 回到顶部：**目录页、Markdown 预览页、源码视图**都有（服务端给 <body> 打 data-totop，
+   见 _page()；搜索页与错误页不装），由脚本运行时创建 —— 与复制按钮、放大遮罩同一哲学：
+   禁用 JS 的基线里没有点不动的死按钮。
    定位用 position:fixed 钉在视口右下角；图标是现画的内联 SVG（不引图标字体）。 */
 .totop{position:fixed;right:20px;bottom:20px;z-index:5;
   width:40px;height:40px;padding:0;border:1px solid var(--line);border-radius:50%;
@@ -504,9 +505,10 @@ COPY_JS = """
     zoom.focus();
   });
 
-  // 3) 回到顶部：只有**目录页**才注入（服务端在 <body> 上打了 data-totop，见 _page()）。
-  //    文件预览页不装。按钮由脚本创建，所以禁用 JS 的基线里没有点不动的死按钮 ——
-  //    与复制按钮、放大遮罩同一哲学。图标同样现画（一根轴 + 一个箭头），不引图标字体。
+  // 3) 回到顶部：目录页 / Markdown 预览页 / 源码视图才注入（服务端在这些页面的 <body>
+  //    上打了 data-totop，见 _page()）。按钮由脚本创建，所以禁用 JS 的基线里没有点不动
+  //    的死按钮 —— 与复制按钮、放大遮罩同一哲学。图标同样现画（一根轴 + 一个箭头），
+  //    不引图标字体。
   if (document.body.hasAttribute("data-totop")) {
     var toTop = document.createElement("button"), up = document.createElementNS(SVG_NS, "svg");
     var arrow = document.createElementNS(SVG_NS, "path");
@@ -2109,7 +2111,7 @@ class Handler(BaseHTTPRequestHandler):
             posixpath.basename(rel) + "（源码）", body,
             nav_right='<a class="btn" href="%s">渲染</a>'
             % html.escape(url_for_rel(rel), quote=True),
-            show_search=CFG.search, depth_nav=depth_nav_html(rel))
+            show_search=CFG.search, depth_nav=depth_nav_html(rel), to_top=True)
     @staticmethod
     def _read_text(abs_path):
         if not _is_regular_file(abs_path):
@@ -2139,7 +2141,7 @@ class Handler(BaseHTTPRequestHandler):
         body = _crumbs(rel) + "\n" + cached
         return HTTPStatus.OK, _page(title, body, nav_right=raw_link,
                                     show_search=CFG.search,
-                                    depth_nav=depth_nav_html(rel))
+                                    depth_nav=depth_nav_html(rel), to_top=True)
 def local_ip_hint():
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)

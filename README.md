@@ -82,8 +82,8 @@ python3 tools/minify.py --check          # 只看体积
 等价性用两套测试 + 逐路径差分验证（测试支持指向替代实现）：
 
 ```bash
-MDVIEW_FILE=dist/mdview.min.py python3 tests/tests_render.py   # 196 项 OK
-MDVIEW=dist/mdview.min.py bash tests/selftest.sh               # 343 项 PASS
+MDVIEW_FILE=dist/mdview.min.py python3 tests/tests_render.py   # 197 项 OK
+MDVIEW=dist/mdview.min.py bash tests/selftest.sh               # 345 项 PASS
 ```
 
 差分覆盖 21 条路径（渲染页/源码视图/下载/搜索/目录索引/二进制/无扩展名/404/
@@ -117,7 +117,7 @@ CJK 文件名），**正文哈希与响应头全部一致**；`--help` 与错误
 | 裸 URL 点击化 | 正文里手写的 `http://` / `https://` **自动变成可点链接**（GFM autolink literal），不必写成 `[](…)` 或 `<>`。只认这两种协议：`www.example.com` 与裸邮件刻意不做（前者要猜协议，后者误报率高）。遵循 GFM 的尾部规则：句末 `.` `,` `:` `;` `!` `?` 与成对引号归句子，括号按配平判定，尾部 `/` `#` 与查询串保留。**刻意偏离 GFM 一处**：全角句末标点 `。，、；：！？` 也算句子标点（GFM 只认半角），但 URL 里的汉字（`/wiki/中文条目`）照旧保留。反引号与围栏代码块内的 URL 不受影响 |
 | 分隔线 | `---`、`***`、`___` |
 | HTML 实体 | `&copy;`、`&amp;`、`&#65;` 等 |
-| 回到顶部 | **只在目录页**（`/`、`/guide/` 这类列表页）右下角固定一颗 ↑ 按钮，点一下回到页面顶部（`prefers-reduced-motion: reduce` 时直接跳、不做平滑滚动）。**文件预览页不装** —— 那一页要读正文，少一层遮挡。按钮由脚本运行时创建（服务端只在 `<body>` 上打个 `data-totop` 标记），所以禁用 JS 时不会留下点不动的死按钮；实测见 [SELFTEST §32](SELFTEST.md) |
+| 回到顶部 | **目录页**（`/`、`/guide/` 这类列表页）、**Markdown 预览页**、**源码视图**（`?raw=1`）右下角固定一颗 ↑ 按钮，点一下回到页面顶部（`prefers-reduced-motion: reduce` 时直接跳、不做平滑滚动）；搜索页与错误页不装。按钮由脚本运行时创建（服务端只在 `<body>` 上打个 `data-totop` 标记），所以禁用 JS 时不会留下点不动的死按钮；实测见 [SELFTEST §32](SELFTEST.md) |
 | 图片放大 | 正文里的图片（**不在链接里的**那些）会被包上一层可放大的链接：**禁用 JS** 时点一下直接打开原图，**有 JS 时**弹出遮罩、按视口缩放居中显示原图，并显示图片的 `alt` 作为说明。Esc / 点遮罩空白 / 右上角 × 关闭，关闭后焦点还给图片所在的链接；`Cmd`/`Ctrl`/`Shift`/`Alt` + 点击或中键**不劫持**，照旧走浏览器原生行为。链接里的图片（徽章 `[![i](p.png)](u)`）不包裹 —— 点它要跳转。**不做**相册、滚轮缩放、双指手势。理由与实测见 [`docs/adr/0002`](docs/adr/0002-image-zoom.md) 与 [SELFTEST §26](SELFTEST.md) |
 
 ### 刻意不支持（按原文输出）
@@ -288,8 +288,8 @@ md-preview/
 ├─ GLOSSARY.md          # 术语表（目标 / 根相对 URL / 双重编码 …）
 ├─ docs/adr/            # 决策记录（目标路径的编码语义为什么以 VS Code 为准）
 ├─ tests/               # 测试（见 tests/README.md）
-│  ├─ tests_render.py   #   渲染器回归测试（196 项，纯 unittest）
-│  └─ selftest.sh       #   端到端 HTTP 冒烟测试（343 项断言）
+│  ├─ tests_render.py   #   渲染器回归测试（197 项，纯 unittest）
+│  └─ selftest.sh       #   端到端 HTTP 冒烟测试（345 项断言）
 ├─ tools/minify.py      #   生成运行版（去注释/docstring/空行）
 ├─ dist/mdview.min.py   #   ★ 压缩运行版（87 KB，可单独拿去运行）
 └─ docs/                # 示例语料
@@ -303,8 +303,8 @@ md-preview/
 ## 8. 测试
 
 ```bash
-python3 tests/tests_render.py      # 渲染器单元测试：196 项
-bash tests/selftest.sh             # 端到端 HTTP 验证：343 项断言
+python3 tests/tests_render.py      # 渲染器单元测试：197 项
+bash tests/selftest.sh             # 端到端 HTTP 验证：345 项断言
 ```
 
 三者都是零依赖、可重复执行的。`tests/selftest.sh` 会在 `127.0.0.1:8731` 起一个临时实例，
@@ -346,7 +346,7 @@ bash tests/selftest.sh             # 端到端 HTTP 验证：343 项断言
 | 语法高亮以外的新行内语法 | `SECTION 5` 的 `parse_inline`：先 stash 成 token，再在还原前处理 |
 | 新块级语法 | `SECTION 7` 的 `render_blocks`：加一个分支并同步更新 `_starts_block` |
 | 新路由 | 搜 `SECTION 9` 的 `Handler._route` |
-| 回到顶部：改出现范围/位置/滚动行为 | `SECTION 2` 的 `.totop` 一族样式 + `COPY_JS` 末尾那段；出现范围由 `_page(to_top=)` 的调用点（`_list_view`）决定 |
+| 回到顶部：改出现范围/位置/滚动行为 | `SECTION 2` 的 `.totop` 一族样式 + `COPY_JS` 末尾那段；出现范围由 `_page(to_top=)` 的调用点决定（现为 `_list_view` / `_markdown_page` / `_raw_page` 三个） |
 | 图片放大：改可放大的范围（比如只包大图） | `wrap_zoom_images`（`SECTION 5` 的末尾）—— 判据就在那个锚点深度扫描里 |
 | 图片放大：改遮罩/动画/关闭方式 | `SECTION 2` 的 `dialog.zoomdlg` 一族样式 + `COPY_JS` 末尾那段；改动后跑 [`tools/zoom-probe.html`](tools/zoom-probe.html) 真点一次（动画/关闭/图标/焦点的坑见 [SELFTEST §28](SELFTEST.md)、[§29](SELFTEST.md)、[§30](SELFTEST.md)、[§31](SELFTEST.md)，探针别加 `--force-prefers-reduced-motion`） |
 | 目录列表截断 / 白名单扩展 | `SECTION 8` 与 `SECTION 1` 的常量 |

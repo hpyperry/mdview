@@ -203,16 +203,18 @@ chk "入场动画仍在（遮罩）"  "$GFLAT" 'dialog.zoomdlg::backdrop{opacity
 # 基线（无 JS）里不能有写死的遮罩或关闭按钮 —— 那会是点不动的死元素
 nchk "正文里没有写死的 dialog" "$(printf '%s' "$G" | sed -n '/<\/head>/,/<script>/p')" '<dialog'
 
-echo "== 回到顶部（只在目录页） =="
-# 目录页在 <body> 上带 data-totop 标记，按钮由脚本运行时创建；文件预览页 / 源码视图
-# 都不装（SELFTEST §32）。基线里同样不能有写死的按钮。
+echo "== 回到顶部（目录页 / 预览页 / 源码视图） =="
+# 这三类页面的 <body> 带 data-totop 标记，按钮由脚本运行时创建；搜索页不装
+# （SELFTEST §32）。基线里同样不能有写死的按钮。
 chk "主页带 data-totop 标记" "$IDX" 'data-totop="1"'
 chk "子目录列表也带标记"     "$(curl -s "$BASE/guide/")" 'data-totop="1"'
-nchk "文件预览页没有标记"    "$MD" 'data-totop="1"'
-nchk "源码视图没有标记"      "$RAW" 'data-totop="1"'
+chk "文件预览页也带标记"     "$MD" 'data-totop="1"'
+chk "源码视图也带标记"       "$RAW" 'data-totop="1"'
+nchk "搜索页没有标记"        "$(curl -s "$BASE/search?q=mdview")" 'data-totop="1"'
 chk "回到顶部按钮由脚本注入" "$IDX" 'className = "totop"'
 chk "回到顶部样式已内联"     "$IDX" '.totop{position:fixed'
 nchk "主页正文没有写死的按钮" "$(printf '%s' "$IDX" | sed -n '/<\/head>/,/<script>/p')" 'class="totop"'
+nchk "预览页正文没有写死的按钮" "$(printf '%s' "$MD" | sed -n '/<\/head>/,/<script>/p')" 'class="totop"'
 
 echo "== 目录跳转 =="
 RED="$(curl -s -D - -o /dev/null "$BASE/guide")"

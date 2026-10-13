@@ -26,8 +26,8 @@
   然后读 /tmp/zoom-probe.png（下半部分是逐条结果）。历史上它抓到过两个真缺陷：
   关闭遮罩后焦点没回到触发元素（img 不可聚焦，focus() 是空操作）；
   以及出场过渡让 × / caption 原地停留（退场必须瞬时，SELFTEST §29）。
-  第二个 iframe（`?dir=`，默认 /preview/）专门用来验"回到顶部"：那按钮只在目录页出现，
-  文件预览页（第一个 iframe）必须没有（SELFTEST §32）。
+  第二个 iframe（`?dir=`，默认 /preview/）专门用来验"回到顶部"：按钮在目录页与文件预览页
+  上都该出现（第一个 iframe 就是预览页），几何与"点了回顶部"在第二个上量（SELFTEST §32）。
 -->
 <style>
   html,body{margin:0;background:#fff}
@@ -56,8 +56,9 @@
     if (doc && doc.readyState === "complete" && doc.body) cb();
     else d2.addEventListener("load", cb);
   }
-  // 回到顶部：**目录页有、文件预览页没有**；position:fixed 钉在右下角（各留 20px）；
-  // 点一下能回到顶部（平滑滚动是异步的，等 700ms 再读）。
+  // 回到顶部：**目录页、Markdown 预览页都有**（源码视图同理，它只在服务端换了个标记；
+  // 端到端断言查那只页面）。position:fixed 钉在右下角（各留 20px）；点一下能回到顶部
+  // （平滑滚动是异步的，等 700ms 再读）。
   function checkToTop(done) {
     var w2 = d2.contentWindow, doc2 = d2.contentDocument;
     if (!w2 || !doc2 || !doc2.body) { log("totop_dirlist_loaded", false); return done(); }
