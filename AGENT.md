@@ -86,8 +86,13 @@ python3 tools/minify.py                          # 改完 mdview.py 必须重新
   比如链接标签）。合并的那一版就是 `[<script>alert(1)</script>](u.md)` 这个真漏洞，
   见 SELFTEST §25。
 - **引用式展开产出的 HTML 必须 `stash` 成 token**（`_REF_DEF_LINK` / `_shortcut_ref`
-  收 `render_label` + `stash` 两个参数）：字面写回文本会被后面的 `parse_emphasis`
-  再解析一遍，属性值里长出 `<em>`/`<strong>`（SELFTEST §25）。
+  / `_render_ref` 收 `render_label` + `stash` 两个参数）：字面写回文本会被后面的
+  `parse_emphasis` 再解析一遍，属性值里长出 `<em>`/`<strong>`（SELFTEST §25）。
+- **目标装配只有 `_target_attrs` 一个出口**：行内式 / 引用式 × 链接 / 图片四条支路共用
+  它（`safe_href` + `ctx.rewrite_target` 不许在别处再调一次）。曾经是四份各写一遍，
+  其中两份在「协议分支写哪个串」上漂移了 —— 引用式写 `unquote` 后的串、行内式写原样串，
+  于是同一个 `https://e.com/a%20b` 在两种写法下产出不同 href。协议判定是 XSS 白名单的
+  第一道门，副本漂移就是漏洞；要加新的目标来源，接这个函数，别复制（SELFTEST §34）。
 - **服务端包裹图片的落点在 `parse_inline` 出口**（`wrap_zoom_images`）：那时源文本已转义，
   输出里的 `<a`/`<img` 只可能是我们自己生成的，锚点深度才数得准；href 一律复用 img 的 src。
 - **遮罩只做入场动画，退场必须瞬时**：不要给 `dialog.zoomdlg` 写
@@ -110,8 +115,13 @@ python3 tools/minify.py                          # 改完 mdview.py 必须重新
   **字符串字面量里的空行必须保留**（`COPY_JS` 里有一个）。不要改成正则实现。
 - **浏览器侧验证用 `tools/zoom-probe.html`**：本机 Chrome 跑 `--dump-dom` 会挂着不退出，
   用 `--headless --screenshot` 取回探针渲染出的逐条状态（用法写在文件头）。
-- **警惕平方级退化**：配对扫描与"每次匹配回退找行首"都踩过。新增的正则或扫描要对长行
-  保持线性（定界符有 `MAX_DELIM_RUNS` 封顶，行首用前进式指针维护）。
+- **警惕平方级退化**：配对扫描、「每次匹配回退找行首」、**正则回溯**都踩过 —— SELFTEST
+  §34 一次抓出三个，其中 `[` 串 40 KB 要 4.4 秒（默认 20 MiB 上限下以天计）。新增的正则
+  或扫描要对长行保持线性，且要能一眼看出不会回溯：`_REF_LINK_RE` 前面那句
+  `if "][" not in text` 就是为此存在的守卫。另外三条经验：配对用 `closer`/`claimed` 这类
+  O(1) 成员测试，**别写 `x in some_dict.values()`**；区间查询先合并再 `bisect`；
+  `MAX_DELIM_RUNS` 只封定界符 **run 的个数**，单个超长 run 封不住（64000 个 `*`
+  只是 1 个 run，切出 32000 个节点）。行首仍用前进式指针维护。
 
 ## 变更记录怎么留
 

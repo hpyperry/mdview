@@ -1,4 +1,5 @@
 import argparse
+import bisect
 import decimal
 import html
 import os
@@ -711,7 +712,7 @@ LANG_LABEL = {
     "css": "CSS", "xml": "XML", "markdown": "Markdown", "md": "Markdown",
     "dockerfile": "Dockerfile", "docker": "Dockerfile",
     "containerfile": "Containerfile", "docker-compose": "Docker Compose",
-    "compose": "Docker Compose", "toml": "TOML", "makefile": "Makefile",
+    "compose": "Docker Compose", "makefile": "Makefile",
     "mk": "Makefile", "ini": "INI", "cfg": "INI", "conf": "INI", "properties": "Properties",
 }
 def _token_re(keywords, icase=False):
@@ -781,6 +782,17 @@ def safe_href(url):
     elif text.startswith("//"):
         pass
     return html.escape(text, quote=True)
+def _target_attrs(ctx, dest):
+    try:
+        decoded = urllib.parse.unquote(dest)
+    except Exception:
+        decoded = dest
+    if _has_scheme(decoded):
+        href = safe_href(dest)
+        return href, (' rel="noreferrer noopener"' if href else "")
+    return safe_href(ctx.rewrite_target(dest)), ""
+def _title_attr(title):
+    return ' title="%s"' % html.escape(title, quote=True) if title else ""
 _AUTOLINK_RE = re.compile(r"<((?:https?|ftp|mailto)://[^\s<>]+|[^\s<>@]+@[^\s<>@]+\.[^\s<>@]+)>")
 _TAG_RE = re.compile(r"</?[A-Za-z][A-Za-z0-9-]*(?:\s[^<>]*)?/?>")
 _ENTITY_RE = re.compile(r"&(#[0-9]{1,7}|#[xX][0-9a-fA-F]{1,6}|[A-Za-z][A-Za-z0-9]{1,31});")
@@ -801,9 +813,7 @@ def _normalize_angle_dest(text):
 def _angle_dest_sub(m):
     inner, title = m.group(1), m.group(2)
     return "](" + _encode_angle_inner(inner) + (" " + title if title else "") + ")"
-_DELIM_SYMBOLS = ("***", "___", "**", "__", "~~", "*", "_", "~")
 _DELIM_RUN_RE = re.compile(r"\*+|_+|~+")
-_PUNCT = set("!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~")
 _ESC_RE = re.compile(r"\\([\\`*_{}\[\]()#+\-.!>~|$])")
 _TOKEN_RE = re.compile(r"\x00MK(\d+)\x00")
 TOKEN_FMT = "\x00MK%d\x00"
@@ -876,13 +886,20 @@ def _bare_url_sub(text, protected=None):
     out = []
     pos = 0
     line_start = 0
+    merged = []
+    for ps, pe in sorted(protected or ()):
+        if merged and ps <= merged[-1][1]:
+            if pe > merged[-1][1]:
+                merged[-1][1] = pe
+        else:
+            merged.append([ps, pe])
+    starts = [iv[0] for iv in merged]
     def covered(s, e):
-        if not protected:
-            return False
-        for ps, pe in protected:
-            if s < pe and e > ps:
-                return True
-        return False
+        k = bisect.bisect_right(starts, s) - 1
+        if k >= 0 and merged[k][1] > s:
+            return True
+        k += 1
+        return k < len(merged) and merged[k][0] < e
     for m in _BARE_URL_RE.finditer(text):
         start = m.start()
         end = _trim_bare_url(text, start, m.end())
@@ -962,22 +979,16 @@ def _split_link_tail(tail):
         i += 1
     rest = tail[i:]
     return tail[:i], _parse_link_title(rest), _tail_is_blank_or_title(rest)
-def _parse_link_title(tail):
-    t = tail.strip()
-    if len(t) < 2:
-        return ""
+def _quoted_inner(t):
     for open_q, close_q in _TITLE_QUOTES:
         if t.startswith(open_q) and t.endswith(close_q) and len(t) >= 2 * len(open_q):
             return t[len(open_q):-len(close_q)]
-    return ""
+    return None
+def _parse_link_title(tail):
+    return _quoted_inner(tail.strip()) or ""
 def _tail_is_blank_or_title(rest):
     t = rest.strip()
-    if not t:
-        return True
-    for open_q, close_q in _TITLE_QUOTES:
-        if t.startswith(open_q) and t.endswith(close_q) and len(t) >= 2 * len(open_q):
-            return True
-    return False
+    return not t or _quoted_inner(t) is not None
 _IMG_ALT_ATTR_RE = re.compile(r'<img\b[^>]*?\balt="([^"]*)"[^>]*>')
 _ANY_TAG_RE = re.compile(r"<[^>]*>")
 _OWN_TAG_SCAN_RE = re.compile(r"<a\b[^>]*>|</a>|<img\b[^>]*>")
@@ -1079,32 +1090,23 @@ def parse_inline(text, ctx):
         return _alt_text(read_tokens_markup(text))
     def render_link(label_raw, dest_raw, title_raw):
         dest = html.unescape(read_tokens(dest_raw))
-        try:
-            href = urllib.parse.unquote(dest)
-        except Exception:
-            href = dest
-        if _has_scheme(href):
-            target = safe_href(dest)
-            extra = ' rel="noreferrer noopener"' if target else ""
-        else:
-            target = safe_href(ctx.rewrite_target(dest))
-            extra = ""
+        target, extra = _target_attrs(ctx, dest)
         attr = ' href="%s"' % target if target else ""
         title = attr_text(title_raw) if title_raw else ""
-        tattr = ' title="%s"' % html.escape(title, quote=True) if title else ""
-        return '<a%s%s%s>%s</a>' % (attr, tattr, extra, render_label(label_raw))
+        return '<a%s%s%s>%s</a>' % (attr, _title_attr(title), extra,
+                                    render_label(label_raw))
     def render_label(plain):
         inner = scan_inline(plain)
         return read_tokens_markup(parse_emphasis(inner))
     def render_image(alt_raw, dest_raw, title_raw):
         dest = html.unescape(read_tokens(dest_raw))
-        src = safe_href(ctx.rewrite_target(dest))
+        src, _rel = _target_attrs(ctx, dest)
         if not src:
             return None
         title = attr_text(title_raw) if title_raw else ""
-        tattr = ' title="%s"' % html.escape(title, quote=True) if title else ""
         return '<img src="%s" alt="%s"%s>' % (
-            src, html.escape(_alt_text(render_label(alt_raw)), quote=True), tattr)
+            src, html.escape(_alt_text(render_label(alt_raw)), quote=True),
+            _title_attr(title))
     def scan_inline(text):
         spans = _scan_link_spans(text)
         if not spans:
@@ -1148,50 +1150,36 @@ def parse_inline(text, ctx):
                   lambda m: "<code>%s</code>" % code_spans[int(m.group(1))], text)
     return wrap_zoom_images(text)
 def _ref_link_html(ctx, url, title, label_html):
-    decoded = urllib.parse.unquote(url)
-    if _has_scheme(decoded):
-        href, extra = safe_href(decoded), ' rel="noreferrer noopener"'
-    else:
-        href, extra = safe_href(ctx.rewrite_target(url)), ""
+    href, extra = _target_attrs(ctx, url)
     attr = ' href="%s"' % href if href else ""
-    return '<a%s%s%s>%s</a>' % (
-        attr, ' title="%s"' % html.escape(title, quote=True) if title else "",
-        extra, label_html)
+    return '<a%s%s%s>%s</a>' % (attr, _title_attr(title), extra, label_html)
 def _ref_image_html(ctx, url, title, alt_text):
-    decoded = urllib.parse.unquote(url)
-    if _has_scheme(decoded):
-        src = safe_href(decoded)
-    else:
-        src = safe_href(ctx.rewrite_target(url))
+    src, _rel = _target_attrs(ctx, url)
     if not src:
         return None
-    tattr = ' title="%s"' % html.escape(title, quote=True) if title else ""
     return '<img src="%s" alt="%s"%s>' % (
-        src, html.escape(alt_text, quote=True), tattr)
+        src, html.escape(alt_text, quote=True), _title_attr(title))
 def _REF_DEF_LINK(text, ctx, render_label, stash):
+    if "][" not in text:
+        return text
     def sub(m):
         bang, label, ref = m.group(1), m.group(2), m.group(3)
-        key = (ref or label).strip().lower()
-        target = ctx.refs.get(key)
-        if target is None:
-            return m.group(0)
-        url, title = target
-        if bang:
-            img = _ref_image_html(ctx, url, title,
-                                  _alt_text(render_label(label)))
-            return stash(img) if img is not None else m.group(0)
-        return stash(_ref_link_html(ctx, url, title, render_label(label or key)))
+        return _render_ref(ctx, bang, label, (ref or label).strip().lower(),
+                           render_label, stash, m.group(0))
     return _REF_LINK_RE.sub(sub, text)
 def _shortcut_ref(m, ctx, render_label, stash):
     bang, label = m.group(1), m.group(2)
-    target = ctx.refs.get(label.strip().lower())
+    return _render_ref(ctx, bang, label, label.strip().lower(),
+                       render_label, stash, m.group(0))
+def _render_ref(ctx, bang, label, key, render_label, stash, fallback):
+    target = ctx.refs.get(key)
     if target is None:
-        return m.group(0)
+        return fallback
     url, title = target
     if bang:
         img = _ref_image_html(ctx, url, title, _alt_text(render_label(label)))
-        return stash(img) if img is not None else m.group(0)
-    return stash(_ref_link_html(ctx, url, title, render_label(label)))
+        return stash(img) if img is not None else fallback
+    return stash(_ref_link_html(ctx, url, title, render_label(label or key)))
 def _ascii_word(ch):
     return ch.isascii() and ch.isalnum()
 def _flanking(text, sym, start, end, prev=None, nxt=None):
@@ -1243,11 +1231,9 @@ def _split_run(run, prev_ch, next_ch):
         right = run[off + len(sym)] if off + len(sym) < n else next_ch
         out.append((off, sym, left, right))
     return out
-def _delim_re():
-    return _DELIM_RUN_RE
 def parse_emphasis(text):
     text = _rewrite_triple(text)
-    delims = list(_delim_re().finditer(text))
+    delims = list(_DELIM_RUN_RE.finditer(text))
     if len(delims) > MAX_DELIM_RUNS:
         delims = delims[:MAX_DELIM_RUNS]
     nodes = []
@@ -1287,6 +1273,7 @@ def parse_emphasis(text):
                 return j
         return None
     closer = {}
+    claimed = set()
     frames = {}
     def blocked_before(a, b, sym, my_run):
         for k in range(a, b):
@@ -1311,7 +1298,7 @@ def parse_emphasis(text):
             j = nearest_closer(i + 1, j, sym)
             if j is None:
                 break
-            if j in closer.values():
+            if j in claimed:
                 j += 1
                 continue
             if blocked_before(i + 1, j, sym, run):
@@ -1321,6 +1308,7 @@ def parse_emphasis(text):
             break
         if hit is not None:
             closer[i] = hit
+            claimed.add(hit)
             frames[i] = {"sym": sym, "close": hit, "rendered": None}
     def render_frame(fid):
         fr = frames[fid]
@@ -1789,17 +1777,14 @@ def render_dir_listing(abs_dir, rel_dir):
     rows = []
     for is_dir, name, size, mtime in entries:
         href = url_for_rel("/".join(([rel_dir] if rel_dir else []) + [name]))
+        cls = "d" if is_dir else ""
         if is_dir:
             href += "/"
-            icon, cls, meta = "📁", "d", "目录"
+            icon, meta = "📁", "目录"
         else:
             ext = os.path.splitext(name)[1].lower()
-            if ext == MD_EXT:
-                icon, cls = "📝", ""
-            elif ext in IMAGE_EXT:
-                icon, cls = "🖼", ""
-            else:
-                icon, cls = "📄", ""
+            icon = ("📝" if ext == MD_EXT else
+                    "🖼" if ext in IMAGE_EXT else "📄")
             meta = _fmt_size(size) + " · " + time.strftime("%Y-%m-%d %H:%M",
                                                            time.localtime(mtime))
         dl = ("" if is_dir else
@@ -2052,13 +2037,13 @@ class Handler(BaseHTTPRequestHandler):
         if not os.path.exists(abs_path):
             self._send(HTTPStatus.NOT_FOUND, _error_page("404", "文件不存在", rel))
             return
-        raw = (qs.get("raw") or ["0"])[0] not in ("0", "", "false", "no")
-        if CFG.safe and os.path.splitext(abs_path)[1].lower() not in SAFE_EXT:
+        raw = self._flag(qs, "raw")
+        ext = os.path.splitext(abs_path)[1].lower()
+        if CFG.safe and ext not in SAFE_EXT:
             self._send(HTTPStatus.NOT_FOUND,
                        _error_page("404", "safe 模式下只服务 .md 与图片", rel))
             return
-        ext = os.path.splitext(abs_path)[1].lower()
-        want_download = (qs.get("download") or ["0"])[0] not in ("0", "", "false", "no")
+        want_download = self._flag(qs, "download")
         if want_download:
             self._send_file(abs_path, force_download=True)
             return
@@ -2074,6 +2059,9 @@ class Handler(BaseHTTPRequestHandler):
             self._send(status, body)
             return
         self._send_file(abs_path)
+    @staticmethod
+    def _flag(qs, name):
+        return (qs.get(name) or ["0"])[0] not in ("0", "", "false", "no")
     @staticmethod
     def _parent_link(rel):
         if not rel:

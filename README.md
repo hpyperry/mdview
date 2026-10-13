@@ -82,7 +82,7 @@ python3 tools/minify.py --check          # 只看体积
 等价性用两套测试 + 逐路径差分验证（测试支持指向替代实现）：
 
 ```bash
-MDVIEW_FILE=dist/mdview.min.py python3 tests/tests_render.py   # 199 项 OK
+MDVIEW_FILE=dist/mdview.min.py python3 tests/tests_render.py   # 203 项 OK
 MDVIEW=dist/mdview.min.py bash tests/selftest.sh               # 345 项 PASS
 ```
 
@@ -289,7 +289,7 @@ md-preview/
 ├─ GLOSSARY.md          # 术语表（目标 / 根相对 URL / 双重编码 …）
 ├─ docs/adr/            # 决策记录（目标路径编码语义、图片放大为什么手写遮罩）
 ├─ tests/               # 测试（见 tests/README.md）
-│  ├─ tests_render.py   #   渲染器回归测试（199 项，纯 unittest）
+│  ├─ tests_render.py   #   渲染器回归测试（203 项，纯 unittest）
 │  └─ selftest.sh       #   端到端 HTTP 冒烟测试（345 项断言）
 ├─ tools/minify.py      #   生成运行版（去注释/docstring/空行）
 ├─ tools/zoom-probe.html #  浏览器探针：真机验放大遮罩 / 回到顶部（开发工具，不发布）
@@ -305,7 +305,7 @@ md-preview/
 ## 8. 测试
 
 ```bash
-python3 tests/tests_render.py      # 渲染器单元测试：199 项
+python3 tests/tests_render.py      # 渲染器单元测试：203 项
 bash tests/selftest.sh             # 端到端 HTTP 验证：345 项断言
 ```
 

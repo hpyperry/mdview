@@ -51,6 +51,7 @@ SECTION 导航（本文件按功能分块；每块的标题就是唯一标识，
 """
 
 import argparse
+import bisect
 import decimal
 import html
 import os
@@ -945,7 +946,7 @@ LANG_LABEL = {
     "css": "CSS", "xml": "XML", "markdown": "Markdown", "md": "Markdown",
     "dockerfile": "Dockerfile", "docker": "Dockerfile",
     "containerfile": "Containerfile", "docker-compose": "Docker Compose",
-    "compose": "Docker Compose", "toml": "TOML", "makefile": "Makefile",
+    "compose": "Docker Compose", "makefile": "Makefile",
     "mk": "Makefile", "ini": "INI", "cfg": "INI", "conf": "INI", "properties": "Properties",
 }
 
@@ -1061,6 +1062,37 @@ def safe_href(url):
     return html.escape(text, quote=True)
 
 
+def _target_attrs(ctx, dest):
+    """Markdown 目标 -> (URL, rel 属性)。行内式与引用式**共用这一个出口**。
+
+    这里是「解码判协议 -> 重写 -> 协议白名单 -> 属性转义」的唯一装配点。原先
+    行内式与引用式各抄一份，两份已经漂移：同一个绝对目标，引用式把 `unquote`
+    之后的串写进属性，行内式写作者原样写的串。协议判定是 XSS 白名单的第一道门
+    （AGENT.md 硬约束 3），副本漂移就是漏洞，所以这类装配只允许有一份。
+
+    判定用**解码后**的串（`%6aavascript:` 这类变体要认得出来），写进属性的却是
+    原样串 —— 于是 `[x](%6aavascript:alert(1))` 只产出一个相对路径，不会执行
+    （tests_render 的 test_obfuscated_scheme_never_executes 钉着这条，
+    test_angle_destination_with_scheme 又钉着 `%20` 不能被解成空格）。
+
+    URL 为空串表示「不要输出这个属性」；rel 只给带协议、且协议被放行的绝对地址
+    （协议被拒时 href 是空串，再挂一个 rel 只是噪音）。
+    """
+    try:
+        decoded = urllib.parse.unquote(dest)
+    except Exception:
+        decoded = dest
+    if _has_scheme(decoded):
+        href = safe_href(dest)
+        return href, (' rel="noreferrer noopener"' if href else "")
+    return safe_href(ctx.rewrite_target(dest)), ""
+
+
+def _title_attr(title):
+    """title 与 alt 一样是属性值：整段转义，空值不产出属性。"""
+    return ' title="%s"' % html.escape(title, quote=True) if title else ""
+
+
 _AUTOLINK_RE = re.compile(r"<((?:https?|ftp|mailto)://[^\s<>]+|[^\s<>@]+@[^\s<>@]+\.[^\s<>@]+)>")
 _TAG_RE = re.compile(r"</?[A-Za-z][A-Za-z0-9-]*(?:\s[^<>]*)?/?>")
 _ENTITY_RE = re.compile(r"&(#[0-9]{1,7}|#[xX][0-9a-fA-F]{1,6}|[A-Za-z][A-Za-z0-9]{1,31});")
@@ -1102,9 +1134,11 @@ def _angle_dest_sub(m):
     """
     inner, title = m.group(1), m.group(2)
     return "](" + _encode_angle_inner(inner) + (" " + title if title else "") + ")"
-_DELIM_SYMBOLS = ("***", "___", "**", "__", "~~", "*", "_", "~")
+
+
+# 整段取同类定界符 run（*、**、***、****、~~ 一次取全），再交给 _split_run 切块。
+# 旧写法用 ***|**|* 的定界符正则，会被贪婪拆成 *** + *，于是 **** 永远配不对。
 _DELIM_RUN_RE = re.compile(r"\*+|_+|~+")
-_PUNCT = set("!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~")
 _ESC_RE = re.compile(r"\\([\\`*_{}\[\]()#+\-.!>~|$])")
 _TOKEN_RE = re.compile(r"\x00MK(\d+)\x00")
 TOKEN_FMT = "\x00MK%d\x00"
@@ -1252,13 +1286,26 @@ def _bare_url_sub(text, protected=None):
     pos = 0
     line_start = 0
 
+    # protected 先合并成互不重叠的并集，查询时二分。逐个区间比较是
+    # O(匹配数 x 区间数)：2000 条链接 + 2000 条裸 URL（52 KB）实测 0.16 秒，
+    # 8000 + 8000（208 KB）要 2.19 秒 —— 同一类退化见 AGENT.md「警惕平方级退化」。
+    merged = []
+    for ps, pe in sorted(protected or ()):
+        if merged and ps <= merged[-1][1]:
+            if pe > merged[-1][1]:
+                merged[-1][1] = pe
+        else:
+            merged.append([ps, pe])
+    starts = [iv[0] for iv in merged]
+
     def covered(s, e):
-        if not protected:
-            return False
-        for ps, pe in protected:
-            if s < pe and e > ps:
-                return True
-        return False
+        """[s, e) 是否与任一 protected 区间**严格重叠**（端点相切不算）。"""
+        # 与 [s, e) 有交集的区间只可能是「起点 <= s 的最后一个」或「它右边那个」。
+        k = bisect.bisect_right(starts, s) - 1
+        if k >= 0 and merged[k][1] > s:
+            return True
+        k += 1
+        return k < len(merged) and merged[k][0] < e
 
     for m in _BARE_URL_RE.finditer(text):
         start = m.start()
@@ -1379,26 +1426,27 @@ def _split_link_tail(tail):
     return tail[:i], _parse_link_title(rest), _tail_is_blank_or_title(rest)
 
 
-def _parse_link_title(tail):
-    """从链接尾部解析 title（"…" / '…' / (…)）；解析不出返回空串。"""
-    t = tail.strip()
-    if len(t) < 2:
-        return ""
+def _quoted_inner(t):
+    """t 整体是否被一对 title 定界符包住；是则返回内部文本，否则返回 None。
+
+    `_TITLE_QUOTES` 有四种定界（含实体转义过的引号），「解析」与「尾部是否
+    合法」必须用同一处判断 —— 各写一份，两份迟早漂移。
+    """
     for open_q, close_q in _TITLE_QUOTES:
         if t.startswith(open_q) and t.endswith(close_q) and len(t) >= 2 * len(open_q):
             return t[len(open_q):-len(close_q)]
-    return ""
+    return None
+
+
+def _parse_link_title(tail):
+    """从链接尾部解析 title（"…" / '…' / (…)）；解析不出返回空串。"""
+    return _quoted_inner(tail.strip()) or ""
 
 
 def _tail_is_blank_or_title(rest):
     """目标之后的残留是否只是空白或一个合法 title（否则整条链接不成立）。"""
     t = rest.strip()
-    if not t:
-        return True
-    for open_q, close_q in _TITLE_QUOTES:
-        if t.startswith(open_q) and t.endswith(close_q) and len(t) >= 2 * len(open_q):
-            return True
-    return False
+    return not t or _quoted_inner(t) is not None
 
 
 _IMG_ALT_ATTR_RE = re.compile(r'<img\b[^>]*?\balt="([^"]*)"[^>]*>')
@@ -1619,26 +1667,15 @@ def parse_inline(text, ctx):
         return _alt_text(read_tokens_markup(text))
 
     def render_link(label_raw, dest_raw, title_raw):
-        """构造 <a>。转义与协议过滤统一在这里做（B1 的修复点）。"""
+        """构造 <a>。目标装配走 _target_attrs，与引用式同一条路。"""
         # 先解 token，再解 HTML 实体：写成 &amp; 的 URL 要还原成 &，
         # 之后交给 URL 编码统一处理，否则 &amp; 会被烘成字面量进 href。
         dest = html.unescape(read_tokens(dest_raw))
-        # 解出来的 href 只用于协议判定；真正的重写交给 rewrite_target，
-        # 它自己决定在哪里解码（先切 ?/#，再解 path 段）。
-        try:
-            href = urllib.parse.unquote(dest)
-        except Exception:
-            href = dest
-        if _has_scheme(href):
-            target = safe_href(dest)
-            extra = ' rel="noreferrer noopener"' if target else ""
-        else:
-            target = safe_href(ctx.rewrite_target(dest))
-            extra = ""
+        target, extra = _target_attrs(ctx, dest)
         attr = ' href="%s"' % target if target else ""
         title = attr_text(title_raw) if title_raw else ""
-        tattr = ' title="%s"' % html.escape(title, quote=True) if title else ""
-        return '<a%s%s%s>%s</a>' % (attr, tattr, extra, render_label(label_raw))
+        return '<a%s%s%s>%s</a>' % (attr, _title_attr(title), extra,
+                                    render_label(label_raw))
 
     def render_label(plain):
         """标签内的行内解析：先递归处理嵌套的图片/链接，再跑强调。
@@ -1656,18 +1693,18 @@ def parse_inline(text, ctx):
     def render_image(alt_raw, dest_raw, title_raw):
         """构造 <img>；协议被拒时退化成转义后的字面量。"""
         dest = html.unescape(read_tokens(dest_raw))
-        src = safe_href(ctx.rewrite_target(dest))
+        src, _rel = _target_attrs(ctx, dest)
         if not src:
             return None
         # title 与 alt 一样是**属性值**，走同一条拍平管线（见 attr_text）：
         # 少了这一步，受保护区间的哨兵或标记会原样进属性 —— 例如
         # `![a](p.png "x &amp; y")` 会把 NUL 哨兵写进 title。
         title = attr_text(title_raw) if title_raw else ""
-        tattr = ' title="%s"' % html.escape(title, quote=True) if title else ""
         # alt 必须是**纯文本**并整段转义：属性值里不允许出现裸引号或标签
         # （标签内容里的 <strong>/<img> 直接塞进来就是属性注入，见 _alt_text）
         return '<img src="%s" alt="%s"%s>' % (
-            src, html.escape(_alt_text(render_label(alt_raw)), quote=True), tattr)
+            src, html.escape(_alt_text(render_label(alt_raw)), quote=True),
+            _title_attr(title))
 
     def scan_inline(text):
         """单趟扫描 ![alt](src) 与 [label](dest)，就地替换成 token。
@@ -1740,16 +1777,11 @@ def _ref_link_html(ctx, url, title, label_html):
     """引用式链接的统一渲染：协议白名单 + 属性转义。
 
     `label_html` 是**已渲染的标签内容**（调用方用行内解析器产出），这里只拼装。
+    目标装配走 `_target_attrs`，与行内式逐字节同一条路。
     """
-    decoded = urllib.parse.unquote(url)
-    if _has_scheme(decoded):
-        href, extra = safe_href(decoded), ' rel="noreferrer noopener"'
-    else:
-        href, extra = safe_href(ctx.rewrite_target(url)), ""
+    href, extra = _target_attrs(ctx, url)
     attr = ' href="%s"' % href if href else ""
-    return '<a%s%s%s>%s</a>' % (
-        attr, ' title="%s"' % html.escape(title, quote=True) if title else "",
-        extra, label_html)
+    return '<a%s%s%s>%s</a>' % (attr, _title_attr(title), extra, label_html)
 
 
 def _ref_image_html(ctx, url, title, alt_text):
@@ -1761,16 +1793,11 @@ def _ref_image_html(ctx, url, title, alt_text):
     所以必须 `quote=True` 转义 —— 标签里手写的一个 `"` 否则就能闭合属性、
     注入新属性（SELFTEST §25）。
     """
-    decoded = urllib.parse.unquote(url)
-    if _has_scheme(decoded):
-        src = safe_href(decoded)
-    else:
-        src = safe_href(ctx.rewrite_target(url))
+    src, _rel = _target_attrs(ctx, url)
     if not src:
         return None
-    tattr = ' title="%s"' % html.escape(title, quote=True) if title else ""
     return '<img src="%s" alt="%s"%s>' % (
-        src, html.escape(alt_text, quote=True), tattr)
+        src, html.escape(alt_text, quote=True), _title_attr(title))
 
 
 def _REF_DEF_LINK(text, ctx, render_label, stash):
@@ -1785,32 +1812,43 @@ def _REF_DEF_LINK(text, ctx, render_label, stash):
     `![**粗**][r]` 的 alt 里长出 `<strong>`（SELFTEST §25）。行内式从来没有这个
     问题 —— 它的 <a>/<img> 一直是 token。两条路现在收敛到同一形态。
     """
+    # 守卫：_REF_LINK_RE 要求目标里含字面 `][`。少了这一句，正则会在「一长串
+    # 没有 ] 的 [」上逐位回溯 —— 40 KB 实测 4.4 秒且随规模平方增长（AGENT.md
+    # 「警惕平方级退化」同一类坑；SELFTEST §34）。
+    if "][" not in text:
+        return text
+
     def sub(m):
         bang, label, ref = m.group(1), m.group(2), m.group(3)
-        key = (ref or label).strip().lower()
-        target = ctx.refs.get(key)
-        if target is None:
-            return m.group(0)
-        url, title = target
-        if bang:
-            img = _ref_image_html(ctx, url, title,
-                                  _alt_text(render_label(label)))
-            return stash(img) if img is not None else m.group(0)
-        return stash(_ref_link_html(ctx, url, title, render_label(label or key)))
+        return _render_ref(ctx, bang, label, (ref or label).strip().lower(),
+                           render_label, stash, m.group(0))
     return _REF_LINK_RE.sub(sub, text)
 
 
 def _shortcut_ref(m, ctx, render_label, stash):
     """简写式引用 [ref] 与图片 ![ref]：只有 refs 里确实定义了才替换。"""
     bang, label = m.group(1), m.group(2)
-    target = ctx.refs.get(label.strip().lower())
+    return _render_ref(ctx, bang, label, label.strip().lower(),
+                       render_label, stash, m.group(0))
+
+
+def _render_ref(ctx, bang, label, key, render_label, stash, fallback):
+    """引用式的统一产出：完整式/折叠式/简写式、链接与图片四条支路共用。
+
+    `key` 是查引用表用的键（完整式用 `[ref]`，折叠式与简写式退化成 `[label]`），
+    `fallback` 是未命中或协议被拒时要原样返回的原文。
+
+    合并的理由不只是去重：四条支路原先各写一遍「查表 -> 不行就原样返回 -> 图片
+    还是链接 -> stash」，`![x][r]` 的退化路径曾经与 `[x][r]` 不一致。
+    """
+    target = ctx.refs.get(key)
     if target is None:
-        return m.group(0)
+        return fallback
     url, title = target
     if bang:
         img = _ref_image_html(ctx, url, title, _alt_text(render_label(label)))
-        return stash(img) if img is not None else m.group(0)
-    return stash(_ref_link_html(ctx, url, title, render_label(label)))
+        return stash(img) if img is not None else fallback
+    return stash(_ref_link_html(ctx, url, title, render_label(label or key)))
 
 
 def _ascii_word(ch):
@@ -1901,15 +1939,6 @@ def _split_run(run, prev_ch, next_ch):
     return out
 
 
-def _delim_re():
-    """匹配完整的同类定界符 run（**、***、****、~~… 一次取全）。
-
-    以前用 ***|**|* 的定界符正则会被贪婪拆成 *** + *，
-    于是 **** 永远配不对；现在先取整段 run，再交给 _split_run 切块。
-    """
-    return _DELIM_RUN_RE
-
-
 def parse_emphasis(text):
     """强调解析：定界符 run 扫描 + 从右往左的最近配对。
 
@@ -1933,7 +1962,7 @@ def parse_emphasis(text):
 
     # 定界符数量封顶：超过就只把前 MAX_DELIM_RUNS 个当定界符，其余留作字面量。
     # 这是为了给平方级的配对算法一个上界（见 MAX_DELIM_RUNS 注释）。
-    delims = list(_delim_re().finditer(text))
+    delims = list(_DELIM_RUN_RE.finditer(text))
     if len(delims) > MAX_DELIM_RUNS:
         delims = delims[:MAX_DELIM_RUNS]
 
@@ -1981,6 +2010,12 @@ def parse_emphasis(text):
         return None
 
     closer = {}
+    # 已被认领的 closer 下标。必须单独维护成一个 set：写 `j in closer.values()`
+    # 每次都是 O(已配对数量)，而它位于下面那个逐 opener 的双层循环里，整体会退化成
+    # O(n^3) —— 32000 个 `*`（一个 run、切出 16000 个节点）实测 1.55 秒，
+    # 换成 set 后 0.03 秒。MAX_DELIM_RUNS 挡不住这种输入：它数的是 run 的**个数**，
+    # 而这里只有 1 个 run。
+    claimed = set()
     frames = {}
 
     def blocked_before(a, b, sym, my_run):
@@ -2012,7 +2047,7 @@ def parse_emphasis(text):
             j = nearest_closer(i + 1, j, sym)
             if j is None:
                 break
-            if j in closer.values():
+            if j in claimed:
                 j += 1                     # 这个 closer 已被更靠右的 opener 认领
                 continue
             if blocked_before(i + 1, j, sym, run):
@@ -2022,6 +2057,7 @@ def parse_emphasis(text):
             break
         if hit is not None:
             closer[i] = hit
+            claimed.add(hit)
             frames[i] = {"sym": sym, "close": hit, "rendered": None}
 
     def render_frame(fid):
@@ -2498,6 +2534,8 @@ def _starts_block(lines, i):
             and "|" not in line and not RE_ULIST.match(nxt):
         return True
     return False
+
+
 def _heading(level, inner, ctx):
     slug = slugify(inner)
     counts = getattr(ctx, "slug_counts", None)
@@ -2634,6 +2672,8 @@ def _dedent_item(item_lines, parent_indent=0):
     for ln in item_lines[1:]:
         out.append(ln[pad:] if ln.strip() else "")
     return out
+
+
 # ============================================================================
 # SECTION 8  DIRECTORY & SEARCH
 # ============================================================================
@@ -2665,17 +2705,14 @@ def render_dir_listing(abs_dir, rel_dir):
     rows = []
     for is_dir, name, size, mtime in entries:
         href = url_for_rel("/".join(([rel_dir] if rel_dir else []) + [name]))
+        cls = "d" if is_dir else ""
         if is_dir:
             href += "/"
-            icon, cls, meta = "📁", "d", "目录"
+            icon, meta = "📁", "目录"
         else:
             ext = os.path.splitext(name)[1].lower()
-            if ext == MD_EXT:
-                icon, cls = "📝", ""
-            elif ext in IMAGE_EXT:
-                icon, cls = "🖼", ""
-            else:
-                icon, cls = "📄", ""
+            icon = ("📝" if ext == MD_EXT else
+                    "🖼" if ext in IMAGE_EXT else "📄")
             meta = _fmt_size(size) + " · " + time.strftime("%Y-%m-%d %H:%M",
                                                            time.localtime(mtime))
         # 文件行额外给一个下载按钮：?download=1 由服务端强制发附件头，
@@ -3017,15 +3054,15 @@ class Handler(BaseHTTPRequestHandler):
             self._send(HTTPStatus.NOT_FOUND, _error_page("404", "文件不存在", rel))
             return
 
-        raw = (qs.get("raw") or ["0"])[0] not in ("0", "", "false", "no")
-        if CFG.safe and os.path.splitext(abs_path)[1].lower() not in SAFE_EXT:
+        raw = self._flag(qs, "raw")
+        ext = os.path.splitext(abs_path)[1].lower()
+        if CFG.safe and ext not in SAFE_EXT:
             self._send(HTTPStatus.NOT_FOUND,
                        _error_page("404", "safe 模式下只服务 .md 与图片", rel))
             return
 
-        ext = os.path.splitext(abs_path)[1].lower()
         # ?download=1：用户显式要求下载。.md 也直接发原始字节，不渲染成页面。
-        want_download = (qs.get("download") or ["0"])[0] not in ("0", "", "false", "no")
+        want_download = self._flag(qs, "download")
         if want_download:
             self._send_file(abs_path, force_download=True)
             return
@@ -3042,6 +3079,15 @@ class Handler(BaseHTTPRequestHandler):
             self._send(status, body)
             return
         self._send_file(abs_path)
+
+    @staticmethod
+    def _flag(qs, name):
+        """查询参数里的布尔开关：`?raw=1` 为真，0 / 空 / false / no 为假。
+
+        两个调用点（`raw` 与 `download`）原先各抄一遍这串字面量，判定漂移就会
+        变成「源码视图能绕过下载限制」这类口子，所以收在一处。
+        """
+        return (qs.get(name) or ["0"])[0] not in ("0", "", "false", "no")
 
     @staticmethod
     def _parent_link(rel):

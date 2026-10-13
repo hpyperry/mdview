@@ -964,6 +964,73 @@ class TestReviewRegressions(unittest.TestCase):
         m.render_markdown(src)
         self.assertLess(time.time() - t, 5.0, "链接解析疑似退化成平方级")
 
+    def test_unmatched_bracket_run_is_linear(self):
+        """S17b：**没有 `]`** 的一长串 `[` 不能退化成平方级。
+
+        S17 的输入走的是栈配对（本来就是线性），打不到这条：`_REF_LINK_RE` 的
+        `(!?)\[...\]\[...\]` 在每个「起点」都要把 `[^\]]*` 回溯到底，整体 O(n^2)。
+        实测 40 KB 要 4.4 秒（0.07 / 0.27 / 1.10 / 4.40 每翻倍 4 倍）；按默认
+        20 MiB 的 --max-preview 外推，一个请求就能把线程钉死以小时计。修法是在
+        正则前加「必须含字面 `][`」的守卫，改后 200 KB 只要 0.04 秒。
+        """
+        import time
+        src = "[" * 40000
+        t = time.time()
+        m.render_markdown(src)
+        self.assertLess(time.time() - t, 1.0, "'[' 串疑似退化成平方级")
+
+    def test_delimiter_run_is_linear(self):
+        """S17c：单个超长定界符 run 不能退化成平方级。
+
+        `MAX_DELIM_RUNS` 封的是 run 的**个数**，而 64000 个 `*` 只是一个 run，
+        切出 32000 个节点，那道闸门完全没生效。真正的平方级来源是配对循环里的
+        `j in closer.values()`（每次 O(已配对数)）；换成 set 后 6.3 秒 -> 0.06 秒。
+
+        末尾的 `x` 是必需的：整行只有 `*` 会被 RE_HR 当成分隔线，根本走不到
+        强调解析（实测 0.001 秒），那就测了个寂寞。
+        """
+        import time
+        for ch in ("*", "_"):
+            src = ch * 64000 + "x"
+            t = time.time()
+            m.render_markdown(src)
+            self.assertLess(time.time() - t, 2.0, "%r 串疑似退化成平方级" % ch)
+
+    def test_bare_url_scan_is_linear(self):
+        """S17d：链接与裸 URL 同时很多时，禁用区间查询不能退化成平方级。
+
+        `_bare_url_sub.covered()` 原先逐个比较 protected 区间，复杂度是
+        O(匹配数 x 区间数)：20000 条链接 + 20000 条裸 URL（508 KB）在改前实测
+        约 14 秒。改成先合并区间再二分后降到 0.6 秒。
+        """
+        import time
+        src = "[x](u.md) https://e.com/a " * 20000
+        t = time.time()
+        m.render_markdown(src)
+        self.assertLess(time.time() - t, 5.0, "裸 URL 扫描疑似退化成平方级")
+
+    def test_reference_target_encoding_matches_inline(self):
+        """S17e：引用式的目标装配必须与行内式逐字节一致。
+
+        两条路曾经各写一份属性装配，于是同一个目标在引用式里被多解一次百分号：
+        `[x][r]` + `[r]: https://e.com/a%20b` 产出 `href="https://e.com/a b"`，
+        而行内式 `[x](https://e.com/a%20b)` 产出 `%20` 那一版（VS Code 与
+        markdown-it 都是后者）。现在两者都走 `_target_attrs`。
+        """
+        target = "https://e.com/a%20b"
+        inline = re.search(r'href="([^"]*)"', r("[x](%s)" % target))
+        ref = re.search(r'href="([^"]*)"',
+                        r("[x][r]\n\n[r]: %s" % target))
+        self.assertIsNotNone(inline)
+        self.assertIsNotNone(ref)
+        self.assertEqual(inline.group(1), ref.group(1))
+        self.assertEqual(inline.group(1), target)
+        # 图片形式同样收敛：src 与行内式一致
+        self.assertEqual(re.search(r'src="([^"]*)"',
+                                   r("![x][r]\n\n[r]: %s" % target)).group(1),
+                         re.search(r'src="([^"]*)"',
+                                   r("![x](%s)" % target)).group(1))
+
     def test_deep_nesting_no_crash(self):
         """S2：极深嵌套不能变成 500。"""
         for src in (">" * 1000, "- " + "- " * 500 + "x", "[".join(["a"] * 200)):
