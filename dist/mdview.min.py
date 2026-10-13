@@ -226,11 +226,17 @@ a.zoom:hover img{box-shadow:0 0 0 2px var(--accent)}
    包含块就是这个 dialog 盒 —— 按钮因此永远贴在**图片的右上角**。
    早期版本把按钮写成 position:fixed，它就钉在**视口**右上角：既盖在页面内容
    （裂图时是浏览器画出来的 alt 文字，也就是文件名）上面，又把"点空白处关闭"
-   的点击抢走（SELFTEST §27）。 */
+   的点击抢走（SELFTEST §27）。
+   定位与排版必须写在**基础规则**里，[open] 只切换 display：关闭时 [open] 已摘掉，
+   而 `transition:display … allow-discrete` 还要把盒子显示约半程 —— 留在 [open]
+   里的属性此刻会退回初始值，三个子元素按默认的 row + stretch 重排，× 飞到视口
+   右缘、图片名（caption）被挤成右侧一列，看上去就是"一关就冒出右上角的关闭按钮、
+   顺带显示图片名"（SELFTEST §28）。 */
 dialog.zoomdlg{max-width:none;max-height:none;padding:0;border:0;
+  position:fixed;inset:0;margin:auto;
+  flex-direction:column;align-items:center;gap:10px;
   background:transparent;color:var(--fg);overflow:visible}
-dialog.zoomdlg[open]{position:fixed;inset:0;margin:auto;
-  display:flex;flex-direction:column;align-items:center;gap:10px}
+dialog.zoomdlg[open]{display:flex}
 dialog.zoomdlg::backdrop{background:rgb(0 0 0 / .78)}
 /* 图片按视口缩放居中：dvh 处理移动端地址栏，vh 作为不支持 dvh 时的回退 */
 dialog.zoomdlg img{display:block;width:auto;height:auto;border-radius:6px;

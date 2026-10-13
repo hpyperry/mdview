@@ -175,6 +175,12 @@ chk "遮罩样式已内联"        "$G" 'dialog.zoomdlg'
 chk "滚动锁样式已内联"      "$G" 'html.zoomlock'
 # 关闭按钮必须贴在图片右上角（不是钉在视口右上角抢走"点空白处"的点击，SELFTEST §27）
 chk "关闭按钮贴在图片上"    "$G" 'dialog.zoomdlg .zoomclose{position:absolute'
+# 遮罩的定位与排版必须在基础规则里，[open] 只切 display：否则关闭动画那半程会按
+# row 重排，× 飞到视口右缘、图片名挤成右侧一列（SELFTEST §28）。压掉空白再比对。
+GFLAT="$(printf '%s' "$G" | tr -d ' \n')"
+chk "遮罩定位在基础规则"    "$GFLAT" 'dialog.zoomdlg{max-width:none;max-height:none;padding:0;border:0;position:fixed;inset:0;margin:auto;'
+chk "遮罩排版在基础规则"    "$GFLAT" 'flex-direction:column;align-items:center;gap:10px;'
+chk "[open] 只切 display"   "$GFLAT" 'dialog.zoomdlg[open]{display:flex}'
 # 基线（无 JS）里不能有写死的遮罩或关闭按钮 —— 那会是点不动的死元素
 nchk "正文里没有写死的 dialog" "$(printf '%s' "$G" | sed -n '/<body>/,/<script>/p')" '<dialog'
 

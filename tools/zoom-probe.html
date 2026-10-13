@@ -87,8 +87,25 @@
       var hit = d.elementFromPoint(w.innerWidth - 20, 20);
       log("topright_hit_is_close_btn", hit === dlg.querySelector(".zoomclose"));
 
+      var capEl = dlg.querySelector(".zoomcap");
+      var br0 = dlg.querySelector(".zoomclose").getBoundingClientRect();
+      var cr0 = capEl.getBoundingClientRect();
       click(w, dlg.querySelector(".zoomclose"));
       log("closed_by_button", !dlg.open);
+      // 关闭动画：摘掉 [open] 后 `transition:display … allow-discrete` 还会把盒子
+      // 显示约半程；此刻凡留在 [open] 里的排版属性都退回初始值，三个子元素按 row
+      // 重排 —— × 飞到视口右缘、caption 被挤成右侧一列（SELFTEST §28）。
+      // 这里在 close 的同一个任务里读值，拿到的是过渡首帧的几何。图片自身的
+      // scale(.97) 是**出场动画**、不参与布局，所以按钮与 caption 的盒位置必须
+      // 逐像素不动。
+      var cs1 = w.getComputedStyle(dlg);
+      var br1 = dlg.querySelector(".zoomclose").getBoundingClientRect();
+      var cr1 = capEl.getBoundingClientRect();
+      log("close_keeps_column", cs1.flexDirection + "/" + cs1.alignItems);
+      log("close_btn_pos_stable", Math.abs(br1.left - br0.left) < 1 &&
+          Math.abs(br1.top - br0.top) < 1);
+      log("close_caption_pos_stable", Math.abs(cr1.left - cr0.left) < 1 &&
+          Math.abs(cr1.width - cr0.width) < 1);
       dlg.dispatchEvent(new w.Event("close"));         // 浏览器派发的 close 等价物
       log("unlocked", !d.documentElement.classList.contains("zoomlock"));
       log("focus_returned_to_link", d.activeElement === a);

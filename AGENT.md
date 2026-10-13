@@ -89,6 +89,11 @@ python3 tools/minify.py                          # 改完 mdview.py 必须重新
   再解析一遍，属性值里长出 `<em>`/`<strong>`（SELFTEST §25）。
 - **服务端包裹图片的落点在 `parse_inline` 出口**（`wrap_zoom_images`）：那时源文本已转义，
   输出里的 `<a`/`<img` 只可能是我们自己生成的，锚点深度才数得准；href 一律复用 img 的 src。
+- **遮罩的定位与排版写在基础规则里，`[open]` 只切 `display`**：关闭时 `[open]` 已摘掉，
+  但 `transition:display … allow-discrete` 还要把盒子显示约半程 —— 留在 `[open]` 里的属性
+  此刻退回初始值，三个子元素按 row 重排，× 飞到视口右缘、caption 挤成右侧一列
+  （SELFTEST §28）。改这段务必跑 `tools/zoom-probe.html`，且**不要**加
+  `--force-prefers-reduced-motion` —— 它会把 `transition` 一起关掉，正好藏住这个缺陷。
 - **压缩器只做三件语义安全的事**（删注释 / docstring / 空行），用 `tokenize` 定位，
   **字符串字面量里的空行必须保留**（`COPY_JS` 里有一个）。不要改成正则实现。
 - **浏览器侧验证用 `tools/zoom-probe.html`**：本机 Chrome 跑 `--dump-dom` 会挂着不退出，

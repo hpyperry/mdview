@@ -675,11 +675,40 @@ class TestImageZoom(unittest.TestCase):
         （裂图时那里正是浏览器画出来的 alt 文字，也就是文件名），二来把"点空白处
         关闭"的点击抢走 —— 用户点右上角空白，实际点到的是按钮（SELFTEST §27）。
         """
-        css = m.CSS.replace(" ", "").replace("\n", "")
-        self.assertIn("dialog.zoomdlg.zoomclose{position:absolute", css)
-        self.assertNotIn("dialog.zoomdlg.zoomclose{position:fixed", css)
-        # dialog 自身的 modal 定位要显式写出，absolute 才有确定的包含块
-        self.assertIn("dialog.zoomdlg[open]{position:fixed;inset:0;margin:auto", css)
+        css = re.sub(r"/\*.*?\*/", "", m.CSS, flags=re.S)
+        flat = css.replace(" ", "").replace("\n", "")
+        self.assertIn("dialog.zoomdlg.zoomclose{position:absolute", flat)
+        self.assertNotIn("dialog.zoomdlg.zoomclose{position:fixed", flat)
+        # dialog 自身的 modal 定位要显式写出（且落在基础规则里，见下一条），
+        # absolute 的包含块才是这个 dialog 盒
+        self.assertIn("position:fixed;inset:0;margin:auto", self._rule(flat, "dialog.zoomdlg"))
+
+    def test_overlay_layout_survives_the_close_animation(self):
+        """定位与 flex 排版必须留在**基础规则**里，`[open]` 只切换 display。
+
+        关闭时 [open] 立刻被摘掉，但 `transition:display … allow-discrete` 还要把
+        盒子显示约半程；谁留在 [open] 里，谁就在这半程退回初始值 —— 三个子元素按
+        默认的 row + stretch 重排，× 飞到视口右缘、图片名（caption）挤成右侧一列，
+        用户看到的是"一关就冒出右上角的关闭按钮、顺带显示图片名"（SELFTEST §28）。
+        """
+        flat = re.sub(r"/\*.*?\*/", "", m.CSS, flags=re.S).replace(" ", "").replace("\n", "")
+        base = self._rule(flat, "dialog.zoomdlg")
+        for decl in ("position:fixed", "inset:0", "margin:auto",
+                     "flex-direction:column", "align-items:center", "gap:10px"):
+            self.assertIn(decl, base)
+        opened = self._rule(flat, "dialog.zoomdlg[open]")
+        self.assertIn("display:flex", opened)
+        for decl in ("position", "inset", "margin", "flex-direction",
+                     "align-items", "gap"):
+            self.assertNotIn(decl, opened)
+
+    @staticmethod
+    def _rule(flat_css, selector):
+        """从压掉空白的 CSS 里取出某个规则的声明体（不含花括号）。"""
+        match = re.search(re.escape(selector) + r"\{([^}]*)\}", flat_css)
+        if not match:
+            raise AssertionError("CSS 里找不到规则: " + selector)
+        return match.group(1)
 
     def test_close_button_font_is_not_an_invalid_shorthand(self):
         """`font:20px/1 inherit` 是非法简写（inherit 不能出现在简写里），整条被丢弃，

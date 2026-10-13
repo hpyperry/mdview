@@ -1391,3 +1391,53 @@ closed_by_backdrop: true    still_one_dialog: 1      active_element_after_close:
 - 截图重新生成 [`docs/media/screenshot-zoom.png`](docs/media/screenshot-zoom.png)
   （按钮已贴在图片右上角，带那圈白色焦点环）
 - 压缩版同步重新生成，两套检查对 `dist/mdview.min.py` 各跑一遍
+
+## 28. 关闭动画把遮罩重排成一行：× 飞到视口右缘、图片名挤成右侧一列
+
+**现象**（用户报告）：图片放大预览后，**每次关闭**都能看到"右上角冒出那颗关闭按钮，
+同时还显示出图片名"。
+
+§27 修的是**稳定态**里按钮钉在视口右上角；这一条是**关闭过渡期**里同一个症状的漏网
+形态 —— 打开时一切正常，只有点掉（× / Esc / 点空白）那一瞬间露出来。
+
+**探针实测**（[`tools/zoom-probe.html`](tools/zoom-probe.html) 的同源 iframe + 合成点击；
+`window 1200x520`，`docs/preview/index.md` 的 1600×900 大图）。注意**不能**加
+`--force-prefers-reduced-motion`：那条会连同 `transition:display` 一起关掉，正好把本
+缺陷藏起来（文档里 §27 的跑法带了它，所以当时没照出这一帧）：
+
+| 判据（close 的首帧） | 修复前 | 修复后 |
+|---|---|---|
+| `flexDirection / alignItems` | `row / normal` | `column / center` |
+| `close_btn_pos_stable`（× 盒位置不动） | **false**（`l:1138 -> 1185`） | **true** |
+| `close_caption_pos_stable`（caption 不重排） | **false**（`l:495,w:211 -> l:1160,w:67`） | **true** |
+
+**根因**：`display:flex;flex-direction:column;align-items:center;gap:10px` 全写在
+`dialog.zoomdlg[open]` 里。`close()` 会**立刻**摘掉 `[open]`，而
+`transition:display .15s allow-discrete` 还要把盒子显示约半程（离散属性到过渡中点才翻转）。
+这半程里凡是留在 `[open]` 中的属性都退回初始值 —— `flex-direction:row`、
+`align-items:normal` —— 三个子元素于是按行排开：图片在左，caption 被挤成右侧一条窄列，
+× 被挪到盒子最右缘（也就是视口右侧）。图片自身的 `transform:scale(.97)` 是出场动画、
+**不参与布局**，所以动的是盒位置 —— 肉眼看到的就是"一关就冒出右上角的关闭按钮 + 图片名"。
+
+**修法**：定位与排版挪进**基础规则**，`[open]` 只留 `display`：
+
+```css
+dialog.zoomdlg{…;position:fixed;inset:0;margin:auto;
+  flex-direction:column;align-items:center;gap:10px;…}
+dialog.zoomdlg[open]{display:flex}
+```
+
+基础规则里的 `position`/`inset`/`margin` 与 flex 属性在关闭态（`display:none`）没有副作用，
+却能让出场过渡保持与入场一致的几何；`display` 仍留给 `[open]`，UA 的
+`dialog:not([open]){display:none}` 才管得住隐藏（写进基础规则会让遮罩常驻）。
+
+**验证**：
+
+- 探针新增三条"关闭首帧"断言（`close_keeps_column` / `close_btn_pos_stable` /
+  `close_caption_pos_stable`），修复前后各跑一遍，见上表
+- 单元 **189 -> 190 项**：新增 `test_overlay_layout_survives_the_close_animation`
+  （基础规则必须含定位与 flex 排版，`[open]` 里不许再出现它们），
+  并改写 `test_close_button_is_anchored_to_the_dialog`（modal 定位的落点随之下移到基础规则）
+- 端到端 **321 -> 324 项**：新增「遮罩定位在基础规则 / 遮罩排版在基础规则 /
+  `[open]` 只切 display」（先把文档页压掉空白再比对）
+- 压缩版同步重新生成，两套检查对 `dist/mdview.min.py` 各跑一遍
