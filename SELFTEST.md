@@ -1612,3 +1612,41 @@ dialog.zoomdlg:focus{outline:none}   /* 遮罩是容器不是控件，别套一�
 - 截图 [`docs/media/screenshot-zoom.png`](docs/media/screenshot-zoom.png) 重新生成 ——
   旧图里那颗 × 正带着白圈，而现在是"打开不画环"，同框同尺寸（1200×820）
 - 压缩版同步重新生成，两套检查对 `dist/mdview.min.py` 各跑一遍
+
+## 32. 新增「回到顶部」：只在目录页出现，固定在右下角
+
+**需求**："增加一个回到顶部的按钮的功能，固定在右下角，点击后可以回到页面的顶部。
+主要针对主页面，点击文件跳转的预览不处理。"
+
+**形态**：目录页（`/`、`/guide/` 这类**列表页**）右下角固定一颗 40×40 的圆形 ↑ 按钮，
+距视口右/下各 20px；点一下回到页面顶部。**文件预览页、源码视图、搜索页都不装**。
+动效听系统的：`prefers-reduced-motion: reduce` 时直接跳，不做平滑滚动。
+
+**服务端只留一个标记，按钮由脚本创建**：`_page()` 多了 `to_top=False`，为真时给
+`<body>` 加 `data-totop="1"`；`_list_view()`（目录页唯一的出口）传 `to_top=True`，
+其余调用点一律走默认值。`COPY_JS` 里 `document.body.hasAttribute("data-totop")` 命中
+才注入按钮 —— 与复制按钮、放大遮罩同一哲学：**禁用 JS 的基线里没有点不动的死按钮**
+（标记不是元素，所以 `<body data-totop>` 不算破坏这条）。
+
+**实测**（探针第二只 iframe 加载目录页 `?dir=`，默认 `/preview/`；`window 1200x240`，
+故意压矮以保证页面可滚动）：
+
+```
+totop_on_dirlist:              1          ← 目录页有
+totop_on_preview:              0          ← 文件预览页没有
+totop_css:                     fixed right=20 bottom=20
+totop_fixed_bottom_right:      true
+totop_scrolls_to_top:          587 -> 0 ok=true
+```
+
+**验证**：
+
+- 探针新增 `totop_on_dirlist` / `totop_on_preview` / `totop_css` /
+  `totop_fixed_bottom_right` / `totop_scrolls_to_top`（第二只 iframe + 合成点击 +
+  等 700ms 读回），见上表
+- 单元 **192 -> 196 项**：新增 `TestBackToTop`（4 项）——只有目录页拿到标记、基线里
+  没有写死的 `.totop`、CSS 必须是 `position:fixed` + `right/bottom:20px`、点击必须
+  滚到顶部且带 reduced-motion 分支
+- 端到端 **336 -> 343 项**：主页/子目录列表带标记，文件预览页/源码视图不带；按钮与
+  样式确实进了页面；主页正文里没有写死的按钮
+- 压缩版同步重新生成，两套检查对 `dist/mdview.min.py` 各跑一遍

@@ -177,7 +177,7 @@ chk "滚动锁样式已内联"      "$G" 'html.zoomlock'
 chk "关闭按钮贴在图片上"    "$G" 'dialog.zoomdlg .zoomclose{position:absolute'
 # × 是现画的内联 SVG + 按钮 flex 居中。字体字形（U+00D7）在 em 盒里不居中，各字体
 # 偏得还不一样，写死任何 px 校正值都会在别的平台翻车（SELFTEST §30）
-chk "关闭图标由 SVG 绘制"   "$G" 'createElementNS(NS, "svg")'
+chk "关闭图标由 SVG 绘制"   "$G" 'createElementNS(SVG_NS, "svg")'
 chk "图标描边用 currentColor" "$G" 'setAttribute("stroke", "currentColor")'
 # 遮罩的定位与排版在基础规则里，[open] 只切 display：几何不随可见性开关变化
 # （SELFTEST §28）。先剥掉 CSS 注释再压掉空白 —— 注释里会引用那条错写法，
@@ -201,7 +201,18 @@ nchk "退场不做过渡（无 transition:display）" "$GFLAT" 'transition:displ
 chk "入场动画仍在（图片）"  "$GFLAT" '@starting-style{dialog.zoomdlg[open]img{opacity:0;transform:scale(.97)}}'
 chk "入场动画仍在（遮罩）"  "$GFLAT" 'dialog.zoomdlg::backdrop{opacity:0;transition:opacity.15sease}'
 # 基线（无 JS）里不能有写死的遮罩或关闭按钮 —— 那会是点不动的死元素
-nchk "正文里没有写死的 dialog" "$(printf '%s' "$G" | sed -n '/<body>/,/<script>/p')" '<dialog'
+nchk "正文里没有写死的 dialog" "$(printf '%s' "$G" | sed -n '/<\/head>/,/<script>/p')" '<dialog'
+
+echo "== 回到顶部（只在目录页） =="
+# 目录页在 <body> 上带 data-totop 标记，按钮由脚本运行时创建；文件预览页 / 源码视图
+# 都不装（SELFTEST §32）。基线里同样不能有写死的按钮。
+chk "主页带 data-totop 标记" "$IDX" 'data-totop="1"'
+chk "子目录列表也带标记"     "$(curl -s "$BASE/guide/")" 'data-totop="1"'
+nchk "文件预览页没有标记"    "$MD" 'data-totop="1"'
+nchk "源码视图没有标记"      "$RAW" 'data-totop="1"'
+chk "回到顶部按钮由脚本注入" "$IDX" 'className = "totop"'
+chk "回到顶部样式已内联"     "$IDX" '.totop{position:fixed'
+nchk "主页正文没有写死的按钮" "$(printf '%s' "$IDX" | sed -n '/<\/head>/,/<script>/p')" 'class="totop"'
 
 echo "== 目录跳转 =="
 RED="$(curl -s -D - -o /dev/null "$BASE/guide")"

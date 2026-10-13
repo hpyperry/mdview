@@ -496,6 +496,18 @@ mark{background:var(--mark);color:var(--markfg);border-radius:3px;padding:0 2px}
   border:1px solid var(--line);border-radius:5px;padding:1px 7px;text-decoration:none}
 .dirlist li a.dl:hover{color:var(--accent);border-color:var(--accent);text-decoration:none}
 .dirlist li.d a{font-weight:600}
+/* 回到顶部：**只出现在目录页**（服务端给 <body> 打 data-totop，见 _page()），由脚本
+   运行时创建 —— 与复制按钮、放大遮罩同一哲学：禁用 JS 的基线里没有点不动的死按钮。
+   定位用 position:fixed 钉在视口右下角；图标是现画的内联 SVG（不引图标字体）。 */
+.totop{position:fixed;right:20px;bottom:20px;z-index:5;
+  width:40px;height:40px;padding:0;border:1px solid var(--line);border-radius:50%;
+  display:flex;align-items:center;justify-content:center;
+  background:var(--soft);color:var(--fg);cursor:pointer;
+  box-shadow:0 2px 8px rgb(0 0 0 / .18)}
+.totop:hover{background:var(--line);color:var(--accent)}
+.totop:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.totop svg{display:block;width:20px;height:20px}
+@media print{.totop{display:none}}
 .note{background:var(--soft);border:1px solid var(--line);border-radius:8px;
   padding:12px 15px;color:var(--muted);font-size:14px;margin:0 0 18px}
 .hit{background:var(--soft);border:1px solid var(--line);border-radius:8px;
@@ -528,6 +540,7 @@ pre.rawsrc .srcline{scroll-margin-top:20vh;scroll-margin-bottom:70vh}
 
 COPY_JS = """
 (function () {
+  var SVG_NS = "http://www.w3.org/2000/svg";
   // 1) 搜索跳转：把目标行滚到视口竖向居中（浏览器默认只把它贴到视口最上沿）
   //    自己算坐标而不用 scrollIntoView：后者在"带 hash 首次加载"时会被浏览器的
   //    原生锚点滚动盖掉，实测仍停在视口上方。
@@ -621,9 +634,8 @@ COPY_JS = """
     // 任何写死的校正值都会在别的平台偏。SVG 的墨迹本来就对称于 viewBox 中心，
     // 按钮再用 flex 居中即可；stroke 走 currentColor，强制色彩模式下也不会消失。
     // 两条对角线在 24 格里的墨迹范围 ≈ 10.4px × 10.4px，与原字形（10.1 × 10.5）相仿。
-    var NS = "http://www.w3.org/2000/svg";
-    var icon = document.createElementNS(NS, "svg");
-    var line = document.createElementNS(NS, "path");
+    var icon = document.createElementNS(SVG_NS, "svg");
+    var line = document.createElementNS(SVG_NS, "path");
     icon.setAttribute("viewBox", "0 0 24 24");
     icon.setAttribute("aria-hidden", "true");     // 可访问名由按钮的 aria-label 给
     line.setAttribute("d", "M7.5 7.5 16.5 16.5M16.5 7.5 7.5 16.5");
@@ -682,13 +694,45 @@ COPY_JS = """
     // 内、Tab 第一步照样落到 × 上并显示焦点环，但"打开"这个动作本身不再画任何环。
     zoom.focus();
   });
+
+  // 3) 回到顶部：只有**目录页**才注入（服务端在 <body> 上打了 data-totop，见 _page()）。
+  //    文件预览页不装。按钮由脚本创建，所以禁用 JS 的基线里没有点不动的死按钮 ——
+  //    与复制按钮、放大遮罩同一哲学。图标同样现画（一根轴 + 一个箭头），不引图标字体。
+  if (document.body.hasAttribute("data-totop")) {
+    var toTop = document.createElement("button"), up = document.createElementNS(SVG_NS, "svg");
+    var arrow = document.createElementNS(SVG_NS, "path");
+    toTop.type = "button"; toTop.className = "totop";
+    toTop.setAttribute("aria-label", "\u56de\u5230\u9876\u90e8");
+    up.setAttribute("viewBox", "0 0 24 24");
+    up.setAttribute("aria-hidden", "true");   // 可访问名由按钮的 aria-label 给
+    arrow.setAttribute("d", "M12 19 12 6M6 12 12 6 18 12");
+    arrow.setAttribute("fill", "none");
+    arrow.setAttribute("stroke", "currentColor");
+    arrow.setAttribute("stroke-width", "2");
+    arrow.setAttribute("stroke-linecap", "round");
+    arrow.setAttribute("stroke-linejoin", "round");
+    up.appendChild(arrow); toTop.appendChild(up);
+    toTop.addEventListener("click", function () {
+      // 动效听系统的：prefers-reduced-motion 时直接跳，不做平滑滚动
+      var calm = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      if (window.scrollTo && !calm) window.scrollTo({ top: 0, behavior: "smooth" });
+      else window.scrollTo(0, 0);
+    });
+    document.body.appendChild(toTop);
+  }
 })();
 """
 
 
 
-def _page(title, body, nav_right="", show_search=True, search_q="", depth_nav=""):
-    """包一层完整 HTML 页面。样式内联，页面零额外请求。"""
+def _page(title, body, nav_right="", show_search=True, search_q="", depth_nav="",
+          to_top=False):
+    """包一层完整 HTML 页面。样式内联，页面零额外请求。
+
+    `to_top=True` 时给 `<body>` 打一个 `data-totop` 标记：只有**目录页**要"回到顶部"
+    那颗按钮（文件预览页不装），而按钮本身由 COPY_JS 运行时创建 —— 标记不是元素，
+    所以禁用 JS 的基线里不会留下点不动的死按钮（同复制按钮与放大遮罩）。
+    """
     search = ""
     if show_search:
         search = ('<form action="/search" method="get" role="search">'
@@ -699,11 +743,12 @@ def _page(title, body, nav_right="", show_search=True, search_q="", depth_nav=""
         "<meta charset=\"utf-8\">\n"
         "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
         "<meta name=\"color-scheme\" content=\"light dark\">\n"
-        "<title>%s</title>\n<style>%s</style>\n</head>\n<body>\n<div class=\"wrap\">\n"
+        "<title>%s</title>\n<style>%s</style>\n</head>\n<body%s>\n<div class=\"wrap\">\n"
         "<header class=\"bar\"><a class=\"brand\" href=\"/\">mdview</a>"
         "%s<div class=\"spacer\"></div>%s%s</header>\n"
         "%s\n</div>\n<script>%s</script>\n</body>\n</html>\n"
-    ) % (html.escape(title), CSS, depth_nav, search, nav_right, body, COPY_JS)
+    ) % (html.escape(title), CSS, ' data-totop="1"' if to_top else "",
+         depth_nav, search, nav_right, body, COPY_JS)
 
 
 def _crumbs(rel_path):
@@ -2989,8 +3034,8 @@ class Handler(BaseHTTPRequestHandler):
     def _list_view(self, abs_dir, rel):
         head = [x for x in (_crumbs(rel) if rel else "", self._parent_link(rel)) if x]
         body = "\n".join(head) + render_dir_listing(abs_dir, rel)
-        return _page(self._index_title(rel), body,
-                     show_search=CFG.search, depth_nav=depth_nav_html(rel))
+        return _page(self._index_title(rel), body, show_search=CFG.search,
+                     depth_nav=depth_nav_html(rel), to_top=True)
 
     @staticmethod
     def _index_title(rel):

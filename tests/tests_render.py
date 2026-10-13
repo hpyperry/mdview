@@ -749,8 +749,8 @@ class TestImageZoom(unittest.TestCase):
         self.assertIn("width:24px;height:24px",
                       self._rule(flat, "dialog.zoomdlg.zoomclosesvg"))
         # 脚本里必须真的画 SVG（两条对角线、无填充、currentColor 描边）
-        self.assertIn('createElementNS(NS, "svg")', m.COPY_JS)
-        self.assertIn('createElementNS(NS, "path")', m.COPY_JS)
+        self.assertIn('createElementNS(SVG_NS, "svg")', m.COPY_JS)
+        self.assertIn('createElementNS(SVG_NS, "path")', m.COPY_JS)
         self.assertIn('setAttribute("d", "M7.5 7.5 16.5 16.5M16.5 7.5 7.5 16.5")', m.COPY_JS)
         self.assertIn('setAttribute("fill", "none")', m.COPY_JS)
         self.assertIn('setAttribute("stroke", "currentColor")', m.COPY_JS)
@@ -783,6 +783,52 @@ class TestImageZoom(unittest.TestCase):
         self.assertNotIn('class="zoomclose"', body)
         self.assertIn('createElement("dialog")', page)
         self.assertIn("showModal", page)
+
+
+class TestBackToTop(unittest.TestCase):
+    """回到顶部：**只在目录页**出现（文件预览页不装），固定在视口右下角，点击回到顶部。
+
+    按钮由 COPY_JS 运行时创建，服务端只给 `<body>` 打一个 `data-totop` 标记 —— 与复制
+    按钮、放大遮罩同一哲学：禁用 JS 的基线里不能出现点不动的死按钮。
+    """
+
+    def test_only_dir_pages_get_the_marker(self):
+        self.assertEqual('<body data-totop="1">',
+                         self._body_tag(m._page("t", "<p>x</p>", to_top=True)))
+        self.assertEqual("<body>", self._body_tag(m._page("t", "<p>x</p>")))   # 默认不装
+        # 搜索页 / 错误页也走默认分支；文件预览页由端到端断言（selftest.sh 里查真页面）
+        self.assertEqual("<body>", self._body_tag(
+            m.render_search_page("q", [], [], 0, False)))
+        self.assertEqual("<body>", self._body_tag(m._error_page("404", "文件不存在")))
+
+    def test_button_is_injected_by_script_not_baked_in(self):
+        page = m._page("t", "<p>x</p>", to_top=True)
+        body = page.split("</head>", 1)[1].split("<script>")[0]
+        self.assertNotIn('class="totop"', body)          # 基线里没有死按钮
+        self.assertEqual('<body data-totop="1">', self._body_tag(page))   # 只有一个标记
+        self.assertIn('className = "totop"', m.COPY_JS)  # 按钮由脚本创建
+        self.assertIn('document.body.hasAttribute("data-totop")', m.COPY_JS)
+        self.assertIn("document.body.appendChild(toTop)", m.COPY_JS)
+        self.assertIn('setAttribute("aria-label", "\u56de\u5230\u9876\u90e8")', m.COPY_JS)
+
+    def test_button_is_fixed_to_the_bottom_right_corner(self):
+        flat = re.sub(r"/\*.*?\*/", "", m.CSS, flags=re.S).replace(" ", "").replace("\n", "")
+        rule = re.search(r"\.totop\{([^}]*)\}", flat)
+        self.assertIsNotNone(rule, "CSS 里找不到 .totop 规则")
+        for decl in ("position:fixed", "right:20px", "bottom:20px"):
+            self.assertIn(decl, rule.group(1))
+
+    def test_click_scrolls_back_to_the_top(self):
+        self.assertIn("window.scrollTo({ top: 0, behavior: \"smooth\" })", m.COPY_JS)
+        self.assertIn('matchMedia("(prefers-reduced-motion: reduce)")', m.COPY_JS)
+
+    @staticmethod
+    def _body_tag(page):
+        # CSS 注释里也会出现字面的 <body>，所以只从 </head> 之后找真正的 body 标签
+        match = re.search(r"<body[^>]*>", page.split("</head>", 1)[1])
+        if not match:
+            raise AssertionError("页面里找不到 <body> 标签")
+        return match.group(0)
 
 
 class TestCopyButton(unittest.TestCase):

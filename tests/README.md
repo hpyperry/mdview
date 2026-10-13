@@ -5,15 +5,15 @@
 
 | 文件 | 作用 | 命令 |
 |------|------|------|
-| `tests_render.py` | 渲染器回归测试（192 项，纯 `unittest`，不联网不起服务） | `python3 tests/tests_render.py` |
-| `selftest.sh` | 端到端 HTTP 冒烟测试（336 项断言，自己起临时服务、跑完自清理） | `bash tests/selftest.sh` |
+| `tests_render.py` | 渲染器回归测试（196 项，纯 `unittest`，不联网不起服务） | `python3 tests/tests_render.py` |
+| `selftest.sh` | 端到端 HTTP 冒烟测试（343 项断言，自己起临时服务、跑完自清理） | `bash tests/selftest.sh` |
 
 ## 一套跑完
 
 ```bash
 # 在仓库根执行
-python3 tests/tests_render.py      # 192 项单元测试
-bash tests/selftest.sh             # 336 项端到端断言
+python3 tests/tests_render.py      # 196 项单元测试
+bash tests/selftest.sh             # 343 项端到端断言
 ```
 
 两个命令都是零依赖、可重复执行的，不需要 `pip install`。

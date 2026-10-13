@@ -26,17 +26,21 @@
   然后读 /tmp/zoom-probe.png（下半部分是逐条结果）。历史上它抓到过两个真缺陷：
   关闭遮罩后焦点没回到触发元素（img 不可聚焦，focus() 是空操作）；
   以及出场过渡让 × / caption 原地停留（退场必须瞬时，SELFTEST §29）。
+  第二个 iframe（`?dir=`，默认 /preview/）专门用来验"回到顶部"：那按钮只在目录页出现，
+  文件预览页（第一个 iframe）必须没有（SELFTEST §32）。
 -->
 <style>
   html,body{margin:0;background:#fff}
   iframe{width:1200px;height:520px;border:0;display:block}
+  /* 目录页那个 iframe 刻意压矮：页面必须**能滚动**，才验得了"回到顶部" */
+  iframe#d{height:240px;margin-top:8px;background:#888}
   pre{font:12px/1.4 ui-monospace,Menlo,monospace;margin:0;padding:8px 12px;white-space:pre-wrap}
 </style>
-<iframe id="f"></iframe><pre id="out">…</pre>
+<iframe id="f"></iframe><iframe id="d"></iframe><pre id="out">…</pre>
 <script>
 (function () {
   var q = new URLSearchParams(location.search);
-  var out = [], f = document.getElementById("f");
+  var out = [], f = document.getElementById("f"), d2 = document.getElementById("d");
   var shotOpen = q.has("open");                       // 默认收尾时关掉，便于读文字
   function log(k, v) { out.push((k + ":                        ").slice(0, 30) + v); }
   function click(w, el, extra) {
@@ -46,6 +50,35 @@
   function who(d) {
     var e = d.activeElement;
     return e ? e.tagName + (e.className ? "." + e.className : "") : "null";
+  }
+  function whenDirReady(cb) {
+    var doc = d2.contentDocument;
+    if (doc && doc.readyState === "complete" && doc.body) cb();
+    else d2.addEventListener("load", cb);
+  }
+  // 回到顶部：**目录页有、文件预览页没有**；position:fixed 钉在右下角（各留 20px）；
+  // 点一下能回到顶部（平滑滚动是异步的，等 700ms 再读）。
+  function checkToTop(done) {
+    var w2 = d2.contentWindow, doc2 = d2.contentDocument;
+    if (!w2 || !doc2 || !doc2.body) { log("totop_dirlist_loaded", false); return done(); }
+    var btns = doc2.querySelectorAll(".totop");
+    log("totop_on_dirlist", btns.length);
+    log("totop_on_preview", f.contentDocument.querySelectorAll(".totop").length);
+    if (!btns.length) return done();
+    var b = btns[0], cs = w2.getComputedStyle(b), r = b.getBoundingClientRect();
+    log("totop_css", cs.position + " right=" + Math.round(w2.innerWidth - r.right) +
+        " bottom=" + Math.round(w2.innerHeight - r.bottom));
+    log("totop_fixed_bottom_right", cs.position === "fixed" &&
+        Math.abs(w2.innerWidth - r.right - 20) < 1.5 &&
+        Math.abs(w2.innerHeight - r.bottom - 20) < 1.5);
+    w2.scrollTo(0, 4000);
+    var start = w2.pageYOffset;
+    click(w2, b);
+    setTimeout(function () {
+      log("totop_scrolls_to_top", Math.round(start) + " -> " + Math.round(w2.pageYOffset) +
+          " ok=" + (w2.pageYOffset === 0));
+      done();
+    }, 700);
   }
   f.addEventListener("load", function () {
     var d = f.contentDocument, w = f.contentWindow;
@@ -145,8 +178,13 @@
     } catch (e) {
       log("ERROR", e && (e.message || e));
     }
-    document.getElementById("out").textContent = "\n" + out.join("\n") + "\n";
+    whenDirReady(function () {
+      checkToTop(function () {
+        document.getElementById("out").textContent = "\n" + out.join("\n") + "\n";
+      });
+    });
   });
   f.src = q.get("src") || "/preview/index.md";
+  d2.src = q.get("dir") || "/preview/";                // 目录页：回到顶部按钮只在这类页上
 })();
 </script>
