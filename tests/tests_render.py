@@ -730,12 +730,31 @@ class TestImageZoom(unittest.TestCase):
             raise AssertionError("CSS 里找不到规则: " + selector)
         return match.group(1)
 
-    def test_close_button_font_is_not_an_invalid_shorthand(self):
-        """`font:20px/1 inherit` 是非法简写（inherit 不能出现在简写里），整条被丢弃，
-        × 会退回 UA 的 13px —— 又小又难看清。字号必须用 longhand 写。"""
+    def test_close_icon_is_a_centred_svg_not_a_font_glyph(self):
+        """× 必须是**现画的 SVG**，并靠 flex 落在按钮正中间，不能用字体字形。
+
+        字体里的 U+00D7 在 em 盒里并不居中，而且各字体偏得还不一样：canvas 实测
+        22px 下 macOS 系统字体要抬 ~2.3px，Arial / Hiragino 几乎不用动 —— 写死任何
+        px 校正值都会在别的平台翻车（SELFTEST §30）。曾经那条 `font:20px/1 inherit`
+        非法简写只影响字形大小，换成 SVG 后字号这条规格作废，因此这里改钉"图标是
+        SVG + 按钮 flex 居中 + 不再往按钮里写字形文本"。
+        """
         css = re.sub(r"/\*.*?\*/", "", m.CSS, flags=re.S)   # 注释里会引用那条错写法
-        self.assertNotIn("font:20px/1 inherit", css)
-        self.assertIn("font-size:22px", css)
+        flat = css.replace(" ", "").replace("\n", "")
+        self.assertNotIn("font:20px/1 inherit", css)        # 那条错写法不许回来
+        close = self._rule(flat, "dialog.zoomdlg.zoomclose")   # 已压掉空白
+        self.assertIn("display:flex", close)
+        self.assertIn("align-items:center", close)
+        self.assertIn("justify-content:center", close)
+        self.assertIn("width:24px;height:24px",
+                      self._rule(flat, "dialog.zoomdlg.zoomclosesvg"))
+        # 脚本里必须真的画 SVG（两条对角线、无填充、currentColor 描边）
+        self.assertIn('createElementNS(NS, "svg")', m.COPY_JS)
+        self.assertIn('createElementNS(NS, "path")', m.COPY_JS)
+        self.assertIn('setAttribute("d", "M7.5 7.5 16.5 16.5M16.5 7.5 7.5 16.5")', m.COPY_JS)
+        self.assertIn('setAttribute("fill", "none")', m.COPY_JS)
+        self.assertIn('setAttribute("stroke", "currentColor")', m.COPY_JS)
+        self.assertNotIn('textContent = "\u00d7"', m.COPY_JS)   # 不再用字体字形
 
     def test_no_dead_overlay_without_js(self):
         """基线 HTML 里不能有写死的遮罩/关闭按钮；它们全由那段 JS 创建。"""

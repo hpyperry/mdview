@@ -1383,10 +1383,13 @@ closed_by_backdrop: true    still_one_dialog: 1      active_element_after_close:
 
 - 探针新增三条几何/命中断言（`close_inside_dialog` / `close_font_size` /
   `topright_hit_is_close_btn`），修复前后各跑一遍，见上表
+  （**§30 后 `close_font_size` 已换成 `close_icon` / `close_icon_centred`**：× 不再
+  是字体字形，字号这条判据失去意义）
 - 单元 **187 -> 189 项**：`test_close_button_is_anchored_to_the_dialog`（CSS 里必须是
   `position:absolute`，且 dialog 自己写明 modal 定位）、
   `test_close_button_font_is_not_an_invalid_shorthand`（不能有那条非法简写 ——
-  注释里会引用它，所以先剥掉 CSS 注释再断言）
+  注释里会引用它，所以先剥掉 CSS 注释再断言；**§30 后改写为
+  `test_close_icon_is_a_centred_svg_not_a_font_glyph`**）
 - 端到端 **320 -> 321 项**：新增「关闭按钮贴在图片上」
 - 截图重新生成 [`docs/media/screenshot-zoom.png`](docs/media/screenshot-zoom.png)
   （按钮已贴在图片右上角，带那圈白色焦点环）
@@ -1496,4 +1499,64 @@ dialog.zoomdlg[open]{display:flex}
   `allow-discrete` / `transition:display`，入场三件套一件不能少）；§28 那条改为结构保险
 - 端到端 **324 -> 328 项**：新增「退场不做过渡」两条（`allow-discrete`、`transition:display`）
   与「入场动画仍在」两条（图片 `@starting-style`、`::backdrop` 只过渡 opacity）
+- 压缩版同步重新生成，两套检查对 `dist/mdview.min.py` 各跑一遍
+
+## 30. 关闭按钮的 × 不居中：改用几何绘制的 SVG 图标
+
+**现象**（用户报告）："关闭按钮的图标有问题，❌不居中。"
+
+**实测**（Chromium，`docs/preview/index.md`；把按钮那 34×34 剪下来放大 12 倍量像素，
+并以按钮盒中心为原点）：
+
+| 判据 | 字体字形 U+00D7 | 内联 SVG |
+|---|---|---|
+| 墨迹盒（CSS px） | 10.08 × 10.50 | 10.33 × 10.33 |
+| 墨迹中心相对按钮中心 | (0, **+1.46**) —— 偏低 | (-0.04, -0.29)（半像素栅格/抗锯齿误差） |
+| 探针 `close_icon_centred` / `close_icon` | — | **true** / `24x24 offset=0,0` |
+
+**根因**：字形 U+00D7 的墨迹在 em 盒里**本来就不居中** —— 它画在数学轴附近，墨迹中心
+比 em 中心低一截；按钮能把行盒（≈ em 盒）居中，却管不到字形自己偏。而且各字体偏得
+还不一样，canvas `measureText` 量 22px 下需要的抬升量：
+
+```
+macOS 系统字体 2.31px   system-ui 1.74px   Helvetica 1.89px   serif 1.30px
+Menlo 0.61px            Times 0.19px       Arial -0.28px      Hiragino Sans GB -0.30px
+```
+
+跨度超过 2.5px —— 写死任何 `transform` / `padding` 校正值都必然在别的平台偏回去。
+第 27 节那条"字号必须 longhand 写 22px"的规格只在字号层面兜底（字形别退回 UA 的 13px），
+管不了基线与 em 盒的错位。
+
+**修法**：× 改成 `COPY_JS` 里**现画的内联 SVG**（两条对角线），按钮只负责把它摆正 ——
+`display:flex;align-items:center;justify-content:center`，图标固定 `24×24`：
+
+```css
+dialog.zoomdlg .zoomclose{…;display:flex;align-items:center;justify-content:center}
+dialog.zoomdlg .zoomclose svg{display:block;width:24px;height:24px}
+```
+
+```js
+var NS = "http://www.w3.org/2000/svg";
+var icon = document.createElementNS(NS, "svg"), line = document.createElementNS(NS, "path");
+icon.setAttribute("viewBox", "0 0 24 24");
+icon.setAttribute("aria-hidden", "true");     // 可访问名由按钮的 aria-label 给
+line.setAttribute("d", "M7.5 7.5 16.5 16.5M16.5 7.5 7.5 16.5");
+line.setAttribute("fill", "none");
+line.setAttribute("stroke", "currentColor");  // 强制色彩模式下图标也不会被压没
+line.setAttribute("stroke-width", "2");
+```
+
+两条对角线对称于 viewBox 中心（墨迹盒 ≈ 10.4px，与原字形 10.1×10.5 相仿），按钮 flex
+居中即可，与字体度量彻底脱钩 —— 换字体、换平台都不动。按钮里不再有文字，可访问名
+一直由 `aria-label="关闭放大视图"` 提供。
+
+**验证**：
+
+- 探针新增 `close_icon` / `close_icon_centred`（量 svg 盒中心相对按钮中心的偏移，
+  必须 < 0.5px），并删掉只对字形有意义的 `close_font_size`
+- 单元 **191 项（不增）**：`test_close_button_font_is_not_an_invalid_shorthand` 改写为
+  `test_close_icon_is_a_centred_svg_not_a_font_glyph`（CSS 必须 flex 居中 + `svg{24×24}`；
+  `COPY_JS` 必须画 SVG、`fill:none`、`stroke:currentColor`，且不再往按钮里写字形文本）
+- 端到端 **328 -> 332 项**：新增「关闭图标由 SVG 绘制 / 图标描边用 currentColor /
+  关闭按钮 flex 居中 / 关闭图标 24×24」
 - 压缩版同步重新生成，两套检查对 `dist/mdview.min.py` 各跑一遍

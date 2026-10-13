@@ -430,13 +430,16 @@ dialog.zoomdlg img{display:block;width:auto;height:auto;border-radius:6px;
 dialog.zoomdlg .zoomcap{margin:0;max-width:70ch;text-align:center;font-size:14px;
   line-height:1.5;color:#fff;text-shadow:0 1px 3px rgb(0 0 0 / .7)}
 dialog.zoomdlg .zoomcap:empty{display:none}
-/* 关闭按钮贴在 dialog（也就是图片）的右上角。字号必须用 longhand 写 ——
-   `font:20px/1 inherit` 是**非法声明**（inherit 不能出现在简写里），整条会被
-   丢弃，× 会退回 UA 的 13px，又小又难看清。 */
+/* 关闭按钮贴在 dialog（也就是图片）的右上角。图标是 COPY_JS 里现画的内联 SVG，
+   按钮只负责把它摆到正中间（flex 居中）—— 与字体度量彻底脱钩。
+   早期这里放的是字体里的 U+00D7：那个字形在 em 盒里**并不居中**，而且各字体偏得
+   还不一样（canvas 实测 22px 下 macOS 系统字体要抬 ~2.3px，Arial / Hiragino 几乎
+   不用动），写死任何 px 校正值都会在别的平台翻车（SELFTEST §30）。 */
 dialog.zoomdlg .zoomclose{position:absolute;top:8px;right:8px;width:34px;height:34px;
   padding:0;border:1px solid rgb(255 255 255 / .35);border-radius:50%;
-  background:rgb(0 0 0 / .55);color:#fff;font-size:22px;line-height:1;
-  font-family:inherit;cursor:pointer}
+  background:rgb(0 0 0 / .55);color:#fff;cursor:pointer;
+  display:flex;align-items:center;justify-content:center}
+dialog.zoomdlg .zoomclose svg{display:block;width:24px;height:24px}
 dialog.zoomdlg .zoomclose:hover{background:rgb(0 0 0 / .8)}
 dialog.zoomdlg .zoomclose:focus-visible{outline:2px solid #fff;outline-offset:2px}
 /* 锁滚动：hidden 负责锁，scrollbar-gutter 负责别让滚动条槽位消失（否则整页右移） */
@@ -606,7 +609,22 @@ COPY_JS = """
     big.alt = "";
     cap.className = "zoomcap"; cap.id = "zoomcap";
     btn.type = "button"; btn.className = "zoomclose";
-    btn.textContent = "\u00d7";
+    // 图标用**现画的内联 SVG**，不用字体里的 U+00D7：那个字形在 em 盒里并不居中，
+    // 各字体的偏移还不一样（22px 下 macOS 系统字体低 ~2.3px，Arial 几乎为零），
+    // 任何写死的校正值都会在别的平台偏。SVG 的墨迹本来就对称于 viewBox 中心，
+    // 按钮再用 flex 居中即可；stroke 走 currentColor，强制色彩模式下也不会消失。
+    // 两条对角线在 24 格里的墨迹范围 ≈ 10.4px × 10.4px，与原字形（10.1 × 10.5）相仿。
+    var NS = "http://www.w3.org/2000/svg";
+    var icon = document.createElementNS(NS, "svg");
+    var line = document.createElementNS(NS, "path");
+    icon.setAttribute("viewBox", "0 0 24 24");
+    icon.setAttribute("aria-hidden", "true");     // 可访问名由按钮的 aria-label 给
+    line.setAttribute("d", "M7.5 7.5 16.5 16.5M16.5 7.5 7.5 16.5");
+    line.setAttribute("fill", "none");
+    line.setAttribute("stroke", "currentColor");
+    line.setAttribute("stroke-width", "2");
+    icon.appendChild(line);
+    btn.appendChild(icon);
     btn.setAttribute("aria-label", "\u5173\u95ed\u653e\u5927\u89c6\u56fe");
     // 不写 autofocus 也照样有焦点：showModal() 自己会把焦点给 dialog 里第一个
     // 可聚焦元素（Chrome 实测就是这颗按钮），所以 autofocus 是多余的。

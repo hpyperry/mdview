@@ -89,7 +89,18 @@
       log("close_inside_dialog", br.left >= r.left - 0.5 && br.top >= r.top - 0.5 &&
           br.right <= dlg.getBoundingClientRect().right + 0.5 &&
           br.bottom <= dlg.getBoundingClientRect().bottom + 0.5);
-      log("close_font_size", w.getComputedStyle(dlg.querySelector(".zoomclose")).fontSize);
+      // 图标断言：× 是现画的内联 SVG，它的盒子必须正落在按钮的正中间。
+      // 字体字形（U+00D7）做不到这一点 —— 它的墨迹在 em 盒里偏低，各字体偏得还不
+      // 一样（SELFTEST §30）。
+      var iconBox = dlg.querySelector(".zoomclose svg").getBoundingClientRect();
+      log("close_icon", Math.round(iconBox.width) + "x" + Math.round(iconBox.height) +
+          " offset=" + (Math.round((iconBox.left + iconBox.width / 2 - br.left -
+          br.width / 2) * 100) / 100) + "," +
+          (Math.round((iconBox.top + iconBox.height / 2 - br.top -
+          br.height / 2) * 100) / 100));
+      log("close_icon_centred",
+          Math.abs(iconBox.left + iconBox.width / 2 - (br.left + br.width / 2)) < 0.5 &&
+          Math.abs(iconBox.top + iconBox.height / 2 - (br.top + br.height / 2)) < 0.5);
       var hit = d.elementFromPoint(w.innerWidth - 20, 20);
       log("topright_hit_is_close_btn", hit === dlg.querySelector(".zoomclose"));
 

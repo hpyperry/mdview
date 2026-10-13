@@ -175,6 +175,10 @@ chk "遮罩样式已内联"        "$G" 'dialog.zoomdlg'
 chk "滚动锁样式已内联"      "$G" 'html.zoomlock'
 # 关闭按钮必须贴在图片右上角（不是钉在视口右上角抢走"点空白处"的点击，SELFTEST §27）
 chk "关闭按钮贴在图片上"    "$G" 'dialog.zoomdlg .zoomclose{position:absolute'
+# × 是现画的内联 SVG + 按钮 flex 居中。字体字形（U+00D7）在 em 盒里不居中，各字体
+# 偏得还不一样，写死任何 px 校正值都会在别的平台翻车（SELFTEST §30）
+chk "关闭图标由 SVG 绘制"   "$G" 'createElementNS(NS, "svg")'
+chk "图标描边用 currentColor" "$G" 'setAttribute("stroke", "currentColor")'
 # 遮罩的定位与排版在基础规则里，[open] 只切 display：几何不随可见性开关变化
 # （SELFTEST §28）。先剥掉 CSS 注释再压掉空白 —— 注释里会引用那条错写法，
 # 不剥的话下面的 nchk 会被自己的注释命中。
@@ -182,6 +186,8 @@ GFLAT="$(printf '%s' "$G" | python3 -c 'import re,sys; s=sys.stdin.read(); sys.s
 chk "遮罩定位在基础规则"    "$GFLAT" 'dialog.zoomdlg{max-width:none;max-height:none;padding:0;border:0;position:fixed;inset:0;margin:auto;'
 chk "遮罩排版在基础规则"    "$GFLAT" 'flex-direction:column;align-items:center;gap:10px;'
 chk "[open] 只切 display"   "$GFLAT" 'dialog.zoomdlg[open]{display:flex}'
+chk "关闭按钮 flex 居中"    "$GFLAT" 'display:flex;align-items:center;justify-content:center}'
+chk "关闭图标 24×24"        "$GFLAT" 'dialog.zoomdlg.zoomclosesvg{display:block;width:24px;height:24px}'
 # 只做入场动画：不许有出场过渡（allow-discrete 会把退场拖成 150ms，图片在淡出而
 # × / caption 原地亮着 —— "关掉之后关闭按钮还停留一下"，SELFTEST §29）
 nchk "退场不做过渡（无 allow-discrete）" "$GFLAT" 'allow-discrete'
