@@ -406,10 +406,16 @@ a.zoom:hover{text-decoration:none}
 a.zoom img{border-radius:6px;transition:box-shadow .15s ease}
 a.zoom:hover img{box-shadow:0 0 0 2px var(--accent)}
 /* 放大视图：单例 <dialog>，由 JS 创建、showModal() 打开。top layer、::backdrop、
-   Esc、背景 inert、隐式 aria-modal 全是浏览器白送的，这里只补视觉。 */
-dialog.zoomdlg{max-width:none;max-height:none;margin:auto;padding:0;border:0;
+   Esc、背景 inert、隐式 aria-modal 全是浏览器白送的，这里只补视觉。
+   modal 的定位显式写出来（不靠 UA 表）：关闭按钮用 position:absolute，它的
+   包含块就是这个 dialog 盒 —— 按钮因此永远贴在**图片的右上角**。
+   早期版本把按钮写成 position:fixed，它就钉在**视口**右上角：既盖在页面内容
+   （裂图时是浏览器画出来的 alt 文字，也就是文件名）上面，又把"点空白处关闭"
+   的点击抢走（SELFTEST §27）。 */
+dialog.zoomdlg{max-width:none;max-height:none;padding:0;border:0;
   background:transparent;color:var(--fg);overflow:visible}
-dialog.zoomdlg[open]{display:flex;flex-direction:column;align-items:center;gap:10px}
+dialog.zoomdlg[open]{position:fixed;inset:0;margin:auto;
+  display:flex;flex-direction:column;align-items:center;gap:10px}
 dialog.zoomdlg::backdrop{background:rgb(0 0 0 / .78)}
 /* 图片按视口缩放居中：dvh 处理移动端地址栏，vh 作为不支持 dvh 时的回退 */
 dialog.zoomdlg img{display:block;width:auto;height:auto;border-radius:6px;
@@ -418,12 +424,15 @@ dialog.zoomdlg img{display:block;width:auto;height:auto;border-radius:6px;
 dialog.zoomdlg .zoomcap{margin:0;max-width:70ch;text-align:center;font-size:14px;
   line-height:1.5;color:#fff;text-shadow:0 1px 3px rgb(0 0 0 / .7)}
 dialog.zoomdlg .zoomcap:empty{display:none}
-/* 关闭按钮固定在视口右上角，所以 dialog 自身**不能**有 transform：
-   那会让它变成 fixed 后代的包含块，按钮会跟着缩放入场动画跳一下。 */
-dialog.zoomdlg .zoomclose{position:fixed;top:10px;right:12px;width:34px;height:34px;
+/* 关闭按钮贴在 dialog（也就是图片）的右上角。字号必须用 longhand 写 ——
+   `font:20px/1 inherit` 是**非法声明**（inherit 不能出现在简写里），整条会被
+   丢弃，× 会退回 UA 的 13px，又小又难看清。 */
+dialog.zoomdlg .zoomclose{position:absolute;top:8px;right:8px;width:34px;height:34px;
   padding:0;border:1px solid rgb(255 255 255 / .35);border-radius:50%;
-  background:rgb(0 0 0 / .45);color:#fff;font:20px/1 inherit;cursor:pointer}
-dialog.zoomdlg .zoomclose:hover{background:rgb(0 0 0 / .75)}
+  background:rgb(0 0 0 / .55);color:#fff;font-size:22px;line-height:1;
+  font-family:inherit;cursor:pointer}
+dialog.zoomdlg .zoomclose:hover{background:rgb(0 0 0 / .8)}
+dialog.zoomdlg .zoomclose:focus-visible{outline:2px solid #fff;outline-offset:2px}
 /* 锁滚动：hidden 负责锁，scrollbar-gutter 负责别让滚动条槽位消失（否则整页右移） */
 html.zoomlock{overflow:hidden;scrollbar-gutter:stable}
 @media print{dialog.zoomdlg{display:none}}
@@ -591,7 +600,11 @@ COPY_JS = """
     btn.type = "button"; btn.className = "zoomclose";
     btn.textContent = "\u00d7";
     btn.setAttribute("aria-label", "\u5173\u95ed\u653e\u5927\u89c6\u56fe");
-    btn.autofocus = true;                 // 打开后焦点直接落在关闭按钮上
+    // 不写 autofocus 也照样有焦点：showModal() 自己会把焦点给 dialog 里第一个
+    // 可聚焦元素（Chrome 实测就是这颗按钮），所以 autofocus 是多余的。
+    // 代价是按钮一打开就命中 :focus-visible、带着焦点环（看起来像"被按住"），
+    // 因此那圈 outline 在 CSS 里刻意写成白色 + offset，让它看起来是"焦点"
+    // 而不是默认控件的激活态（SELFTEST §27）。
     d.appendChild(big); d.appendChild(cap); d.appendChild(btn);
     btn.addEventListener("click", function () { d.close(); });
     // 点遮罩空白处关闭：::backdrop 上的点击 target 就是 dialog 自身。

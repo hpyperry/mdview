@@ -1336,3 +1336,58 @@ closed_by_backdrop: true    still_one_dialog: 1      active_element_after_close:
 - 端到端 **320 项**（309 旧 + 11 新）：包裹形态、href 与 src 同源、脚本与样式已内联、
   基线正文里没有写死的 dialog、示例页大图也包了链接、大图尺寸
 - 压缩版同步重新生成，两套检查对 `dist/mdview.min.py` 各跑一遍
+
+## 27. 关闭按钮钉在视口右上角：抢走"点空白处"的点击，并盖住页面上的图片名
+
+**现象**（用户报告）：
+- 点右上角的关闭按钮 / Esc / 点空白处都能退出，但"右上角的关闭按钮那里会显示图片的名称"；
+- 用 Esc 或点空白处退出时，右上角那颗小的关闭按钮"会被触发"。
+
+**探针实测**（`tools/zoom-probe.html` 的同源 iframe + 合成点击；`window 1200x800`，
+打开 `guide/install.md` 的 240×72 logo）：
+
+| 判据 | 修复前 | 修复后 |
+|------|--------|--------|
+| 按钮矩形 | `{l:1154,t:10,r:1188,b:44}` —— 贴**视口**右上角 | `{l:678,t:171.5,r:712,b:205.5}` —— 在 dialog 盒内 |
+| `按钮在 dialog 内` | **false** | **true** |
+| `右上角命中的是按钮` | **true**（点"空白处"点的其实是按钮） | **false**（命中 dialog → 走 backdrop 关闭） |
+| `× 的字号` | 13.3333px | 22px |
+
+**根因（三条，都在样式里）**：
+
+1. `.zoomclose` 写成 `position:fixed; top:10px; right:12px` —— 它属于**视口**，不属于图片。
+   后果一是它永远飘在视口右上角那块**页面内容**上方：那里若是图片，或**裂图时浏览器
+   画出来的 alt 文字（通常就是文件名）**，看上去就成了"关闭按钮上显示图片名称"
+   （裂图那条用 `docs/preview/media/sample-large.png` 之外的假路径实测过：
+   浏览器把 alt 画在图片位置上，dialog 里还会再重复一遍 caption）。
+   后果二是那一小块"空白处"的点击命中的是按钮而不是 backdrop —— "点空白处关闭"
+   实际是按钮在关闭，也就是"关闭按钮被触发"。
+2. `font:20px/1 inherit` 是**非法声明**（`inherit` 不能出现在简写里），整条被丢弃，
+   × 退回 UA 的 13.3px，又小又难看清。
+3. 按钮一打开就命中 `:focus-visible`（探针：`打开即 :focus-visible: true`）——
+   `showModal()` 会把焦点送给 dialog 里第一个可聚焦元素，也就是这颗按钮
+   （去掉显式 `autofocus` 也一样，实测 activeElement 仍是它）。这条**不是缺陷**：
+   键盘用户的焦点必须落在 modal 内。所以只把 outline 写成白色 + offset，
+   让它看起来是"焦点"而不是默认控件的激活态。
+
+**修法**：
+
+- `.zoomclose` 改 `position:absolute; top:8px; right:8px`，并把 modal 定位显式写出来
+  （`dialog.zoomdlg[open]{position:fixed;inset:0;margin:auto}`）—— absolute 的包含块
+  因此就是 dialog 盒，按钮永远贴在**图片的右上角**，不再飘在页面内容/空白上方。
+- 字号改 longhand（`font-size:22px;line-height:1;font-family:inherit`）。
+- 删掉多余的 `btn.autofocus`（`showModal()` 自己就会把焦点送进来），
+  并给 `:focus-visible` 写一圈白 outline。
+
+**验证**：
+
+- 探针新增三条几何/命中断言（`close_inside_dialog` / `close_font_size` /
+  `topright_hit_is_close_btn`），修复前后各跑一遍，见上表
+- 单元 **187 -> 189 项**：`test_close_button_is_anchored_to_the_dialog`（CSS 里必须是
+  `position:absolute`，且 dialog 自己写明 modal 定位）、
+  `test_close_button_font_is_not_an_invalid_shorthand`（不能有那条非法简写 ——
+  注释里会引用它，所以先剥掉 CSS 注释再断言）
+- 端到端 **320 -> 321 项**：新增「关闭按钮贴在图片上」
+- 截图重新生成 [`docs/media/screenshot-zoom.png`](docs/media/screenshot-zoom.png)
+  （按钮已贴在图片右上角，带那圈白色焦点环）
+- 压缩版同步重新生成，两套检查对 `dist/mdview.min.py` 各跑一遍

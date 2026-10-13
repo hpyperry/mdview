@@ -65,9 +65,9 @@ python3 mdview.py --root docs --safe
 
 | | 字节 | 行数 |
 |---|---|---|
-| `mdview.py`（源码，给人看） | 148,556 | 3,180 |
-| `dist/mdview.min.py`（运行版） | **96,583** | 2,201 |
-| 减少 | **51,973（35.0%）** | |
+| `mdview.py`（源码，给人看） | 149,589 | 3,193 |
+| `dist/mdview.min.py`（运行版） | **97,616** | 2,214 |
+| 减少 | **51,973（34.7%）** | |
 
 ```bash
 python3 tools/minify.py                  # 重新生成
@@ -82,8 +82,8 @@ python3 tools/minify.py --check          # 只看体积
 等价性用两套测试 + 逐路径差分验证（测试支持指向替代实现）：
 
 ```bash
-MDVIEW_FILE=dist/mdview.min.py python3 tests/tests_render.py   # 187 项 OK
-MDVIEW=dist/mdview.min.py bash tests/selftest.sh               # 320 项 PASS
+MDVIEW_FILE=dist/mdview.min.py python3 tests/tests_render.py   # 189 项 OK
+MDVIEW=dist/mdview.min.py bash tests/selftest.sh               # 321 项 PASS
 ```
 
 差分覆盖 21 条路径（渲染页/源码视图/下载/搜索/目录索引/二进制/无扩展名/404/
@@ -287,8 +287,8 @@ md-preview/
 ├─ GLOSSARY.md          # 术语表（目标 / 根相对 URL / 双重编码 …）
 ├─ docs/adr/            # 决策记录（目标路径的编码语义为什么以 VS Code 为准）
 ├─ tests/               # 测试（见 tests/README.md）
-│  ├─ tests_render.py   #   渲染器回归测试（187 项，纯 unittest）
-│  └─ selftest.sh       #   端到端 HTTP 冒烟测试（320 项断言）
+│  ├─ tests_render.py   #   渲染器回归测试（189 项，纯 unittest）
+│  └─ selftest.sh       #   端到端 HTTP 冒烟测试（321 项断言）
 ├─ tools/minify.py      #   生成运行版（去注释/docstring/空行）
 ├─ dist/mdview.min.py   #   ★ 压缩运行版（87 KB，可单独拿去运行）
 └─ docs/                # 示例语料
@@ -302,8 +302,8 @@ md-preview/
 ## 8. 测试
 
 ```bash
-python3 tests/tests_render.py      # 渲染器单元测试：187 项
-bash tests/selftest.sh             # 端到端 HTTP 验证：320 项断言
+python3 tests/tests_render.py      # 渲染器单元测试：189 项
+bash tests/selftest.sh             # 端到端 HTTP 验证：321 项断言
 ```
 
 三者都是零依赖、可重复执行的。`tests/selftest.sh` 会在 `127.0.0.1:8731` 起一个临时实例，

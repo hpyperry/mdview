@@ -173,6 +173,8 @@ chk "放大脚本已内联"        "$G" 'createElement("dialog")'
 chk "放大脚本用 showModal"  "$G" 'showModal'
 chk "遮罩样式已内联"        "$G" 'dialog.zoomdlg'
 chk "滚动锁样式已内联"      "$G" 'html.zoomlock'
+# 关闭按钮必须贴在图片右上角（不是钉在视口右上角抢走"点空白处"的点击，SELFTEST §27）
+chk "关闭按钮贴在图片上"    "$G" 'dialog.zoomdlg .zoomclose{position:absolute'
 # 基线（无 JS）里不能有写死的遮罩或关闭按钮 —— 那会是点不动的死元素
 nchk "正文里没有写死的 dialog" "$(printf '%s' "$G" | sed -n '/<body>/,/<script>/p')" '<dialog'
 

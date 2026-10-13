@@ -668,6 +668,26 @@ class TestImageZoom(unittest.TestCase):
         self.assertEqual(out.count('<a class="zoom"'), 2)
         self.assertEqual(out.count("</a>"), 2)
 
+    def test_close_button_is_anchored_to_the_dialog(self):
+        """关闭按钮必须贴在图片（dialog 盒）的右上角，不能钉在视口右上角。
+
+        曾经写成 `position:fixed`：按钮飘在视口右上角，于是一来会盖在页面内容上
+        （裂图时那里正是浏览器画出来的 alt 文字，也就是文件名），二来把"点空白处
+        关闭"的点击抢走 —— 用户点右上角空白，实际点到的是按钮（SELFTEST §27）。
+        """
+        css = m.CSS.replace(" ", "").replace("\n", "")
+        self.assertIn("dialog.zoomdlg.zoomclose{position:absolute", css)
+        self.assertNotIn("dialog.zoomdlg.zoomclose{position:fixed", css)
+        # dialog 自身的 modal 定位要显式写出，absolute 才有确定的包含块
+        self.assertIn("dialog.zoomdlg[open]{position:fixed;inset:0;margin:auto", css)
+
+    def test_close_button_font_is_not_an_invalid_shorthand(self):
+        """`font:20px/1 inherit` 是非法简写（inherit 不能出现在简写里），整条被丢弃，
+        × 会退回 UA 的 13px —— 又小又难看清。字号必须用 longhand 写。"""
+        css = re.sub(r"/\*.*?\*/", "", m.CSS, flags=re.S)   # 注释里会引用那条错写法
+        self.assertNotIn("font:20px/1 inherit", css)
+        self.assertIn("font-size:22px", css)
+
     def test_no_dead_overlay_without_js(self):
         """基线 HTML 里不能有写死的遮罩/关闭按钮；它们全由那段 JS 创建。"""
         page = m._page("t", m.render_markdown("![x](p.png)"))

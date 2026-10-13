@@ -76,6 +76,16 @@
           " viewport=" + w.innerWidth + "x" + w.innerHeight +
           " natural=" + big.naturalWidth + "x" + big.naturalHeight);
       log("fits_viewport", r.width <= w.innerWidth && r.height <= w.innerHeight);
+      // 几何/命中断言：关闭按钮必须贴在**图片（dialog 盒）**的右上角。
+      // 曾经是 position:fixed 钉在视口右上角 —— 那样它会盖在页面内容上，还会
+      // 把"点空白处关闭"的点击抢走（SELFTEST §27）。
+      var br = dlg.querySelector(".zoomclose").getBoundingClientRect();
+      log("close_inside_dialog", br.left >= r.left - 0.5 && br.top >= r.top - 0.5 &&
+          br.right <= dlg.getBoundingClientRect().right + 0.5 &&
+          br.bottom <= dlg.getBoundingClientRect().bottom + 0.5);
+      log("close_font_size", w.getComputedStyle(dlg.querySelector(".zoomclose")).fontSize);
+      var hit = d.elementFromPoint(w.innerWidth - 20, 20);
+      log("topright_hit_is_close_btn", hit === dlg.querySelector(".zoomclose"));
 
       click(w, dlg.querySelector(".zoomclose"));
       log("closed_by_button", !dlg.open);
