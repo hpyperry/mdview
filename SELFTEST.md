@@ -1253,3 +1253,86 @@ README 与 SELFTEST §3.2 都写着「裸 HTML 全部转义」—— 在**段落
 `<a href="/docs/p.png"><img src="/docs/u.md" alt="i</a>">` —— `_REF_LINK_RE` 用
 `[^\]]*` 抓标签，会从外层的 `[` 开始匹配、把内层 `[i]` 当标签内容。本次改动后形态
 变了（少了凭空造出的 `src`）但**仍是坏的**，属于同一个正则的老问题，未纳入本次范围。
+
+## 26. 图片放大：服务端包裹链接 + 原生 `<dialog>` 遮罩
+
+**需求**：正文图片点一下能放大看。禁用 JS 时也不能退化成「点了没反应」。
+
+**形态**（都是定下来的，理由见 [`docs/adr/0002`](docs/adr/0002-image-zoom.md)）：
+点开是一层遮罩、原图按视口缩放居中；Esc / 点遮罩空白 / 右上角 × 关闭；遮罩里显示
+图片的 `alt` 作为说明。**不做**相册、滚轮缩放、双指手势、1:1 切换。
+
+### 服务端：在 `parse_inline` 出口做一次锚点深度扫描
+
+图片有两条产出路径（行内式在 `parse_inline` 内部、引用式在行内解析**之前**），所以
+「生成 `<img>` 时顺手包一层」对引用式行不通 —— 那时外层链接还没解析，遇到
+`[![x][r]](u)` 会产出嵌套 `<a>`，浏览器会把外层链接撕成两半。
+
+落点改在 `parse_inline` 的**出口**：此刻源文本已全部转义，输出里任何
+`<a` / `</a>` / `<img` 都只可能是我们自己生成的，于是可以线性地数锚点深度，
+只包深度为 0 的图片。规则因此与上下文无关（标题、表格、列表、引用块自动覆盖），
+徽章图片自动排除。
+
+包裹链接的 `href` **逐字节复用** `<img>` 已有的 `src`：那条「只解码一次、只编码一次」
+的管线不许被走第二遍（有专门断言钉住 href 与 src 同源）。
+
+### 样式与脚本
+
+- `.zoom{cursor:zoom-in}` + 悬停 `box-shadow` 描边（用 box-shadow 而不是 border，
+  否则悬停时整段文字会抖一下）
+- `dialog.zoomdlg` 只补视觉：top layer、`::backdrop`、Esc、背景 inert、隐式
+  `aria-modal` 都是 `showModal()` 白送的；`html.zoomlock{overflow:hidden;
+  scrollbar-gutter:stable}` 负责锁滚动且不让滚动条槽位消失
+- 入场动画在 `@media (prefers-reduced-motion: no-preference)` 内，用
+  `@starting-style` + `transition: display .15s allow-discrete`（2024 起 Baseline）
+- 脚本并入现有 `COPY_JS`（与复制按钮同一条注入路径，仍然每页内联）。**遮罩、关闭
+  按钮全部运行时创建**：禁 JS 的基线上不会出现点不动的死元素（有断言）
+
+### 三处只有真浏览器才暴露的细节
+
+| 细节 | 事实 | 处理 |
+|------|------|------|
+| 焦点归还 | `<img>` **默认不可聚焦**，`img.focus()` 是空操作（实测 `activeElement` 停在 `body`） | 记的是**包裹链接**，关闭时把焦点还给链接（探针实测 `focus_returned_to_link: true`） |
+| 修饰键点击 | `preventDefault()` 会连同「Cmd/Ctrl+点击新标签打开」一起吃掉 —— 而包裹链接同时是原图的唯一出口 | `ev.button !== 0 || metaKey/ctrlKey/shiftKey/altKey` 时直接放行（探针实测未被 preventDefault、也没弹遮罩） |
+| 缩放基准 | 图片按视口缩放要跟 `vh` 在移动端的地址栏问题上打交道 | 同时写 `calc(100vh - 5rem)` 与 `calc(100dvh - 5rem)`，后者覆盖前者 |
+
+### 浏览器实测（Chrome headless）
+
+本机 `--dump-dom` 会一直挂着不退出（`--headless` 与 `--headless=new` 都试过），
+`--screenshot` 正常。所以探针把逐条状态渲染进页面再截图取回：
+[`tools/zoom-probe.html`](tools/zoom-probe.html)（同源 iframe + 合成点击；用法写在文件头）。
+
+在 `docs/preview/index.md`（新嵌入的 1600×900 大图）上跑一遍的观察值：
+
+```
+wrapped_count: 1            lazy_dialog: true        href_eq_src: true
+href: /preview/media/sample-large.png                img_natural: 1600x900
+modifier_click_not_prevented: true                   modifier_click_no_dialog: true
+dialog_open: true           is_modal: true           big_src: /preview/media/sample-large.png
+caption: "1600×900 网格大图（点击放大）"               labelledby: zoomcap    aria_label: null
+zoomlock: true              focus_on_close: true     backdrop: rgba(0, 0, 0, 0.78)
+fitted: 782x440 viewport=1200x520 natural=1600x900   fits_viewport: true
+closed_by_button: true      unlocked: true           focus_returned_to_link: true
+closed_by_backdrop: true    still_one_dialog: 1      active_element_after_close: A.zoom
+```
+
+`is_modal: true` 是「背景 inert + 进 top layer」的直接证据；`fitted` 那一行证明
+1600×900 的图确实被压到视口内（正文里它被列宽缩成 860×484，放大视图给到 782×440 于
+1200×520 视口 → 高度受限，见下）；`backdrop` 证明遮罩来自 `::backdrop` 而不是自绘 div。
+
+真实页面上的放大视图（`docs/preview/index.md`，遮罩 + 按视口缩放 + alt 说明 + 右上角关闭键）：
+
+![放大视图截图](docs/media/screenshot-zoom.png)
+
+### 示例语料与测试
+
+- **大样例图**：`docs/preview/media/sample-large.png`，1600×900 带网格（`write_png`
+  加了矩形与网格参数）。单色方块看不出「缩过」，网格才看得出。端到端断言它的
+  `Content-Type`、PNG 魔数，以及 IHDR 里的宽高字节（`0000064000000384`）
+- 单元 **187 项**（173 旧 + 14 新）：新增 `TestImageZoom`（10 项）覆盖行内式/引用式
+  包裹、href 与 src 逐字节同源、徽章不嵌套、标题/表格/列表/引用块、行内码与围栏块
+  不包裹、被拒协议不产出包裹、title 留在 img 上、每图只包一次、基线里没有写死的
+  `<dialog>`；另有 2 条旧断言的期望值随之更新（`<a ` 计数、`assertNotIn("<a")`）
+- 端到端 **320 项**（309 旧 + 11 新）：包裹形态、href 与 src 同源、脚本与样式已内联、
+  基线正文里没有写死的 dialog、示例页大图也包了链接、大图尺寸
+- 压缩版同步重新生成，两套检查对 `dist/mdview.min.py` 各跑一遍

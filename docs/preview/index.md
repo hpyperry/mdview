@@ -53,6 +53,16 @@
 - [PNG](media/sample.png)　[BMP](media/sample.bmp)　[ICO](media/sample.ico)
 - [SVG](media/sample.svg)（矢量，可缩放）
 - [**GIF**](media/sample.gif) ← 两帧动画，应当**看到它在动**（证明按图片处理而非静态文本）
+- [**大图 1600×900**](media/sample-large.png) ← 比视口大，用来验证「按视口缩放」的放大视图
+
+### 图片放大（点下面这张图试）
+
+正文里的图片会被包上一层可放大的链接：**禁用 JS** 时点一下直接打开原图，
+**有 JS 时**弹出遮罩并按视口缩放居中（Esc / 点遮罩空白 / 右上角 × 关闭；
+`Cmd`/`Ctrl` + 点击或中键仍走浏览器原生行为）。下面这张带网格的大图缩放过
+之后一眼就能看出来：
+
+![1600×900 网格大图（点击放大）](media/sample-large.png)
 
 > **另有专项测试页**：[二进制 / 超大文件测试](binary-test.md) —— 512 字节嗅探边界、
 > 真 ZIP/ELF/PDF、超过 20 MiB 的各类型文件，逐个标了预期行为。

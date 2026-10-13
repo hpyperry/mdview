@@ -164,6 +164,18 @@ chk "同级相对链接"        "$G" 'href="/guide/advanced.md"'
 chk "图片相对路径"        "$G" 'src="/media/logo.svg"'
 chk "svg Content-Type"    "$(curl -s -D - -o /dev/null "$BASE/media/logo.svg")" 'image/svg+xml'
 
+echo "== 图片放大（服务端包裹 + 脚本内联） =="
+# 不在链接里的正文图片都要包一层可放大链接；href 与 img 的 src 必须同源
+# （编码管线只走一次）。没有 JS 时它就是降级路径，有 JS 时被脚本接管。
+chk "图片包了可放大链接"    "$G" '<a class="zoom" href="/media/logo.svg">'
+chk "href 与 src 逐字节同源" "$G" '<a class="zoom" href="/media/logo.svg"><img src="/media/logo.svg"'
+chk "放大脚本已内联"        "$G" 'createElement("dialog")'
+chk "放大脚本用 showModal"  "$G" 'showModal'
+chk "遮罩样式已内联"        "$G" 'dialog.zoomdlg'
+chk "滚动锁样式已内联"      "$G" 'html.zoomlock'
+# 基线（无 JS）里不能有写死的遮罩或关闭按钮 —— 那会是点不动的死元素
+nchk "正文里没有写死的 dialog" "$(printf '%s' "$G" | sed -n '/<body>/,/<script>/p')" '<dialog'
+
 echo "== 目录跳转 =="
 RED="$(curl -s -D - -o /dev/null "$BASE/guide")"
 chk "目录补斜杠 301"      "$RED" '301'
@@ -382,6 +394,14 @@ chk "样例 .svg"              "$(curl -s -o /dev/null -w '%{content_type}' "$BA
 # 图片必须是真文件（校验魔数），不能是占位文本
 PNG_MAGIC="$(curl -s "$BASE/preview/media/sample.png" | head -c 8 | od -An -tx1 | tr -d ' \n')"
 chk "PNG 魔数正确"           "$PNG_MAGIC" '89504e470d0a1a0a'
+# 大样例图：放大视图「按视口缩放」只能靠比视口大的图验证，所以它必须是真 1600×900
+chk "大样例 .png"            "$(curl -s -o /dev/null -w '%{content_type}' "$BASE/preview/media/sample-large.png")" 'image/png'
+LARGE_MAGIC="$(curl -s "$BASE/preview/media/sample-large.png" | head -c 8 | od -An -tx1 | tr -d ' \n')"
+chk "大图 PNG 魔数正确"      "$LARGE_MAGIC" '89504e470d0a1a0a'
+# IHDR 的前 8 字节就是宽高（大端）：1600 = 0x640，900 = 0x384
+LARGE_WH="$(curl -s "$BASE/preview/media/sample-large.png" | od -An -tx1 -j16 -N8 | tr -d ' \n')"
+chk "大图尺寸 1600x900"      "$LARGE_WH" '0000064000000384'
+chk "示例页大图包了放大链接" "$PREV" '<a class="zoom" href="/preview/media/sample-large.png">'
 GIF_MAGIC="$(curl -s "$BASE/preview/media/sample.gif" | head -c 6)"
 chk "GIF 魔数正确"           "$GIF_MAGIC" 'GIF89a'
 chk "空文件可访问"           "$(code "$BASE/preview/text/empty.txt")" '200'

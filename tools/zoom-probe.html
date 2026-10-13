@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<title>mdview 图片放大探针</title>
+<!--
+  mdview 图片放大的浏览器探针（开发工具，不是交付物）。
+
+  它把自己当一个**同源**容器：里面用 iframe 打开一张真实的文档页，然后在 iframe
+  里派发合成点击，把「放大视图」的运行时状态逐条写进下面的 <pre>。同源是关键 ——
+  跨源 iframe 读不到 contentDocument，而 file:// 打开的容器跟 http 服务也不同源。
+
+  为什么用 --screenshot 而不是 --dump-dom：本机 Chrome（headless 与 headless=new）
+  跑 --dump-dom 会一直挂着不退出，--screenshot 正常。所以结果渲染进页面，截图取回。
+
+  用法（把 docs 拷到一个临时根，再把本文件放进去 —— docs/ 本身不留探针）：
+
+    ROOT=$(mktemp -d) && cp -R docs/. "$ROOT/" && cp tools/zoom-probe.html "$ROOT/"
+    python3 mdview.py --root "$ROOT" --port 8797 --host 127.0.0.1 &
+    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless --no-sandbox \
+      --disable-gpu --force-prefers-reduced-motion --window-size=1200,1000 \
+      --virtual-time-budget=4000 --screenshot=/tmp/zoom-probe.png \
+      "http://127.0.0.1:8797/zoom-probe.html?src=/preview/index.md&img=sample-large"
+    kill %1; rm -rf "$ROOT"
+
+  然后读 /tmp/zoom-probe.png（下半部分是逐条结果）。历史上它抓到过一个真缺陷：
+  关闭遮罩后焦点没回到触发元素（img 不可聚焦，focus() 是空操作）。
+-->
+<style>
+  html,body{margin:0;background:#fff}
+  iframe{width:1200px;height:520px;border:0;display:block}
+  pre{font:12px/1.4 ui-monospace,Menlo,monospace;margin:0;padding:8px 12px;white-space:pre-wrap}
+</style>
+<iframe id="f"></iframe><pre id="out">…</pre>
+<script>
+(function () {
+  var q = new URLSearchParams(location.search);
+  var out = [], f = document.getElementById("f");
+  var shotOpen = q.has("open");                       // 默认收尾时关掉，便于读文字
+  function log(k, v) { out.push((k + ":                        ").slice(0, 30) + v); }
+  function click(w, el, extra) {
+    el.dispatchEvent(new w.MouseEvent("click", Object.assign(
+      { bubbles: true, cancelable: true }, extra || {})));
+  }
+  function who(d) {
+    var e = d.activeElement;
+    return e ? e.tagName + (e.className ? "." + e.className : "") : "null";
+  }
+  f.addEventListener("load", function () {
+    var d = f.contentDocument, w = f.contentWindow;
+    var pick = function (a) { return !q.get("img") || a.getAttribute("href").indexOf(q.get("img")) >= 0; };
+    try {
+      var links = [].filter.call(d.querySelectorAll("a.zoom"), pick);
+      var a = links[0], small = a.querySelector("img");
+      log("wrapped_count", links.length);
+      log("lazy_dialog", d.querySelector("dialog.zoomdlg") === null);
+      log("href_eq_src", a.getAttribute("href") === small.getAttribute("src"));
+      log("href", a.getAttribute("href"));
+      log("img_natural", small.naturalWidth + "x" + small.naturalHeight);
+      // 修饰键点击是「新标签打开 / 另存为」，不许被接管（dispatchEvent 返回 false 表示被 preventDefault）
+      log("modifier_click_not_prevented", a.dispatchEvent(new w.MouseEvent("click",
+          { bubbles: true, cancelable: true, metaKey: true, ctrlKey: true })));
+      log("modifier_click_no_dialog", d.querySelector("dialog.zoomdlg") === null);
+
+      click(w, small);
+      var dlg = d.querySelector("dialog.zoomdlg"), big = dlg.querySelector("img");
+      var r = big.getBoundingClientRect();
+      log("dialog_open", dlg.open);
+      log("is_modal", dlg.matches(":modal"));
+      log("big_src", big.getAttribute("src"));
+      log("caption", JSON.stringify(dlg.querySelector(".zoomcap").textContent));
+      log("labelledby", dlg.getAttribute("aria-labelledby"));
+      log("aria_label", dlg.getAttribute("aria-label"));
+      log("zoomlock", d.documentElement.classList.contains("zoomlock"));
+      log("focus_on_close", d.activeElement === dlg.querySelector(".zoomclose"));
+      log("backdrop", w.getComputedStyle(dlg, "::backdrop").backgroundColor);
+      log("fitted", Math.round(r.width) + "x" + Math.round(r.height) +
+          " viewport=" + w.innerWidth + "x" + w.innerHeight +
+          " natural=" + big.naturalWidth + "x" + big.naturalHeight);
+      log("fits_viewport", r.width <= w.innerWidth && r.height <= w.innerHeight);
+
+      click(w, dlg.querySelector(".zoomclose"));
+      log("closed_by_button", !dlg.open);
+      dlg.dispatchEvent(new w.Event("close"));         // 浏览器派发的 close 等价物
+      log("unlocked", !d.documentElement.classList.contains("zoomlock"));
+      log("focus_returned_to_link", d.activeElement === a);
+
+      click(w, small);
+      click(w, dlg);                                   // ::backdrop 上的 target === dialog
+      log("closed_by_backdrop", !dlg.open);
+      dlg.dispatchEvent(new w.Event("close"));
+
+      // 空 alt 的装饰图：说明文字隐藏、改用固定可访问名
+      var a2 = [].filter.call(d.querySelectorAll("a.zoom"), pick)[1];
+      if (a2) {
+        click(w, a2.querySelector("img"));
+        log("empty_alt_caption", JSON.stringify(dlg.querySelector(".zoomcap").textContent));
+        log("empty_alt_aria_label", dlg.getAttribute("aria-label"));
+        log("empty_alt_labelledby", dlg.getAttribute("aria-labelledby"));
+      }
+      log("still_one_dialog", d.querySelectorAll("dialog.zoomdlg").length);
+      log("active_element_after_close", who(d));
+      dlg.dispatchEvent(new w.Event("close"));
+      if (shotOpen) click(w, small);                   // 需要一张「遮罩开着」的截图时用
+    } catch (e) {
+      log("ERROR", e && (e.message || e));
+    }
+    document.getElementById("out").textContent = "\n" + out.join("\n") + "\n";
+  });
+  f.src = q.get("src") || "/preview/index.md";
+})();
+</script>

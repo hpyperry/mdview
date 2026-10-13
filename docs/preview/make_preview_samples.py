@@ -12,6 +12,7 @@
     config/   配置与数据类
     text/     纯文本类（含一个 GBK 文件，用来验证编码声明）
     media/    png / bmp / gif（动图）/ ico / svg —— 浏览器可内联显示的真图片
+              （含一张 1600×900 带网格的大图，用来验证放大视图确实按视口缩放）
 """
 
 import os
@@ -24,10 +25,26 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 # 纯标准库生成合法图片（每种都已在 Chrome 里验证 naturalWidth/naturalHeight）
 # --------------------------------------------------------------------------
 
-def write_png(path, size=120, rgb=(9, 105, 218)):
-    """8 位真彩 PNG（单色方块）。"""
-    w = h = size
-    raw = b"".join(b"\x00" + bytes(rgb) * w for _ in range(h))
+def write_png(path, size=120, rgb=(9, 105, 218), grid=0):
+    """8 位真彩 PNG。
+
+    size 既可以是边长，也可以是 (宽, 高)。grid > 0 时每 grid 像素画一条白线，
+    最外圈也画满 —— 单色方块看不出「被缩放到视口里」这回事，带网格的大图才能
+    一眼看出放大视图到底缩了多少（见 media/sample-large.png）。
+    """
+    w, h = (size, size) if isinstance(size, int) else size
+    plain = bytes(rgb) * w
+
+    def edge(x, n):
+        return x % grid == 0 or x == n - 1
+
+    if grid:
+        marked = b"".join(bytes((255, 255, 255)) if edge(x, w) else bytes(rgb)
+                          for x in range(w))
+        raw = b"".join(b"\x00" + (marked if edge(y, h) else plain)
+                       for y in range(h))
+    else:
+        raw = b"".join(b"\x00" + plain for _ in range(h))
 
     def chunk(tag, data):
         body = tag + data
@@ -417,10 +434,12 @@ def main():
     write_text("media/sample.svg", SVG)
     count += 1
     write_png(os.path.join(HERE, "media", "sample.png"))
+    write_png(os.path.join(HERE, "media", "sample-large.png"),
+              size=(1600, 900), grid=160)
     write_bmp(os.path.join(HERE, "media", "sample.bmp"))
     write_gif(os.path.join(HERE, "media", "sample.gif"))
     write_ico(os.path.join(HERE, "media", "sample.ico"))
-    count += 4
+    count += 5
     print("已生成 %d 个样例文件到 %s" % (count, HERE))
 
 

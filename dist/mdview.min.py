@@ -212,6 +212,49 @@ th,td{border:1px solid var(--line);padding:7px 13px;text-align:left}
 th{background:var(--soft);font-weight:600}
 tr:nth-child(2n) td{background:var(--soft)}
 img{max-width:100%;height:auto}
+/* 图片放大（服务端把正文图片包成 <a class="zoom">，见 wrap_zoom_images）。
+   无 JS 时这层链接就是降级路径：点一下直接打开原图。可点击性必须自己提示，
+   否则没人知道图能点 —— 光标变放大镜 + 悬停描边，且描边不参与布局（box-shadow
+   而不是 border，否则悬停时整段文字会抖一下）。 */
+a.zoom{display:inline-block;cursor:zoom-in;border-radius:6px;text-decoration:none}
+a.zoom:hover{text-decoration:none}
+a.zoom img{border-radius:6px;transition:box-shadow .15s ease}
+a.zoom:hover img{box-shadow:0 0 0 2px var(--accent)}
+/* 放大视图：单例 <dialog>，由 JS 创建、showModal() 打开。top layer、::backdrop、
+   Esc、背景 inert、隐式 aria-modal 全是浏览器白送的，这里只补视觉。 */
+dialog.zoomdlg{max-width:none;max-height:none;margin:auto;padding:0;border:0;
+  background:transparent;color:var(--fg);overflow:visible}
+dialog.zoomdlg[open]{display:flex;flex-direction:column;align-items:center;gap:10px}
+dialog.zoomdlg::backdrop{background:rgb(0 0 0 / .78)}
+/* 图片按视口缩放居中：dvh 处理移动端地址栏，vh 作为不支持 dvh 时的回退 */
+dialog.zoomdlg img{display:block;width:auto;height:auto;border-radius:6px;
+  max-width:calc(100vw - 2.5rem);max-height:calc(100vh - 5rem);
+  max-height:calc(100dvh - 5rem)}
+dialog.zoomdlg .zoomcap{margin:0;max-width:70ch;text-align:center;font-size:14px;
+  line-height:1.5;color:#fff;text-shadow:0 1px 3px rgb(0 0 0 / .7)}
+dialog.zoomdlg .zoomcap:empty{display:none}
+/* 关闭按钮固定在视口右上角，所以 dialog 自身**不能**有 transform：
+   那会让它变成 fixed 后代的包含块，按钮会跟着缩放入场动画跳一下。 */
+dialog.zoomdlg .zoomclose{position:fixed;top:10px;right:12px;width:34px;height:34px;
+  padding:0;border:1px solid rgb(255 255 255 / .35);border-radius:50%;
+  background:rgb(0 0 0 / .45);color:#fff;font:20px/1 inherit;cursor:pointer}
+dialog.zoomdlg .zoomclose:hover{background:rgb(0 0 0 / .75)}
+/* 锁滚动：hidden 负责锁，scrollbar-gutter 负责别让滚动条槽位消失（否则整页右移） */
+html.zoomlock{overflow:hidden;scrollbar-gutter:stable}
+@media print{dialog.zoomdlg{display:none}}
+@media (prefers-reduced-motion: no-preference){
+  /* <dialog> 从 display:none 切到 flex，纯 CSS 过渡必须声明 display/overlay 的
+     allow-discrete 并给 @starting-style 起始值（2024 起 Baseline）。 */
+  dialog.zoomdlg{transition:display .15s allow-discrete,overlay .15s allow-discrete}
+  dialog.zoomdlg img{opacity:0;transform:scale(.97);
+    transition:opacity .15s ease,transform .15s ease}
+  dialog.zoomdlg[open] img{opacity:1;transform:none}
+  @starting-style{dialog.zoomdlg[open] img{opacity:0;transform:scale(.97)}}
+  dialog.zoomdlg::backdrop{opacity:0;
+    transition:opacity .15s ease,display .15s allow-discrete,overlay .15s allow-discrete}
+  dialog.zoomdlg[open]::backdrop{opacity:1}
+  @starting-style{dialog.zoomdlg[open]::backdrop{opacity:0}}
+}
 hr{border:0;border-top:1px solid var(--line);margin:26px 0}
 mark{background:var(--mark);color:var(--markfg);border-radius:3px;padding:0 2px}
 /* 代码块：顶部条 + 代码区「两段叠放」，顶部条自带上方圆角（对齐 DSH 的 code block） */
@@ -340,6 +383,63 @@ COPY_JS = """
     btn.textContent = LABEL;
     btn.setAttribute("aria-label", "\u590d\u5236\u4ee3\u7801");
     banner.appendChild(btn);              // 放在语言名右侧，与 DSH 一致
+  });
+
+  // 2) 图片放大：服务端把正文图片包成了 <a class="zoom" href="原图">（见
+  //    wrap_zoom_images），这里接管点击弹一个单例 <dialog>。Esc 关闭、背景
+  //    inert、top layer、隐式 aria-modal 都是 showModal() 白送的；焦点归还
+  //    浏览器不给，得自己记着还。没有这层脚本时链接照旧打开原图 —— 所以
+  //    这里不写死任何 DOM，全部运行时创建。
+  var zoom = null, zoomOpener = null;
+  function buildZoom() {
+    var d = document.createElement("dialog"), big = document.createElement("img");
+    var cap = document.createElement("p"), btn = document.createElement("button");
+    d.className = "zoomdlg";
+    big.alt = "";
+    cap.className = "zoomcap"; cap.id = "zoomcap";
+    btn.type = "button"; btn.className = "zoomclose";
+    btn.textContent = "\u00d7";
+    btn.setAttribute("aria-label", "\u5173\u95ed\u653e\u5927\u89c6\u56fe");
+    btn.autofocus = true;                 // 打开后焦点直接落在关闭按钮上
+    d.appendChild(big); d.appendChild(cap); d.appendChild(btn);
+    btn.addEventListener("click", function () { d.close(); });
+    // 点遮罩空白处关闭：::backdrop 上的点击 target 就是 dialog 自身。
+    // 不能用 closest，否则点在图片上也会关掉。
+    d.addEventListener("click", function (ev) { if (ev.target === d) d.close(); });
+    d.addEventListener("close", function () {          // 清理一律放 close，不放 cancel
+      document.documentElement.classList.remove("zoomlock");
+      // 焦点要还给**包裹链接**而不是里面的 <img>：img 默认不可聚焦，
+      // img.focus() 是空操作（Chrome 实测：activeElement 停在 body）。
+      if (zoomOpener && zoomOpener.focus) zoomOpener.focus();
+      zoomOpener = null;
+    });
+    document.body.appendChild(d);
+    return d;
+  }
+  document.addEventListener("click", function (ev) {
+    var a = ev.target.closest ? ev.target.closest("a.zoom") : null;
+    if (!a) return;
+    // 带修饰键或中键的点击是「新标签打开 / 另存为」的用户意图，不许抢
+    if (ev.button !== 0 || ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey) return;
+    var small = a.querySelector("img");
+    if (!small) return;
+    if (!zoom) zoom = buildZoom();
+    if (zoom.open || !zoom.showModal) return;   // 老浏览器：不接管，链接照旧可用
+    ev.preventDefault();
+    var big = zoom.querySelector("img"), cap = zoom.querySelector(".zoomcap");
+    big.src = a.getAttribute("href");           // 与 img 的 src 逐字节同源
+    big.alt = small.alt || "";
+    cap.textContent = small.alt || "";
+    if (cap.textContent) {                      // 有 alt 就用它当遮罩的可访问名
+      zoom.setAttribute("aria-labelledby", "zoomcap");
+      zoom.removeAttribute("aria-label");
+    } else {                                    // 装饰图：退回一个固定名
+      zoom.removeAttribute("aria-labelledby");
+      zoom.setAttribute("aria-label", "\u56fe\u7247\u653e\u5927");
+    }
+    zoomOpener = a;                             // 归还焦点要还给链接，见 close
+    document.documentElement.classList.add("zoomlock");
+    zoom.showModal();
   });
 })();
 """
@@ -789,6 +889,31 @@ def _tail_is_blank_or_title(rest):
     return False
 _IMG_ALT_ATTR_RE = re.compile(r'<img\b[^>]*?\balt="([^"]*)"[^>]*>')
 _ANY_TAG_RE = re.compile(r"<[^>]*>")
+_OWN_TAG_SCAN_RE = re.compile(r"<a\b[^>]*>|</a>|<img\b[^>]*>")
+_IMG_SRC_ATTR_RE = re.compile(r'\bsrc="([^"]*)"')
+def wrap_zoom_images(html_text):
+    if "<img" not in html_text:
+        return html_text
+    out, pos, depth = [], 0, 0
+    for m in _OWN_TAG_SCAN_RE.finditer(html_text):
+        tag = m.group(0)
+        if tag.startswith("</a"):
+            if depth:
+                depth -= 1
+        elif tag.startswith("<a"):
+            depth += 1
+        elif depth == 0:
+            src = _IMG_SRC_ATTR_RE.search(tag)
+            if src:
+                out.append(html_text[pos:m.start()])
+                out.append('<a class="zoom" href="%s">' % src.group(1))
+                out.append(tag)
+                out.append("</a>")
+                pos = m.end()
+    if not out:
+        return html_text
+    out.append(html_text[pos:])
+    return "".join(out)
 def _alt_text(html_label):
     text = _IMG_ALT_ATTR_RE.sub(r"\1", html_label)
     return html.unescape(_ANY_TAG_RE.sub("", text))
@@ -926,7 +1051,7 @@ def parse_inline(text, ctx):
     text = _TOKEN_RE.sub(resolve_token, text)
     text = re.sub(re.escape(_CODE_OPEN) + r"(\d+)" + re.escape(_CODE_CLOSE),
                   lambda m: "<code>%s</code>" % code_spans[int(m.group(1))], text)
-    return text
+    return wrap_zoom_images(text)
 def _ref_link_html(ctx, url, title, label_html):
     decoded = urllib.parse.unquote(url)
     if re.match(r"^[A-Za-z][A-Za-z0-9+.-]*:", decoded):

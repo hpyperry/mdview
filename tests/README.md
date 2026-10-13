@@ -5,15 +5,15 @@
 
 | 文件 | 作用 | 命令 |
 |------|------|------|
-| `tests_render.py` | 渲染器回归测试（177 项，纯 `unittest`，不联网不起服务） | `python3 tests/tests_render.py` |
-| `selftest.sh` | 端到端 HTTP 冒烟测试（309 项断言，自己起临时服务、跑完自清理） | `bash tests/selftest.sh` |
+| `tests_render.py` | 渲染器回归测试（187 项，纯 `unittest`，不联网不起服务） | `python3 tests/tests_render.py` |
+| `selftest.sh` | 端到端 HTTP 冒烟测试（320 项断言，自己起临时服务、跑完自清理） | `bash tests/selftest.sh` |
 
 ## 一套跑完
 
 ```bash
 # 在仓库根执行
-python3 tests/tests_render.py      # 177 项单元测试
-bash tests/selftest.sh             # 309 项端到端断言
+python3 tests/tests_render.py      # 187 项单元测试
+bash tests/selftest.sh             # 320 项端到端断言
 ```
 
 两个命令都是零依赖、可重复执行的，不需要 `pip install`。
@@ -31,11 +31,14 @@ bash tests/selftest.sh             # 309 项端到端断言
 列表嵌套与松紧、表格对齐、搜索文件名命中；
 **标签渲染的两类消费方**（alt 必须是纯文本 + 引号转义、标签里的裸 HTML 保持转义、
 引用式产出的标记必须 stash 成 token 不被后处理再解析）；
-等等。
+**图片放大**（行内式/引用式都包 `<a class="zoom">`、href 与 src 逐字节同源、
+徽章不嵌套、行内码与围栏块不包裹）；等等。
 
 **`selftest.sh`** —— 真起服务、真发 HTTP：
 代码块的复制按钮必须由 JS 注入（HTML 里不能有硬编码的死按钮）；
 搜索跳转的落点必须竖向居中、且对非 L 锚点不生效；
+**图片放大**的服务端一半（包裹形态、href 与 src 同源、脚本与样式已内联、
+基线正文里没有写死的 `<dialog>`、示例页的 1600×900 大图也包了链接且尺寸字节正确）；
 
 docs/preview 下每个样例都要可访问、图片魔数正确；
 **裸 URL 自动链接**（临时 `bare.md` 真往返，加上示例页 `index.md` 的「裸 URL 自动链接」

@@ -574,14 +574,19 @@ class TestAutolinkLiteral(unittest.TestCase):
 
     def test_image_alt_is_not_linkified(self):
         out = r("![见 https://e.com/a](p.png)")
-        self.assertEqual(out.count("<a "), 0)
+        # 唯一的 <a> 是图片放大那层包裹链接（见 TestImageZoom）；标签里的 URL
+        # 仍然是纯文本，没有被自动链接化。
+        self.assertEqual(out.count("<a "), 1)
+        self.assertIn('<a class="zoom" href="/docs/p.png">', out)
         self.assertIn('alt="见 https://e.com/a"', out)
 
     def test_reference_image_source_is_not_corrupted(self):
         # 回归：早期实现把定义里的 URL 也链接化，产出 src="<a href=…>"
         out = r("![a][r]\n\n[r]: https://e.com/p.png")
         self.assertIn('<img src="https://e.com/p.png" alt="a">', out)
-        self.assertNotIn("<a", out)
+        self.assertNotIn('src="<a', out)
+        # 站外图片也照常可放大，包裹链接指向同一个 URL
+        self.assertIn('<a class="zoom" href="https://e.com/p.png">', out)
 
     def test_url_after_markdown_link_is_linkified(self):
         out = r("[x](a.md)https://e.com")
@@ -596,6 +601,81 @@ class TestAutolinkLiteral(unittest.TestCase):
     def test_no_duplicate_when_text_has_no_scheme(self):
         # 快路径不能漏掉正文：没有 :// 时直接返回原文
         self.assertNotIn("<a", r("普通一段没有链接的文字"))
+
+
+class TestImageZoom(unittest.TestCase):
+    """图片放大：服务端把**不在链接里**的 <img> 包成 `<a class="zoom" href="原图">`。
+
+    这层链接有两个职责：没有 JS 时它就是降级路径（点一下打开原图），有 JS 时
+    被脚本接管成遮罩。所以它必须由服务端产出，而且**禁用 JS 时不能出现任何
+    点不动的死元素** —— 遮罩与关闭按钮全部由脚本运行时创建（与复制按钮同一
+    哲学）。`href` 必须与 `src` 逐字节相同：那条「只解码一次、只编码一次」的
+    管线不许被走第二遍。
+    """
+
+    def test_inline_image_is_wrapped(self):
+        self.assertIn('<a class="zoom" href="/docs/p.png">'
+                      '<img src="/docs/p.png" alt="x"></a>', r("![x](p.png)"))
+
+    def test_reference_image_is_wrapped(self):
+        for src in ("![x][r]\n\n[r]: p.png", "![x][]\n\n[x]: p.png",
+                    "![x]\n\n[x]: p.png"):
+            self.assertIn('<a class="zoom" href="/docs/p.png">', r(src))
+            self.assertIn('<img src="/docs/p.png" alt="x">', r(src))
+
+    def test_href_is_byte_identical_to_src(self):
+        for target in ("my%20file.png", "a%23b.png", "100%25.png", "中文.png",
+                       "img%20dir/x%20y.png", "<a b.png>"):
+            out = r("![x](%s)" % target)
+            href = re.search(r'<a class="zoom" href="([^"]*)"', out).group(1)
+            src = re.search(r"<img src=\"([^\"]*)\"", out).group(1)
+            self.assertEqual(href, src, target)
+
+    def test_badge_image_inside_link_is_not_wrapped(self):
+        """`<a>` 不能套 `<a>`：徽章的外层链接必须原样活着。
+
+        真包上去的话浏览器会把外层链接撕成两半，点徽章变成打开图片而不是跳转。
+        """
+        out = r("[![i](p.png)](u.md)")
+        self.assertNotIn('class="zoom"', out)
+        self.assertEqual(out.count("<a "), 1)
+        self.assertIn('<a href="/docs/u.md"><img src="/docs/p.png" alt="i"></a>',
+                      out)
+
+    def test_wrapped_in_every_block_context(self):
+        for src in ("## 图 ![x](p.png)", "- 图 ![x](p.png)",
+                    "> 引用 ![x](p.png)",
+                    "| a |\n|---|\n| ![x](p.png) |"):
+            self.assertIn('<a class="zoom"', r(src), src)
+
+    def test_not_wrapped_inside_code(self):
+        self.assertEqual(r("`![x](p.png)`").count('<a class="zoom"'), 0)
+        self.assertEqual(r("```\n![x](p.png)\n```").count('<a class="zoom"'), 0)
+
+    def test_rejected_protocol_produces_no_wrapper(self):
+        out = r("![x](javascript:alert(1))")
+        self.assertNotIn("<img", out)
+        self.assertNotIn('class="zoom"', out)
+
+    def test_title_stays_on_the_image(self):
+        out = r("![x](p.png \"t\")")
+        self.assertIn('<a class="zoom" href="/docs/p.png">'
+                      '<img src="/docs/p.png" alt="x" title="t"></a>', out)
+        self.assertNotIn("title=", out.split("<img")[0])   # 包裹链接上没有 title
+
+    def test_each_image_wrapped_exactly_once(self):
+        out = r("![x](p.png) 与 ![y](q.png)")
+        self.assertEqual(out.count('<a class="zoom"'), 2)
+        self.assertEqual(out.count("</a>"), 2)
+
+    def test_no_dead_overlay_without_js(self):
+        """基线 HTML 里不能有写死的遮罩/关闭按钮；它们全由那段 JS 创建。"""
+        page = m._page("t", m.render_markdown("![x](p.png)"))
+        body = page.split("<body>")[1].split("<script>")[0]
+        self.assertNotIn("<dialog", body)
+        self.assertNotIn('class="zoomclose"', body)
+        self.assertIn('createElement("dialog")', page)
+        self.assertIn("showModal", page)
 
 
 class TestCopyButton(unittest.TestCase):
