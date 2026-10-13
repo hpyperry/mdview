@@ -1077,6 +1077,8 @@ def parse_inline(text, ctx):
         # 先解 token，再解 HTML 实体：写成 &amp; 的 URL 要还原成 &，
         # 之后交给 URL 编码统一处理，否则 &amp; 会被烘成字面量进 href。
         dest = html.unescape(read_tokens(dest_raw))
+        # 解出来的 href 只用于协议判定；真正的重写交给 rewrite_target，
+        # 它自己决定在哪里解码（先切 ?/#，再解 path 段）。
         try:
             href = urllib.parse.unquote(dest)
         except Exception:
@@ -1085,7 +1087,7 @@ def parse_inline(text, ctx):
             target = safe_href(dest)
             extra = ' rel="noreferrer noopener"' if target else ""
         else:
-            target = safe_href(ctx.rewrite_link(href))
+            target = safe_href(ctx.rewrite_target(dest))
             extra = ""
         attr = ' href="%s"' % target if target else ""
         title = html.unescape(read_tokens(title_raw)) if title_raw else ""
@@ -1105,7 +1107,7 @@ def parse_inline(text, ctx):
     def render_image(alt_raw, dest_raw, title_raw):
         """构造 <img>；协议被拒时退化成转义后的字面量。"""
         dest = html.unescape(read_tokens(dest_raw))
-        src = safe_href(ctx.rewrite_image(dest))
+        src = safe_href(ctx.rewrite_target(dest))
         alt = render_label(alt_raw)
         if not src:
             return None
@@ -1171,7 +1173,7 @@ def _ref_link_html(ctx, url, title, label):
     if re.match(r"^[A-Za-z][A-Za-z0-9+.-]*:", decoded):
         href, extra = safe_href(decoded), ' rel="noreferrer noopener"'
     else:
-        href, extra = safe_href(ctx.rewrite_link(decoded)), ""
+        href, extra = safe_href(ctx.rewrite_target(url)), ""
     attr = ' href="%s"' % href if href else ""
     return '<a%s%s%s>%s</a>' % (
         attr, ' title="%s"' % html.escape(title, quote=True) if title else "",
@@ -1553,24 +1555,44 @@ class RenderContext(object):
             return quote_seg_path(href), False
         return quote_seg_path(resolved), True
 
-    def rewrite_link(self, href):
-        """文档间链接保留 .md 后缀 —— URL 与磁盘一致。
+    def rewrite_target(self, href):
+        """markdown 目标（括号里的原始文本）-> 根相对 URL。链接与图片共用这一条路。
 
-        服务端对 /x.md 直接渲染 HTML、对 /x.md?raw=1 返回原文，
-        所以刷新、收藏、分享链接都不会 404；不需要 .html 伪路径。
+        三步的顺序不能换，每一步都有具体理由：
+
+        * **先切 `?`/`#`**：文件名里字面的这两个字符，作者按 URL 规矩写成
+          `%23`/`%3F`，必须留在 path 里。若先解码再切，`a%23b.md` 会被劈成
+          「路径 a + 片段 #b.md」，含这两个字符的文件永远链不到。
+          VS Code 1.141 的预览同序：`Uri.parse` 先按 `[^?#]*` 切分，再对每段
+          percent-decode。
+        * **只解 path 段一次**：作者写的 `%xx` 解成它代表的那个字符。
+        * **只编码一次**：`_url_for` 里的 `quote_seg_path` 把结果重新编码。
+          解一次 + 编一次是稳定往返（`%20` 仍是 `%20`）；多编一次会把 `%`
+          变成 `%25`（`%20` -> `%2520`，指向不存在的路径）—— 这正是本节要
+          杜绝的双重编码，与 B3（`Location` 头不许双重编码）是同一条规矩。
+
+        于是链接与图片语义相同：`%20` 表示空格（`a%20b.png` 命中磁盘上的
+        `a b.png`）；文件名里字面的 `%` 要写 `%25`（`a%2520b.png` 命中
+        `a%20b.png`）。query 与 fragment 原样拼回，不参与编码。
+
+        链接保留 `.md` 后缀（URL 与磁盘一致）：服务端对 `/x.md` 渲染 HTML、
+        对 `/x.md?raw=1` 返回原文，所以刷新、收藏、分享链接都不会 404。
         """
-        if re.match(r"^[A-Za-z][A-Za-z0-9+.-]*:", href):
+        # 协议判定必须用**解码后**的串，否则 `%6a%61vascript:` 这类变体会绕过
+        # B1 的 scheme 检查（`safe_href` 另有一层白名单兜底）。
+        try:
+            decoded = urllib.parse.unquote(href)
+        except Exception:
+            decoded = href
+        if re.match(r"^[A-Za-z][A-Za-z0-9+.-]*:", decoded):
             return href
-        if href.startswith("#"):
+        if decoded.startswith("#"):
             return href
         target, query, frag = _split_target(href)
-        url, _rewritten = self._url_for(target)
-        return url + query + frag
-
-    def rewrite_image(self, href):
-        if re.match(r"^[A-Za-z][A-Za-z0-9+.-]*:", href):
-            return href
-        target, query, frag = _split_target(href)
+        try:
+            target = urllib.parse.unquote(target)
+        except Exception:
+            pass
         url, _rewritten = self._url_for(target)
         return url + query + frag
 

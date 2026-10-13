@@ -287,6 +287,77 @@ class TestRewrites(unittest.TestCase):
         self.assertIn('href="#锚"', r("[x](#锚)"))
 
 
+class TestTargetEncoding(unittest.TestCase):
+    """markdown 目标 -> URL 的编码规则（对齐 VS Code 1.141 的预览行为）。
+
+    期望值来源：VS Code 1.141.0 内置 markdown-it 14.3.2，加上预览自己的
+    `Uri.parse` 链路（先按 `[^?#]*` 切分，再对每段 percent-decode）。开发机上
+    可以重跑核对（不进交付物）：
+
+        npm install markdown-it@14.3.2 --cache <可写目录>
+        node -e "const M=require('markdown-it');const md=new M({html:true});
+                 console.log(md.render('![x](my%20file.png)'))"
+
+    对照的是**目标语义**而不是最终字符串：VS Code 输出文档相对目标
+    （`my%20file.png`），本渲染器按设计输出根相对 URL（`/docs/my%20file.png`）。
+    三者的规矩：先切 `?`/`#` -> 只解 path 段一次 -> 只编码一次。
+    """
+
+    def test_percent20_decoded_once_not_twice(self):
+        # 本次修复的 bug：图片目标被编码两次（%20 -> %2520）-> 图片 404
+        out = r("![x](my%20file.png)")
+        self.assertIn('src="/docs/my%20file.png"', out)
+        self.assertNotIn("%25", out)                 # 双重编码的回归线
+
+    def test_percent20_in_directory_component(self):
+        out = r("![x](img%20dir/my%20file.png)")
+        self.assertIn('src="/docs/img%20dir/my%20file.png"', out)
+        self.assertNotIn("%25", out)
+
+    def test_literal_percent_filename_is_reachable(self):
+        # 文件名里字面的 % 要写成 %25（字面 %20 就是 %2520）—— 与链接同规矩
+        self.assertIn('src="/docs/my%2520file.png"', r("![x](my%2520file.png)"))
+        self.assertIn('href="/docs/a%2523b.md"', r("[x](a%2523b.md)"))
+
+    def test_split_query_and_fragment_before_decoding(self):
+        # 先切后解：# / ? 在被作者写成 %23 / %3F 时属于文件名，不能被劈成片段
+        self.assertIn('href="/docs/a%23b.md"', r("[x](a%23b.md)"))
+        self.assertIn('href="/docs/a%3Fb.md"', r("[x](a%3Fb.md)"))
+        self.assertIn('src="/docs/img/a%23b.png"', r("![x](img/a%23b.png)"))
+        self.assertIn('src="/docs/img/a%3Fb.png"', r("![x](img/a%3Fb.png)"))
+
+    def test_query_and_fragment_kept_verbatim(self):
+        self.assertIn('href="/docs/doc.md?raw=1#L10"', r("[x](doc.md?raw=1#L10)"))
+        self.assertIn('href="/docs/doc.md?q=a%20b"', r("[x](doc.md?q=a%20b)"))
+        self.assertIn('href="/docs/doc.md?q=a+b"', r("[x](doc.md?q=a+b)"))  # + 不是空格
+        self.assertIn('href="/docs/sub/b.md#锚"', r("[x](sub/b.md#锚)"))
+
+    def test_percent25_round_trips(self):
+        # 真的百分号：%25 解成 %、再编回 %25，往返稳定
+        self.assertIn('href="/docs/100%25.png"', r("[x](100%25.png)"))
+        self.assertIn('src="/docs/100%25.png"', r("![x](100%25.png)"))
+
+    def test_link_and_image_share_one_rule(self):
+        """同一个目标，链接的 href 与图片的 src 必须逐字节相同。
+
+        曾经它们是两条分叉的路：链接多解一次、图片少解一次还多编一次，
+        于是同一个 %20 在链接里是空格、在图片里是字面量。这条路不许再分叉。
+        """
+        for target in ("my%20file.png", "a%23b.png", "100%25.png",
+                       "sub%20dir/x.png", "a%2Bb.png", "中文.png"):
+            link = re.search(r'href="([^"]*)"', r("[x](%s)" % target))
+            image = re.search(r'src="([^"]*)"', r("![x](%s)" % target))
+            self.assertIsNotNone(link, target)
+            self.assertIsNotNone(image, target)
+            self.assertEqual(link.group(1), image.group(1), target)
+
+    def test_obfuscated_scheme_never_executes(self):
+        # 协议判定用解码后的串；即便走到属性里，%6aavascript: 也只是相对路径
+        self.assertNotIn("href=\"javascript:", r("[x](%6aavascript:alert(1))"))
+        self.assertIn('src="%6aavascript:alert(1)"',
+                      r("![x](%6aavascript:alert(1))"))
+
+
 class TestCopyButton(unittest.TestCase):
     """代码块复制按钮：由 JS 注入，基线（禁用 JS）下不能出现死按钮。"""
 

@@ -505,6 +505,34 @@ curl -s --limit-rate 100k --max-time 0.2 -o /dev/null "$BASE/preview/large/big.t
 sleep 0.5
 chk "断开不刷 traceback"     "$(grep -c 'Traceback' "$LOG" 2>/dev/null || echo 0)" '0'
 
+# B10：markdown 目标路径的编码规则（空格 / 字面 % / 文件名里含 #）
+#      坏过的样子：图片目标被编码两次（%20 -> %2520），图片 404；
+#      链接先解码后切 ?/#，文件名含 # 的文件链不到。
+B10DIR="$(mktemp -d -t mdview-b10)"
+mkdir -p "$B10DIR/img dir"
+printf '\211PNG\r\n\032\n' > "$B10DIR/img dir/nested pic.png"
+printf '\211PNG\r\n\032\n' > "$B10DIR/带 空格.png"
+printf '\211PNG\r\n\032\n' > "$B10DIR/x%20y.png"          # 文件名里字面的 %20
+printf '# hash\n' > "$B10DIR/a#b.md"
+printf '![a](img%%20dir/nested%%20pic.png)\n\n![b](带%%20空格.png)\n\n[x](a%%23b.md)\n' \
+    > "$B10DIR/doc.md"
+printf '![b](x%%2520y.png)\n' > "$B10DIR/literal.md"
+B10PID="$(serve_root "$((PORT+15))" "$B10DIR")"; B10B="http://127.0.0.1:$((PORT+15))"
+P10="$(curl -s "$B10B/doc.md")"
+chk "空格目录图片单次编码"   "$P10" 'src="/img%20dir/nested%20pic.png"'
+chk "空格文件名图片可取"     "$(code "$B10B/img%20dir/nested%20pic.png")" '200'
+chk "中文+空格文件名编码"    "$P10" 'src="/%E5%B8%A6%20%E7%A9%BA%E6%A0%BC.png"'
+chk "中文+空格图片可取"      "$(code "$B10B/%E5%B8%A6%20%E7%A9%BA%E6%A0%BC.png")" '200'
+nchk "渲染结果里没有 %25"    "$P10" '%25'
+chk "含 # 的文件名按 %23 输出" "$P10" 'href="/a%23b.md"'
+chk "含 # 的文件可取"        "$(code "$B10B/a%23b.md")" '200'
+L10="$(curl -s "$B10B/literal.md")"
+chk "字面 %20 文件名写 %2520" "$L10" 'src="/x%2520y.png"'
+chk "字面 %20 文件可取"      "$(code "$B10B/x%2520y.png")" '200'
+chk "断链仍然 404（对照）"   "$(code "$B10B/nope.png")" '404'
+{ kill "$B10PID" 2>/dev/null; wait "$B10PID" 2>/dev/null; }
+rm -rf "$B10DIR"
+
 echo "== 上级目录链接（根边界：不能出现 //）=="
 PL="$(mktemp -d -t mdview-parent)"
 mkdir -p "$PL/lvl1/lvl2"
