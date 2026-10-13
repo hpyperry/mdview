@@ -16,7 +16,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 __version__ = "1.0.0"
 MD_EXT = ".md"
 IMAGE_EXT = {".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".bmp", ".ico", ".avif"}
-_REF_SHORT_RE = re.compile(r"\[([^\[\]]+)\](?![\(\[(])")
+_REF_SHORT_RE = re.compile(r"(?<!\])(!?)\[([^\[\]]+)\](?![\(\[(])")
 SAFE_EXT = {MD_EXT} | IMAGE_EXT
 SKIP_DIRS = {".git", ".svn", ".hg", ".idea", ".vscode", "node_modules", "__pycache__",
              ".venv", "venv", ".tox", "dist", "build"}
@@ -594,8 +594,22 @@ _ENTITY_RE = re.compile(r"&(#[0-9]{1,7}|#[xX][0-9a-fA-F]{1,6}|[A-Za-z][A-Za-z0-9
 _CODE_SPAN_RE = re.compile(r"(?<!`)(`+)(?!`)(.+?)(?<!`)\1(?!`)", re.DOTALL)
 _IMAGE_RE = re.compile(r"!\[([^\]]*)\]\(([^)\s]+)(?:\s+&quot;([^&]*)&quot;|\s+\"([^\"]*)\")?\)")
 _LINK_RE = re.compile(r"(?<!!)\[([^\]]*)\]\(([^)\s]+)(?:\s+&quot;([^&]*)&quot;|\s+\"([^\"]*)\")?\)")
-_REF_LINK_RE = re.compile(r"(?<!!)\[([^\]]*)\]\[([^\]]*)\]")
-_REF_DEF_RE = re.compile(r"^ {0,3}\[([^\]]+)\]:\s*(\S+)(?:\s+(?:\"([^\"]*)\"|'([^']*)'|\(([^)]*)\)))?\s*$")
+_REF_LINK_RE = re.compile(r"(!?)\[([^\]]*)\]\[([^\]]*)\]")
+_REF_DEF_RE = re.compile(
+    r"^ {0,3}\[([^\]]+)\]:\s*(<[^<>\n]*>|\S+)"
+    r"(?:\s+(?:\"([^\"]*)\"|'([^']*)'|\(([^)]*)\)))?\s*$")
+_ANGLE_SAFE = ";/?:@&=+$,-_.!~*'#%"
+_ANGLE_DEST_RE = re.compile(
+    r"\]\(<([^<>\x00-\x1f]*)>\s*(\"[^\"]*\"|'[^']*'|\([^)]*\))?\s*\)")
+def _encode_angle_inner(inner):
+    return urllib.parse.quote(inner, safe=_ANGLE_SAFE)
+def _normalize_angle_dest(text):
+    if len(text) >= 2 and text.startswith("<") and text.endswith(">"):
+        return _encode_angle_inner(text[1:-1])
+    return text
+def _angle_dest_sub(m):
+    inner, title = m.group(1), m.group(2)
+    return "](" + _encode_angle_inner(inner) + (" " + title if title else "") + ")"
 _DELIM_SYMBOLS = ("***", "___", "**", "__", "~~", "*", "_", "~")
 _DELIM_RUN_RE = re.compile(r"\*+|_+|~+")
 _PUNCT = set("!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~")
@@ -654,7 +668,13 @@ def _scan_link_spans(text):
         spans.append((i, i + 1, close, k))
         i = k
     return spans
+_TITLE_QUOTES = (("\"", "\""), ("'", "'"), ("(", ")"), ("&quot;", "&quot;"))
 def _split_link_tail(tail):
+    if tail.startswith("<"):
+        j = tail.find(">", 1)
+        if j > 0 and "\n" not in tail[:j]:
+            rest = tail[j + 1:]
+            return tail[1:j], _parse_link_title(rest), _tail_is_blank_or_title(rest)
     i, n, depth = 0, len(tail), 0
     while i < n:
         ch = tail[i]
@@ -667,16 +687,24 @@ def _split_link_tail(tail):
         elif ch.isspace() and depth == 0:
             break
         i += 1
-    return tail[:i], _parse_link_title(tail[i:])
+    rest = tail[i:]
+    return tail[:i], _parse_link_title(rest), _tail_is_blank_or_title(rest)
 def _parse_link_title(tail):
     t = tail.strip()
     if len(t) < 2:
         return ""
-    for open_q, close_q in (("\"", "\""), ("'", "'"), ("(", ")"),
-                            ("&quot;", "&quot;")):
+    for open_q, close_q in _TITLE_QUOTES:
         if t.startswith(open_q) and t.endswith(close_q) and len(t) >= 2 * len(open_q):
             return t[len(open_q):-len(close_q)]
     return ""
+def _tail_is_blank_or_title(rest):
+    t = rest.strip()
+    if not t:
+        return True
+    for open_q, close_q in _TITLE_QUOTES:
+        if t.startswith(open_q) and t.endswith(close_q) and len(t) >= 2 * len(open_q):
+            return True
+    return False
 def parse_inline(text, ctx):
     tokens = []
     def stash(s):
@@ -723,6 +751,7 @@ def parse_inline(text, ctx):
     for _ in range(shield_count["`"]):
         shielded = shielded.replace(_BT_SHIELD, "`", 1)
     text = shielded
+    text = _ANGLE_DEST_RE.sub(_angle_dest_sub, text)
     text = _TAG_RE.sub(lambda m: stash(html.escape(m.group(0), quote=False)), text)
     text = _AUTOLINK_RE.sub(lambda m: stash(_autolink_sub(m)), text)
     text = _ENTITY_RE.sub(lambda m: stash(_entity_sub(m)), text)
@@ -739,7 +768,7 @@ def parse_inline(text, ctx):
             target = safe_href(dest)
             extra = ' rel="noreferrer noopener"' if target else ""
         else:
-            target = safe_href(ctx.rewrite_link(href))
+            target = safe_href(ctx.rewrite_target(dest))
             extra = ""
         attr = ' href="%s"' % target if target else ""
         title = html.unescape(read_tokens(title_raw)) if title_raw else ""
@@ -750,7 +779,7 @@ def parse_inline(text, ctx):
         return read_tokens(parse_emphasis(inner))
     def render_image(alt_raw, dest_raw, title_raw):
         dest = html.unescape(read_tokens(dest_raw))
-        src = safe_href(ctx.rewrite_image(dest))
+        src = safe_href(ctx.rewrite_target(dest))
         alt = render_label(alt_raw)
         if not src:
             return None
@@ -769,7 +798,9 @@ def parse_inline(text, ctx):
             if cut < pos:
                 continue
             dest_and_tail = text[lab_end + 2:dest_end - 1]
-            dest_raw, title_raw = _split_link_tail(dest_and_tail)
+            dest_raw, title_raw, tail_ok = _split_link_tail(dest_and_tail)
+            if not tail_ok:
+                continue
             label_raw = text[lab_start:lab_end]
             if is_img:
                 html_img = render_image(label_raw, dest_raw, title_raw)
@@ -799,27 +830,44 @@ def _ref_link_html(ctx, url, title, label):
     if re.match(r"^[A-Za-z][A-Za-z0-9+.-]*:", decoded):
         href, extra = safe_href(decoded), ' rel="noreferrer noopener"'
     else:
-        href, extra = safe_href(ctx.rewrite_link(decoded)), ""
+        href, extra = safe_href(ctx.rewrite_target(url)), ""
     attr = ' href="%s"' % href if href else ""
     return '<a%s%s%s>%s</a>' % (
         attr, ' title="%s"' % html.escape(title, quote=True) if title else "",
         extra, html.escape(label, quote=False))
+def _ref_image_html(ctx, url, title, label):
+    decoded = urllib.parse.unquote(url)
+    if re.match(r"^[A-Za-z][A-Za-z0-9+.-]*:", decoded):
+        src = safe_href(decoded)
+    else:
+        src = safe_href(ctx.rewrite_target(url))
+    if not src:
+        return None
+    tattr = ' title="%s"' % html.escape(title, quote=True) if title else ""
+    return '<img src="%s" alt="%s"%s>' % (
+        src, html.escape(label, quote=False), tattr)
 def _REF_DEF_LINK(text, ctx):
     def sub(m):
-        label = m.group(1)
-        key = (m.group(2) or label).strip().lower()
+        bang, label, ref = m.group(1), m.group(2), m.group(3)
+        key = (ref or label).strip().lower()
         target = ctx.refs.get(key)
         if target is None:
             return m.group(0)
         url, title = target
+        if bang:
+            img = _ref_image_html(ctx, url, title, label)
+            return img if img is not None else m.group(0)
         return _ref_link_html(ctx, url, title, label or key)
     return _REF_LINK_RE.sub(sub, text)
 def _shortcut_ref(m, ctx):
-    label = m.group(1).strip()
-    target = ctx.refs.get(label.lower())
+    bang, label = m.group(1), m.group(2)
+    target = ctx.refs.get(label.strip().lower())
     if target is None:
         return m.group(0)
     url, title = target
+    if bang:
+        img = _ref_image_html(ctx, url, title, label)
+        return img if img is not None else m.group(0)
     return _ref_link_html(ctx, url, title, label)
 def _is_punct(ch):
     if not ch:
@@ -1052,18 +1100,20 @@ class RenderContext(object):
         if resolved is None:
             return quote_seg_path(href), False
         return quote_seg_path(resolved), True
-    def rewrite_link(self, href):
-        if re.match(r"^[A-Za-z][A-Za-z0-9+.-]*:", href):
+    def rewrite_target(self, href):
+        try:
+            decoded = urllib.parse.unquote(href)
+        except Exception:
+            decoded = href
+        if re.match(r"^[A-Za-z][A-Za-z0-9+.-]*:", decoded):
             return href
-        if href.startswith("#"):
-            return href
-        target, query, frag = _split_target(href)
-        url, _rewritten = self._url_for(target)
-        return url + query + frag
-    def rewrite_image(self, href):
-        if re.match(r"^[A-Za-z][A-Za-z0-9+.-]*:", href):
+        if decoded.startswith("#"):
             return href
         target, query, frag = _split_target(href)
+        try:
+            target = urllib.parse.unquote(target)
+        except Exception:
+            pass
         url, _rewritten = self._url_for(target)
         return url + query + frag
 def quote_seg_path(path):
@@ -1164,7 +1214,8 @@ def render_markdown(text, rel_path=""):
         m = _REF_DEF_RE.match(line)
         if m and "|" not in line and not RE_ULIST.match(line):
             refs.setdefault(m.group(1).strip().lower(),
-                            (m.group(2), m.group(3) or m.group(4) or m.group(5) or ""))
+                            (_normalize_angle_dest(m.group(2)),
+                             m.group(3) or m.group(4) or m.group(5) or ""))
             kept.append("")
         else:
             kept.append(line)

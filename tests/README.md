@@ -5,15 +5,15 @@
 
 | 文件 | 作用 | 命令 |
 |------|------|------|
-| `tests_render.py` | 渲染器回归测试（130 项，纯 `unittest`，不联网不起服务） | `python3 tests/tests_render.py` |
-| `selftest.sh` | 端到端 HTTP 冒烟测试（274 项断言，自己起临时服务、跑完自清理） | `bash tests/selftest.sh` |
+| `tests_render.py` | 渲染器回归测试（153 项，纯 `unittest`，不联网不起服务） | `python3 tests/tests_render.py` |
+| `selftest.sh` | 端到端 HTTP 冒烟测试（289 项断言，自己起临时服务、跑完自清理） | `bash tests/selftest.sh` |
 
 ## 一套跑完
 
 ```bash
 # 在仓库根执行
-python3 tests/tests_render.py      # 130 项单元测试
-bash tests/selftest.sh             # 274 项端到端断言
+python3 tests/tests_render.py      # 153 项单元测试
+bash tests/selftest.sh             # 289 项端到端断言
 ```
 
 两个命令都是零依赖、可重复执行的，不需要 `pip install`。
@@ -26,6 +26,8 @@ bash tests/selftest.sh             # 274 项端到端断言
 强调 flanking 规则（中文/词内/三连/相邻/未配对）、转义与行内码混排的占位符泄漏、
 代码块内 HTML 必须转义（XSS 回归）、Dockerfile/Compose 指令大小写、数字边界
 （`C.UTF-8`、`v1.2.3` 不被切）、无语言围栏必须素色、链接与图片重写、路径夹紧、
+**目标路径的编码规则**（`%20`/`%2520`/`%23`/`%3F` 只解一次编一次、`<>` 目标、裸空格
+退化成字面文本、链接与图片同一目标必须逐字节相同、引用式图片三种写法 + 协议被拒）、
 列表嵌套与松紧、表格对齐、搜索文件名命中，等等。
 
 **`selftest.sh`** —— 真起服务、真发 HTTP：

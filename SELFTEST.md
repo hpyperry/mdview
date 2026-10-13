@@ -5,8 +5,8 @@
 
 | 项目 | 命令 | 结果 |
 |------|------|------|
-| 渲染器单元测试 | `python3 tests/tests_render.py` | **119 项全部通过**（`Ran 85 tests ... OK`） |
-| 端到端 HTTP 验证 | `bash tests/selftest.sh` | **198 项断言全部通过**（`PASS=274 FAIL=0`） |
+| 渲染器单元测试 | `python3 tests/tests_render.py` | **153 项全部通过**（`Ran 153 tests ... OK`） |
+| 端到端 HTTP 验证 | `bash tests/selftest.sh` | **289 项断言全部通过**（`PASS=289 FAIL=0`） |
 | 语法兼容性 | `ast` 扫描 | 无 walrus / `match` / 3.9+ 独有语法 → 3.6+ 可运行 |
 | `--safe` | 见下 §3 | 只放行 `.md` 与图片，其余 404 |
 | `--no-search` | 见下 §3 | 路由与界面搜索框同时消失 |
@@ -988,3 +988,101 @@ UTF-16BE（文本）；**对不齐才是二进制**。我们原来的实现是"�
   ASCII UTF-16LE/BE 必须判文本、CJK UTF-16 的边界行为
 - 端到端 274 项全绿（`_is_binary` 改动未影响既有判定）
 - 压缩版同步重新生成
+
+---
+
+## 23. markdown 目标路径的编码：对齐 VS Code 预览
+
+### 现象
+
+`![x](pics/my%20photo.png)` 渲染成 `src="/pics/my%2520photo.png"` —— `%` 被编成 `%25`，
+图片 404（页面本身 200，只有图片子请求挂）。同一个目标写在链接里却是好的：
+`[x](pics/my%20photo.md)` → `href="/pics/my%20photo.md"`。
+
+### 找到的真实实现（VS Code 1.141.0 / markdown-it 14.3.2）
+
+不猜，直接读它自己的代码并实测：
+
+| 环节 | 实现 | 结论 |
+|------|------|------|
+| 解析 | markdown-it `parseLinkDestination` + `normalizeLink`（mdurl） | `%20` 原样保留；`<>` 里的裸空格编成 `%20` |
+| 切分 | `Uri.parse`：`^(([^:/?#]+?):)?(//([^/?#]*))?([^?#]*)(\?([^#]*))?(#(.*))?` | **先切 `?`/`#`，再对每段 percent-decode** |
+| 解码 | vscode-uri 的 `ex()` → `decodeURIComponent` | path 解一次：`my%20photo.png` → `my photo.png` |
+| 落地 | webview 资源宿主 `decodeURIComponent(g.path)` | 请求 `…/my%20photo.png` → 文件 `my photo.png` |
+
+因此 **`%20` 就是空格**；`%23` 属于文件名（`a%23b.md` 能打开含 `#` 的文件）。
+
+**拖拽插入写的是 `<裸空格>`，不是 `%20`** —— `Qq()`/`oce()` 只要路径里有空白就包成
+`<...>`，全程不做百分号编码（`ice()` 用的是已解码的 `fsPath`）。`%20` 只出现在
+「粘贴的字符串本身带 %20」与 `uri.toString()` 兜底这两条路上。所以真实文档里
+**两种形态都会出现**，而 `<...>` 恰好是我们完全没支持的那种。
+
+### 根因（三个独立缺陷，都在渲染期）
+
+1. **图片目标被编码两次**：`render_image` 把原始目标直接交给 `quote_seg_path`，
+   而链接在 `render_link` 里先 `unquote` 过一次 —— 两条路分叉，图片的 `%20` 被当成
+   字面 `%` 编成 `%2520`（与 §18.3 的 B3 同类）。
+2. **先解码后切分**：链接虽然不双重编码，但它在切 `?`/`#` **之前**就解了码，于是
+   `a%23b.md` 被劈成「路径 a + 片段 #b.md」，文件名含 `#`/`?` 的文件永远链不到。
+3. **`<>` 目标完全不支持**，三处叠在一起：`parse_inline` 先做 HTML 转义（`<` 变 `&lt;`）、
+   `_TAG_RE` 把 `<a b.md>` 当 HTML 标签 stash 掉、`_scan_link_spans` 在 `<>` 内的 `)`
+   处提前收尾。附带发现 `_REF_LINK_RE` 带着 `(?<!!)`，**引用式图片从未生效**，
+   而 README §4 一直声称支持。
+
+### 修法
+
+- 合并为唯一的 `RenderContext.rewrite_target`，固定顺序 **先切 `?`/`#` → 只解 path 段一次
+  → 相对解析 → 编码一次**；链接 / 图片 / 引用式 / 目录索引四条路共用。协议白名单判定仍在
+  **解码后**的串上做（B1 的修复点不动）。
+- `parse_inline` 在「标签 stash 之前、行内码之后」加 `_ANGLE_DEST_RE` 预处理，把
+  `](<a b.png> "t")` 规约成 `](a%20b.png "t")`；内部编码与 mdurl.encode 收敛（保留
+  defaultChars 与既有 `%xx`，额外编码圆括号，否则区间扫描会在 `<>` 内的 `)` 处提前收尾）。
+  引用式定义 `[r]: <a b.png>` 走同一套编码。
+- `_split_link_tail` 增加「尾部是否合法」判定：目标之后只允许空白或一个合法 title，
+  否则整条链接不成立、按字面文本输出 —— 裸空格 `[x](a b.md)` 从「截断成 `/a`」变成
+  字面文本（CommonMark 与 VS Code 同判）。
+- 引用式图片：`_REF_LINK_RE` 第一组捕获 `!`，与链接共用同一条目标重写与协议白名单；
+  `_REF_SHORT_RE` 加 `(?<!\])`，免得把完整式引用的后半截再当简写匹配一遍。
+
+### 请求路径解码复核（本次顺带做掉）
+
+这次动的正是编解码语义，所以对**请求侧解码**做了一次针对性复核。结论：**无需改动**。
+
+| 探测 | 结果 |
+|------|------|
+| `/..%2f<root 外真实文件>`、`/%2e%2e%2f…`、`/../…` | 404 |
+| `/%252e%252e%252f…`（双重编码） | 404 |
+| `//etc/passwd` | 404 |
+| root 内指向 `/etc/passwd` 的符号链接 | 403 |
+| `/%00` | 403（`_resolve` 显式拒绝 NUL） |
+| `/a+b.png` | 只命中 `a+b.png` —— **没有** `unquote_plus`，`+` 不当空格 |
+| `/a%2Bb.png` | 同样命中 `a+b.png`（`+` / 空格 / `%2B` 三者语义不串味） |
+| `/a%20b.png` | 命中 `a b.png` |
+| `/sub%2fdir%2fx.txt` | 200 —— 编码斜杠只当分隔符（与 VS Code 的 `Uri.parse`+join 同义），`..` 仍在字符串层与 realpath 层被夹紧 |
+| `/x%2520y.png` | 命中字面 `x%20y.png`（只解一次） |
+
+Windows 的盘符逃逸（`/%43%3a/Windows/win.ini` → `rel="C:/Windows/win.ini"`）也走查了一遍：
+`os.path.join(root, "C:\\Windows\\win.ini")` 在 Windows 上会丢掉 root，但随后的
+`_inside()` 字符串夹紧立刻否掉（404），不依赖 realpath 层。**这类回归以后有测试盯着**：
+B10 的断言里包含「渲染结果里没有 `%25`」，谁把解码改成 `unquote_plus` 或再加一次编码都会变红。
+
+### 验证
+
+- 单元 **153 项**（138 旧 + 15 新，旧期望值一行未改）：新增 `TestTargetEncoding`
+  （`%20` / `%2520` / `%23` / `%3F` / `%25` / `<>` / 裸空格 / `+` / query / fragment，
+  以及「链接与图片同一目标必须逐字节相同」）与 `TestReferenceImages`
+  （完整式 / 折叠式 / 简写 / 尖括号定义 / title / 协议被拒仍按原文）
+- 端到端 **289 项**（284 旧 + 5 新，旧期望值一行未改）：B10 真 HTTP 往返
+  （`mktemp -d` 造 `带 空格.png`、`img dir/nested pic.png`、`a#b.md`、`x%20y.png`，
+  断言三种写法渲染出同一个 `src`、逐个 200、页面里不出现 `%25`），B11 断言示例页
+  真的用两种写法引用了带空格图片
+- 示例语料新增 `docs/media/带 空格.png`（180×56 真 PNG），`guide/install.md` 用尖括号与
+  `%20` 各引用一次 —— 该页已被既有断链巡检覆盖
+- 压缩版同步重新生成，两套检查对 `dist/mdview.min.py` 各跑一遍
+
+### 一处有意偏离 VS Code
+
+它的相对路径实际解码**两次**（`Uri.parse` 一次、资源宿主一次），因此文件名里真含 `%20`
+的文件在 VS Code 里用相对路径**打不开**。我们只解一次：`a%2520b.png` 命中字面
+`a%20b.png`。跟了它就是丢能力，所以不跟 —— 理由与其余边角记在
+[`docs/adr/0001`](docs/adr/0001-markdown-target-encoding.md) 与 README §9。
