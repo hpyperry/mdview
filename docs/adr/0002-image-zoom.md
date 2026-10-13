@@ -31,8 +31,11 @@
 - **链接里的图片（徽章图片）不包裹**：`<a>` 不能套 `<a>`，浏览器会把外层链接撕成
   两半，徽章就点不动了。服务端按「锚点深度为 0」判定，与上下文无关。
 - **不做**相册、滚轮缩放、双指缩放、1:1 切换：要这些就得回到上面那些库。
-- 入场动画依赖 `@starting-style` + `transition-behavior: allow-discrete`（2024 Baseline）；
-  `prefers-reduced-motion: reduce` 时整段动画不生效（Chrome 实测走的是无动画分支）。
+- 入场动画只依赖 `@starting-style` + `opacity`/`transform` 过渡（2024 Baseline）。
+  **刻意不做退场过渡**：`transition: display … allow-discrete` 会让退场多渲染约半程，
+  而这半程里没有透明度过渡的子元素（×、caption）会原地亮着，看起来就是"关掉之后按钮
+  还停留一下"（SELFTEST §29）。`prefers-reduced-motion: reduce` 时整段动画不生效
+  （Chrome 实测走的是无动画分支）。
 - 关闭时把焦点还给**包裹链接**而不是 `<img>`：`img` 默认不可聚焦，`img.focus()` 是空操作
   （Chrome 实测 `activeElement` 会停在 `body`）。
 - 带修饰键（Cmd/Ctrl/Shift/Alt）或中键的点击**不劫持**，照旧走浏览器的

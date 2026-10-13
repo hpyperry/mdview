@@ -65,9 +65,9 @@ python3 mdview.py --root docs --safe
 
 | | 字节 | 行数 |
 |---|---|---|
-| `mdview.py`（源码，给人看） | 149,589 | 3,193 |
-| `dist/mdview.min.py`（运行版） | **97,616** | 2,214 |
-| 减少 | **51,973（34.7%）** | |
+| `mdview.py`（源码，给人看） | 157,462 | 3,303 |
+| `dist/mdview.min.py`（运行版） | **102,496** | 2,281 |
+| 减少 | **54,966（34.9%）** | |
 
 ```bash
 python3 tools/minify.py                  # 重新生成
@@ -82,12 +82,13 @@ python3 tools/minify.py --check          # 只看体积
 等价性用两套测试 + 逐路径差分验证（测试支持指向替代实现）：
 
 ```bash
-MDVIEW_FILE=dist/mdview.min.py python3 tests/tests_render.py   # 197 项 OK
+MDVIEW_FILE=dist/mdview.min.py python3 tests/tests_render.py   # 199 项 OK
 MDVIEW=dist/mdview.min.py bash tests/selftest.sh               # 345 项 PASS
 ```
 
-差分覆盖 21 条路径（渲染页/源码视图/下载/搜索/目录索引/二进制/无扩展名/404/
-CJK 文件名），**正文哈希与响应头全部一致**；`--help` 与错误文案也逐字节相同。
+两条命令就是全部保证：`MDVIEW_FILE=` / `MDVIEW=` 一换，同一批断言就跑在压缩版上。
+要逐路径对拍，起两个实例（源码 / 压缩版）逐条比响应头与正文哈希即可 —— 仓库**不带**
+这样一个脚本，所以这里也不声称某次对拍的结果。`--help` 与错误文案由人工比对。
 
 ## 4. 支持的 Markdown 语法
 
@@ -129,7 +130,7 @@ CJK 文件名），**正文哈希与响应头全部一致**；`--help` 与错误
 | `**a*` | 强度不匹配：`**` 不能被单个 `*` 关闭 |
 | `文字` + `---` | 只当分隔线，不当 Setext 二级标题下划线 —— 真实文档里这几乎总是想要分隔线 |
 | `***a** b*` 这类 2/1 混排 | 三连定界符走预处理，极端混排不保证与 CommonMark 完全一致 |
-| 脚注、定义列表、数学公式、HTML 块 | 未实现；可按需扩展（见 §8） |
+| 脚注、定义列表、数学公式、HTML 块 | 未实现；可按需扩展（见 §10） |
 
 ### 一处有意偏离 GFM：中文之间的强调
 
@@ -214,7 +215,7 @@ python3 mdview.py                  # ❌ 在 md-preview/ 下启动，/media/logo
 | `/<路径>?download=1` | 强制下载该文件（服务端发 `Content-Disposition: attachment`）。`.md` 也返回原始字节、不渲染。任何类型都适用，不需要 HTML5 `download` 属性 |
 | `/` | 目录索引：目录在前，逐个列出条目（名称 / 大小 / mtime），带面包屑与搜索框。**分层浏览**——每层只列当前目录，点进子目录继续看（无递归展开树） |
 | `/path/doc.md` | 渲染为 HTML，`Cache-Control: no-store`（改了 md 刷新即见） |
-| `/path/doc.md?raw=1` | 返回原始 Markdown，`Content-Type: text/markdown; charset=utf-8` |
+| `/path/doc.md?raw=1` | **源码视图**：仍是 HTML 页面，但每行带 `id="L<n>"` 锚点（供搜索跳转），不做 Markdown 渲染。要磁盘原文用 `?download=1` |
 | `/path/img.png` | 原样返回图片，正确的 `Content-Type` |
 | `/path/*.py` 等源码/配置类 | 按 `text/plain; charset=utf-8` 发送（**保证中文不乱码**）：`.py .sh .c .cpp .h .hpp .cs .java .go .rs .ts .tsx .jsx .rb .php .pl .lua .sql .ini .cfg .conf .properties .log .diff .patch .env .mk .bat .ps1 .vue .svelte .tsv .rst .tex`，以及 `Makefile`/`Dockerfile`/`.gitignore` 这类无扩展名文件 |
 | `/path/*.ts` | 刻意当 **TypeScript** 文本，而不是标准库认定的 `video/mp2t`（MPEG 传输流） |
@@ -286,12 +287,13 @@ md-preview/
 ├─ README.md            # 本文
 ├─ SELFTEST.md          # 验证结果与缺陷修复台账
 ├─ GLOSSARY.md          # 术语表（目标 / 根相对 URL / 双重编码 …）
-├─ docs/adr/            # 决策记录（目标路径的编码语义为什么以 VS Code 为准）
+├─ docs/adr/            # 决策记录（目标路径编码语义、图片放大为什么手写遮罩）
 ├─ tests/               # 测试（见 tests/README.md）
-│  ├─ tests_render.py   #   渲染器回归测试（197 项，纯 unittest）
+│  ├─ tests_render.py   #   渲染器回归测试（199 项，纯 unittest）
 │  └─ selftest.sh       #   端到端 HTTP 冒烟测试（345 项断言）
 ├─ tools/minify.py      #   生成运行版（去注释/docstring/空行）
-├─ dist/mdview.min.py   #   ★ 压缩运行版（87 KB，可单独拿去运行）
+├─ tools/zoom-probe.html #  浏览器探针：真机验放大遮罩 / 回到顶部（开发工具，不发布）
+├─ dist/mdview.min.py   #   ★ 压缩运行版（100 KB，可单独拿去运行）
 └─ docs/                # 示例语料
    ├─ index.md          #   表格/任务列表/嵌套列表/代码高亮/相对链接/裸 URL 点击化
    ├─ guide/            #   安装、边界、代码块专项
@@ -303,7 +305,7 @@ md-preview/
 ## 8. 测试
 
 ```bash
-python3 tests/tests_render.py      # 渲染器单元测试：197 项
+python3 tests/tests_render.py      # 渲染器单元测试：199 项
 bash tests/selftest.sh             # 端到端 HTTP 验证：345 项断言
 ```
 

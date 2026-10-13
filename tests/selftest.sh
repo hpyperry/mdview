@@ -97,6 +97,30 @@ nchk() { # 名称 内容 不应出现的子串
     printf '  \033[32mok\033[0m   %s\n' "$1"; pass=$((pass+1))
   fi
 }
+# 计数断言：grep -c 的输出必须**按数值**比。旧的 `chk "$(… | grep -c …)" '0'` 是子串
+# 包含匹配 —— 计数 10 含 '0' 会假通过、计数 2 不含 '1' 也会假通过（SELFTEST §33）。
+chk_num() { # 名称 实际计数 期望值
+  if [ "$2" -eq "$3" ] 2>/dev/null; then
+    printf '  \033[32mok\033[0m   %s\n' "$1"; pass=$((pass+1))
+  else
+    printf '  \033[31mFAIL\033[0m %s  (期望 %s，实际 %s)\n' "$1" "$3" "$2"; fail=$((fail+1)); failed_names="$failed_names $1"
+  fi
+}
+nchk_num() { # 名称 实际计数 不应等于的值
+  if [ "$2" -ne "$3" ] 2>/dev/null; then
+    printf '  \033[32mok\033[0m   %s\n' "$1"; pass=$((pass+1))
+  else
+    printf '  \033[31mFAIL\033[0m %s  (不应等于 %s)\n' "$1" "$3"; fail=$((fail+1)); failed_names="$failed_names $1"
+  fi
+}
+# 断言"实现形态"要落在真正的位置上：CSS 注释里同样可能出现 showModal / transition:display
+# 这类字样，早先真发生过断言被自己的注释满足（SELFTEST §32/§33）。所以：
+#   * 脚本类断言只扫 <script>…</script> 段（`script_of`）；
+#   * 样式类断言先剥注释再压空白（`flat_of`）。
+script_of() { printf '%s' "$1" | sed -n '/<script>/,/<\/script>/p'; }
+flat_of() {
+  printf '%s' "$1" | python3 -c 'import re,sys; s=sys.stdin.read(); sys.stdout.write(re.sub(r"\s+", "", re.sub(r"/\*.*?\*/", "", s, flags=re.S)))'
+}
 code() { curl -s -o /dev/null -w '%{http_code}' "$1"; }
 
 echo "== 目录索引 / =="
@@ -165,24 +189,27 @@ chk "图片相对路径"        "$G" 'src="/media/logo.svg"'
 chk "svg Content-Type"    "$(curl -s -D - -o /dev/null "$BASE/media/logo.svg")" 'image/svg+xml'
 
 echo "== 图片放大（服务端包裹 + 脚本内联） =="
+# 脚本类断言只扫 <script> 段：`showModal` 这类字样在 CSS 注释里也有，
+# 对整页做包含匹配会被自己的注释满足（SELFTEST §32 的教训）
+GSCR="$(script_of "$G")"
 # 不在链接里的正文图片都要包一层可放大链接；href 与 img 的 src 必须同源
 # （编码管线只走一次）。没有 JS 时它就是降级路径，有 JS 时被脚本接管。
 chk "图片包了可放大链接"    "$G" '<a class="zoom" href="/media/logo.svg">'
 chk "href 与 src 逐字节同源" "$G" '<a class="zoom" href="/media/logo.svg"><img src="/media/logo.svg"'
-chk "放大脚本已内联"        "$G" 'createElement("dialog")'
-chk "放大脚本用 showModal"  "$G" 'showModal'
+chk "放大脚本已内联"        "$GSCR" 'createElement("dialog")'
+chk "放大脚本用 showModal"  "$GSCR" 'showModal'
 chk "遮罩样式已内联"        "$G" 'dialog.zoomdlg'
 chk "滚动锁样式已内联"      "$G" 'html.zoomlock'
 # 关闭按钮必须贴在图片右上角（不是钉在视口右上角抢走"点空白处"的点击，SELFTEST §27）
 chk "关闭按钮贴在图片上"    "$G" 'dialog.zoomdlg .zoomclose{position:absolute'
 # × 是现画的内联 SVG + 按钮 flex 居中。字体字形（U+00D7）在 em 盒里不居中，各字体
 # 偏得还不一样，写死任何 px 校正值都会在别的平台翻车（SELFTEST §30）
-chk "关闭图标由 SVG 绘制"   "$G" 'createElementNS(SVG_NS, "svg")'
-chk "图标描边用 currentColor" "$G" 'setAttribute("stroke", "currentColor")'
+chk "关闭图标由 SVG 绘制"   "$GSCR" 'createElementNS(SVG_NS, "svg")'
+chk "图标描边用 currentColor" "$GSCR" 'setAttribute("stroke", "currentColor")'
 # 遮罩的定位与排版在基础规则里，[open] 只切 display：几何不随可见性开关变化
 # （SELFTEST §28）。先剥掉 CSS 注释再压掉空白 —— 注释里会引用那条错写法，
 # 不剥的话下面的 nchk 会被自己的注释命中。
-GFLAT="$(printf '%s' "$G" | python3 -c 'import re,sys; s=sys.stdin.read(); sys.stdout.write(re.sub(r"\s+", "", re.sub(r"/\*.*?\*/", "", s, flags=re.S)))')"
+GFLAT="$(flat_of "$G")"
 chk "遮罩定位在基础规则"    "$GFLAT" 'dialog.zoomdlg{max-width:none;max-height:none;padding:0;border:0;position:fixed;inset:0;margin:auto;'
 chk "遮罩排版在基础规则"    "$GFLAT" 'flex-direction:column;align-items:center;gap:10px;'
 chk "[open] 只切 display"   "$GFLAT" 'dialog.zoomdlg[open]{display:flex}'
@@ -190,8 +217,8 @@ chk "关闭按钮 flex 居中"    "$GFLAT" 'display:flex;align-items:center;just
 chk "关闭图标 24×24"        "$GFLAT" 'dialog.zoomdlg.zoomclosesvg{display:block;width:24px;height:24px}'
 # 打开后的初始焦点落在遮罩自己（tabindex="-1"）而不是 × 上：否则上一轮交互是键盘时，
 # 程序化聚焦会命中 :focus-visible，再打开时 × 带一圈白边（SELFTEST §31）
-chk "遮罩可作焦点落脚点"    "$G" 'd.tabIndex = -1'
-chk "打开后焦点收回遮罩"    "$G" 'zoom.focus();'
+chk "遮罩可作焦点落脚点"    "$GSCR" 'd.tabIndex = -1'
+chk "打开后焦点收回遮罩"    "$GSCR" 'zoom.focus();'
 chk "遮罩自身不画焦点环"    "$GFLAT" 'dialog.zoomdlg:focus{outline:none}'
 nchk "键盘焦点环没被删掉"   "$GFLAT" 'zoomclose:focus-visible{outline:none'
 # 只做入场动画：不许有出场过渡（allow-discrete 会把退场拖成 150ms，图片在淡出而
@@ -206,12 +233,13 @@ nchk "正文里没有写死的 dialog" "$(printf '%s' "$G" | sed -n '/<\/head>/,
 echo "== 回到顶部（目录页 / 预览页 / 源码视图） =="
 # 这三类页面的 <body> 带 data-totop 标记，按钮由脚本运行时创建；搜索页不装
 # （SELFTEST §32）。基线里同样不能有写死的按钮。
+IDXSCR="$(script_of "$IDX")"
 chk "主页带 data-totop 标记" "$IDX" 'data-totop="1"'
 chk "子目录列表也带标记"     "$(curl -s "$BASE/guide/")" 'data-totop="1"'
 chk "文件预览页也带标记"     "$MD" 'data-totop="1"'
 chk "源码视图也带标记"       "$RAW" 'data-totop="1"'
 nchk "搜索页没有标记"        "$(curl -s "$BASE/search?q=mdview")" 'data-totop="1"'
-chk "回到顶部按钮由脚本注入" "$IDX" 'className = "totop"'
+chk "回到顶部按钮由脚本注入" "$IDXSCR" 'className = "totop"'
 chk "回到顶部样式已内联"     "$IDX" '.totop{position:fixed'
 nchk "主页正文没有写死的按钮" "$(printf '%s' "$IDX" | sed -n '/<\/head>/,/<script>/p')" 'class="totop"'
 nchk "预览页正文没有写死的按钮" "$(printf '%s' "$MD" | sed -n '/<\/head>/,/<script>/p')" 'class="totop"'
@@ -222,7 +250,7 @@ chk "目录补斜杠 301"      "$RED" '301'
 chk "301 Location"        "$RED" 'Location: /guide/'
 # 展开树功能已移除：入口与 ?depth= 都不该再出现
 nchk "首页无展开树入口"   "$IDX" 'depth=3'
-nchk "无 .tree 样式"      "$IDX" '\.tree'
+nchk "无 .tree 样式"      "$IDX" '.tree'
 chk "?depth= 无害忽略"    "$(code "$BASE/?depth=3")" '200'
 chk "忽略时仍是普通列表"  "$(curl -s "$BASE/?depth=3")" 'dirlist'
 
@@ -275,14 +303,14 @@ if [ "$link_fail" -eq 0 ]; then
 else
   fail=$((fail+1)); failed_names="$failed_names 断链"
 fi
-# 代码块专项文档：12 种语言 + 围栏变体都要渲染出来
+# 代码块专项文档：20 种语言 + 围栏变体都要渲染出来
 CB="$(curl -s "$BASE/guide/code-blocks.md")"
 for lang in python javascript typescript go rust java c cpp bash sql json yaml toml ini makefile dockerfile docker-compose brainfuck text markdown; do
   chk "code-blocks: $lang 块" "$CB" "language-$lang"
 done
 chk "code-blocks: 无语言块不留空白带" "$CB" 'class="codeblock"><pre><code>' 
 chk "code-blocks: 围栏内 HTML 被转义"  "$CB" '&lt;div&gt;'
-chk "code-blocks: 围栏内 div 未被当标签" "$(printf '%s' "$CB" | grep -c '<div>这不是' || true)" '0'
+chk_num "code-blocks: 围栏内 div 未被当标签" "$(printf '%s' "$CB" | grep -c '<div>这不是')" 0
 chk "code-blocks: 行内码保护星号"      "$CB" '<code>**不是粗体**</code>'
 chk "code-blocks: 转义反引号"          "$CB" '<span class="esc">`</span>不是代码'
 chk "code-blocks: Dockerfile 指令着色"  "$CB" '<span class="kw">FROM</span>'
@@ -290,7 +318,7 @@ chk "code-blocks: Dockerfile 小写也着色" "$CB" '<span class="kw">run</span>
 chk "code-blocks: Compose 键着色"       "$CB" '<span class="kw">services</span>'
 chk "code-blocks: 语言标签 Dockerfile"  "$CB" 'Dockerfile</span>'
 chk "code-blocks: 语言标签 Compose"     "$CB" 'Docker Compose</span>'
-chk "code-blocks: UTF-8 未切数字"       "$(printf '%s' "$CB" | grep -c 'UTF-<span class="num">' || true)" '0'
+chk_num "code-blocks: UTF-8 未切数字"       "$(printf '%s' "$CB" | grep -c 'UTF-<span class="num">')" 0
 
 # 根目录选错时（用上层目录启动）必须给出可操作的 --root 提示。
 # 场景：以 md-preview 的上一层为根，此时根下没有 .md，但 md-preview/docs 里有。
@@ -333,9 +361,10 @@ rm -rf "$SRCDIR"
 
 echo "== 代码块复制按钮（JS 注入，不产生死按钮） =="
 CB2="$(curl -s "$BASE/guide/code-blocks.md")"
-chk "页面内联了脚本"            "$CB2" 'createElement("button")'
-chk "有 Clipboard API 路径"     "$CB2" 'navigator.clipboard'
-chk "有 http 下的兜底路径"      "$CB2" 'execCommand'
+CB2SCR="$(script_of "$CB2")"
+chk "页面内联了脚本"            "$CB2SCR" 'createElement("button")'
+chk "有 Clipboard API 路径"     "$CB2SCR" 'navigator.clipboard'
+chk "有 http 下的兜底路径"      "$CB2SCR" 'execCommand'
 chk "按钮一直显示（无隐藏态）"  "$CB2" '.copybtn{flex:none;background:none'
 nchk "没有悬停淡入规则"          "$CB2" '.codeblock:hover .copybtn'
 chk "顶部条为 flex 两端布局"    "$CB2" '.codebanner{display:flex'
@@ -475,7 +504,7 @@ LIM_PID="$(serve_root "$((PORT+7))" "$LIM")"
 LIMB="http://127.0.0.1:$((PORT+7))"
 
 chk "无扩展名文本 -> text/plain"  "$(curl -s -o /dev/null -w '%{content_type}' "$LIMB/plain")" 'text/plain'
-chk "无扩展名文本 -> 不下载"      "$(curl -s -D - -o /dev/null "$LIMB/plain" | grep -ci 'content-disposition')" '0'
+chk_num "无扩展名文本 -> 不下载"      "$(curl -s -D - -o /dev/null "$LIMB/plain" | grep -ci 'content-disposition')" 0
 chk "无扩展名含 NUL -> 二进制"    "$(curl -s -o /dev/null -w '%{content_type}' "$LIMB/binfile")" 'application/octet-stream'
 chk "NUL 在 511 -> 二进制"        "$(curl -s -o /dev/null -w '%{content_type}' "$LIMB/nul511")" 'application/octet-stream'
 chk "NUL 在 512 -> 文本"          "$(curl -s -o /dev/null -w '%{content_type}' "$LIMB/nul512")" 'text/plain'
@@ -484,16 +513,16 @@ chk "无扩展名 GBK -> 仍算文本"    "$(curl -s -o /dev/null -w '%{content_
 chk "有扩展名不被嗅探影响"        "$(curl -s -o /dev/null -w '%{content_type}' "$LIMB/weird.py")" 'text/plain'
 
 chk "超限 .md -> 保留准确类型"    "$(curl -s -o /dev/null -w '%{content_type}' "$LIMB/big.md")" 'text/markdown'
-chk "超限 .md -> 附件下载"        "$(curl -s -D - -o /dev/null "$LIMB/big.md" | grep -ci 'content-disposition: attachment')" '1'
-chk "超限 .md?raw=1 -> 也下载"    "$(curl -s -D - -o /dev/null "$LIMB/big.md?raw=1" | grep -ci 'content-disposition: attachment')" '1'
-chk "超限二进制 -> 也下载"        "$(curl -s -D - -o /dev/null "$LIMB/big.bin" | grep -ci 'content-disposition: attachment')" '1'
+chk_num "超限 .md -> 附件下载"        "$(curl -s -D - -o /dev/null "$LIMB/big.md" | grep -ci 'content-disposition: attachment')" 1
+chk_num "超限 .md?raw=1 -> 也下载"    "$(curl -s -D - -o /dev/null "$LIMB/big.md?raw=1" | grep -ci 'content-disposition: attachment')" 1
+chk_num "超限二进制 -> 也下载"        "$(curl -s -D - -o /dev/null "$LIMB/big.bin" | grep -ci 'content-disposition: attachment')" 1
 chk "小 .md 仍正常渲染"           "$(curl -s -o /dev/null -w '%{content_type}' "$LIMB/small.md")" 'text/html'
-chk "附件头含 filename"         "$(curl -s -D - -o /dev/null "$LIMB/big.md" | grep -ci 'filename=')" '1'
+chk_num "附件头含 filename"         "$(curl -s -D - -o /dev/null "$LIMB/big.md" | grep -ci 'filename=')" 1
 { kill "$LIM_PID" 2>/dev/null; wait "$LIM_PID" 2>/dev/null; }
 rm -rf "$LIM"
 
 # --max-preview 参数解析
-chk "--max-preview 非法值被拒"    "$(python3 "$MDVIEW" --max-preview abc 2>&1 | grep -c '无法解析')" '1'
+chk_num "--max-preview 非法值被拒"    "$(python3 "$MDVIEW" --max-preview abc 2>&1 | grep -c '无法解析')" 1
 chk "--max-preview 0 表示不限制"  "$(python3 -c "import sys; sys.path.insert(0,'$ROOT'); import mdview; print(mdview._parse_size('0'))")" '0'
 chk "--max-preview 单位解析"      "$(python3 -c "import sys; sys.path.insert(0,'$ROOT'); import mdview; print(mdview._parse_size('512K'))")" '524288'
 
@@ -520,12 +549,12 @@ chk "真 PDF 魔数正确"          "$(curl -s "$BIN/real.pdf" | head -c 5)" '%P
 chk "真 ZIP 魔数正确"          "$(curl -s "$BIN/real.zip" | head -c 2)" 'PK'
 # 超大（稀疏文件）：每种类型都要变成下载
 for f in big.md big.txt big.bin big.png noext_big; do
-  chk "超大 $f -> 附件下载"    "$(curl -s -D - -o /dev/null "$LRG/$f" | grep -ci 'content-disposition: attachment')" '1'
+  chk_num "超大 $f -> 附件下载"    "$(curl -s -D - -o /dev/null "$LRG/$f" | grep -ci 'content-disposition: attachment')" 1
 done
 chk "超大 .md 保留类型"        "$(curl -s -o /dev/null -w '%{content_type}' "$LRG/big.md")" 'text/markdown'
 chk "超大 .png 保留类型"       "$(curl -s -o /dev/null -w '%{content_type}' "$LRG/big.png")" 'image/png'
-chk "超大 ?raw=1 也下载"       "$(curl -s -D - -o /dev/null "$LRG/big.md?raw=1" | grep -ci 'content-disposition: attachment')" '1'
-chk "附件头含 filename"        "$(curl -s -D - -o /dev/null "$LRG/big.md" | grep -ci 'filename=')" '1'
+chk_num "超大 ?raw=1 也下载"       "$(curl -s -D - -o /dev/null "$LRG/big.md?raw=1" | grep -ci 'content-disposition: attachment')" 1
+chk_num "附件头含 filename"        "$(curl -s -D - -o /dev/null "$LRG/big.md" | grep -ci 'filename=')" 1
 # 测试页本身可访问，且里面没有断链
 chk "测试页可访问"             "$(curl -s -o /dev/null -w '%{http_code}' "$BASE/preview/binary-test.md")" '200'
 
@@ -539,7 +568,7 @@ nchk "目录行无下载按钮"       "$DL" '📁 <a href="/preview/binary/">bin
 # 各种类型走 ?download=1 都必须带附件头，且类型不退化
 for u in "preview/binary-test.md" "preview/code/sample.py" "preview/binary/real.png" \
          "preview/binary/real.zip" "preview/media/sample.gif" "preview/large/big.md"; do
-  chk "下载头: $u"   "$(curl -s -D - -o /dev/null "$BASE/$u?download=1" | grep -ci 'content-disposition: attachment')" '1'
+  chk_num "下载头: $u"   "$(curl -s -D - -o /dev/null "$BASE/$u?download=1" | grep -ci 'content-disposition: attachment')" 1
 done
 chk "下载 .md 保留 text/markdown" "$(curl -s -o /dev/null -w '%{content_type}' "$BASE/preview/binary-test.md?download=1")" 'text/markdown'
 chk "下载 .png 保留 image/png"    "$(curl -s -o /dev/null -w '%{content_type}' "$BASE/preview/binary/real.png?download=1")" 'image/png'
@@ -548,22 +577,22 @@ chk "下载 .py 保留 text/plain"    "$(curl -s -o /dev/null -w '%{content_type
 chk ".md 下载返回原文"        "$(curl -s "$BASE/preview/binary-test.md?download=1" | head -1)" '# 二进制 / 超大文件测试'
 nchk ".md 下载不含 HTML 标签" "$(curl -s "$BASE/preview/binary-test.md?download=1" | head -3)" '<html'
 # 不加参数时仍然是预览
-nchk "不带参数时不下载"       "$(curl -s -D - -o /dev/null "$BASE/preview/code/sample.py" | grep -ci 'content-disposition')" '1'
+nchk_num "不带参数时不下载"       "$(curl -s -D - -o /dev/null "$BASE/preview/code/sample.py" | grep -ci 'content-disposition')" 1
 
 echo "== 下载头的文件名（实测裸 attachment 会被浏览器改名）=="
 DISP() { curl -s -D - -o /dev/null "$1" | grep -i '^content-disposition' | tr -d '\r'; }
-chk ".md 下载带 filename"      "$(DISP "$BASE/preview/binary-test.md?download=1" | grep -c 'filename="binary-test.md"')" '1'
-chk ".md 下载带 filename*"     "$(DISP "$BASE/preview/binary-test.md?download=1" | grep -c "filename\*=UTF-8''")" '1'
-chk "点文件带 filename"        "$(DISP "$BASE/preview/.gitignore?download=1" | grep -c 'filename=".gitignore"')" '1'
-chk "超大文件也带 filename"    "$(DISP "$BASE/preview/large/big.md?download=1" | grep -c 'filename="big.md"')" '1'
-chk "非 ASCII 名不进 filename"  "$(DISP "$BASE/preview/%E7%BC%96%E7%A0%81.txt?download=1" | grep -c 'filename="[^"]*[^\x00-\x7f]')" '0'
+chk_num ".md 下载带 filename"      "$(DISP "$BASE/preview/binary-test.md?download=1" | grep -c 'filename="binary-test.md"')" 1
+chk_num ".md 下载带 filename*"     "$(DISP "$BASE/preview/binary-test.md?download=1" | grep -c "filename\*=UTF-8''")" 1
+chk_num "点文件带 filename"        "$(DISP "$BASE/preview/.gitignore?download=1" | grep -c 'filename=".gitignore"')" 1
+chk_num "超大文件也带 filename"    "$(DISP "$BASE/preview/large/big.md?download=1" | grep -c 'filename="big.md"')" 1
+chk_num "非 ASCII 名不进 filename"  "$(DISP "$BASE/preview/%E7%BC%96%E7%A0%81.txt?download=1" | grep -c 'filename="[^"]*[^\x00-\x7f]')" 0
 # 头必须能按 latin-1 编码（含中文会直接 500 / 连接断开）
 chk "含中文名的下载不崩"       "$(curl -s -o /dev/null -w '%{http_code}' "$BASE/preview/.gitignore?download=1")" '200'
 
 echo "== 修复回归：单响应 / 重定向编码 / 文件类型 / 符号链接 / 搜索上限 =="
 # B2：一个 ?raw=1 请求只能有一个响应（曾经写出 200 + 残缺 200 + 500 三个）
 chk "?raw=1 只写一个响应"     "$(count_responses "$BASE" "/index.md?raw=1")" '1'
-nchk "?raw=1 不再出现 500"    "$(curl -s "$BASE/index.md?raw=1" | grep -c '500 detail')" '1'
+nchk_num "?raw=1 不再出现 500"    "$(curl -s "$BASE/index.md?raw=1" | grep -c '500 detail')" 1
 chk "?raw=1 仍是 200"         "$(curl -s -o /dev/null -w '%{http_code}' "$BASE/index.md?raw=1")" '200'
 chk "不可读 .md 也只一个响应" "$(count_responses "$BASE" "/nope-404.md")" '1'
 
@@ -576,7 +605,7 @@ B3PID="$(serve_root "$((PORT+8))" "$B3DIR")"; B3B="http://127.0.0.1:$((PORT+8))"
 chk "空格目录 301"           "$(curl -s -o /dev/null -w '%{http_code}' "$B3B/my%20dir")" '301'
 chk "Location 单次编码"      "$(curl -s -D - -o /dev/null "$B3B/my%20dir" | grep -i '^location' | tr -d '\r' | cut -d' ' -f2-)" '/my%20dir/'
 chk "跟随后可访问"           "$(curl -s -L -o /dev/null -w '%{http_code}' "$B3B/my%20dir")" '200'
-nchk "Location 无 %25"       "$(curl -s -D - -o /dev/null "$B3B/my%20dir" | grep -ci '%25')" '1'
+nchk_num "Location 无 %25"       "$(curl -s -D - -o /dev/null "$B3B/my%20dir" | grep -ci '%25')" 1
 chk "中文目录 301"           "$(curl -s -o /dev/null -w '%{http_code}' "$B3B/%E4%B8%AD%E6%96%87%E7%9B%AE%E5%BD%95")" '301'
 chk "中文目录跟随后 200"     "$(curl -s -L -o /dev/null -w '%{http_code}' "$B3B/%E4%B8%AD%E6%96%87%E7%9B%AE%E5%BD%95")" '200'
 chk "中文文件源的链接可用"   "$(curl -s -o /dev/null -w '%{http_code}' "$B3B/%E4%B8%AD%E6%96%87%E7%9B%AE%E5%BD%95/n.md?raw=1")" '200'
@@ -604,15 +633,15 @@ printf '关键词ZZZ命中\n' > "$B7DIR/small.md"
 python3 -c 'line = ("# \u5173\u952e\u8bcdZZZ\n").encode(); open("'"$B7DIR"'/huge.md", "wb").write(line * ((21*1024*1024)//len(line)))'
 B7PID="$(serve_root "$((PORT+10))" "$B7DIR")"; B7B="http://127.0.0.1:$((PORT+10))"
 SR="$(curl -s --get --data-urlencode 'q=关键词ZZZ' "$B7B/search")"
-chk "搜索仍能找到小文件"     "$(printf '%s' "$SR" | grep -c 'small.md')" '1'
-chk "搜索跳过超限文件"       "$(printf '%s' "$SR" | grep -c 'huge.md')" '0'
+chk_num "搜索仍能找到小文件"     "$(printf '%s' "$SR" | grep -c 'small.md')" 1
+chk_num "搜索跳过超限文件"       "$(printf '%s' "$SR" | grep -c 'huge.md')" 0
 { kill "$B7PID" 2>/dev/null; wait "$B7PID" 2>/dev/null; }
 rm -rf "$B7DIR"
 
 # B9：客户端中断不再刷 traceback
 curl -s --limit-rate 100k --max-time 0.2 -o /dev/null "$BASE/preview/large/big.txt" 2>/dev/null || true
 sleep 0.5
-chk "断开不刷 traceback"     "$(grep -c 'Traceback' "$LOG" 2>/dev/null || echo 0)" '0'
+chk_num "断开不刷 traceback"     "$(grep -c 'Traceback' "$LOG" 2>/dev/null)" 0
 
 # B10：markdown 目标路径的编码规则（空格 / 字面 % / 文件名里含 #）
 #      坏过的样子：图片目标被编码两次（%20 -> %2520），图片 404；
@@ -660,13 +689,13 @@ printf '# a\n' > "$PL/lvl1/a.md"
 printf '# b\n' > "$PL/lvl1/lvl2/b.md"
 printf '# top\n' > "$PL/top.md"
 PLPID="$(serve_root "$((PORT+11))" "$PL")"; PLB="http://127.0.0.1:$((PORT+11))"
-chk "根目录页无上级链接"     "$(curl -s "$PLB/" | grep -c '上级目录')" '0'
+chk_num "根目录页无上级链接"     "$(curl -s "$PLB/" | grep -c '上级目录')" 0
 chk "一级子目录上级是 /"     "$(curl -s "$PLB/lvl1/" | grep -o 'href="[^"]*">\.\./ 上级目录' | sed 's/href="//; s/">.*//')" '/'
-nchk "一级子目录不出现 //"   "$(curl -s "$PLB/lvl1/" | grep -ci 'href="//"')" '1'
+nchk_num "一级子目录不出现 //"   "$(curl -s "$PLB/lvl1/" | grep -ci 'href="//"')" 1
 chk "二级子目录上级是 /lvl1/" "$(curl -s "$PLB/lvl1/lvl2/" | grep -o 'href="[^"]*">\.\./ 上级目录' | sed 's/href="//; s/">.*//')" '/lvl1/'
 chk "点上级能回到根（200）"  "$(curl -s -o /dev/null -w '%{http_code}' "$PLB/")" '200'
 # 全站目录页里不允许出现 href="//"
-nchk "目录页无 // 链接"      "$(for d in / /lvl1/ /lvl1/lvl2/; do curl -s "$PLB$d"; done | grep -ci 'href="//"')" '1'
+nchk_num "目录页无 // 链接"      "$(for d in / /lvl1/ /lvl1/lvl2/; do curl -s "$PLB$d"; done | grep -ci 'href="//"')" 1
 { kill "$PLPID" 2>/dev/null; wait "$PLPID" 2>/dev/null; }
 rm -rf "$PL"
 

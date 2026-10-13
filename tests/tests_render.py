@@ -751,7 +751,9 @@ class TestImageZoom(unittest.TestCase):
         # 脚本里必须真的画 SVG（两条对角线、无填充、currentColor 描边）
         self.assertIn('createElementNS(SVG_NS, "svg")', m.COPY_JS)
         self.assertIn('createElementNS(SVG_NS, "path")', m.COPY_JS)
-        self.assertIn('setAttribute("d", "M7.5 7.5 16.5 16.5M16.5 7.5 7.5 16.5")', m.COPY_JS)
+        # 图标形状走共用的 svgIcon()（× 与 ↑ 只差 path 与线帽）
+        self.assertIn('function svgIcon(d, roundCaps)', m.COPY_JS)
+        self.assertIn('svgIcon("M7.5 7.5 16.5 16.5M16.5 7.5 7.5 16.5", false)', m.COPY_JS)
         self.assertIn('setAttribute("fill", "none")', m.COPY_JS)
         self.assertIn('setAttribute("stroke", "currentColor")', m.COPY_JS)
         self.assertNotIn('textContent = "\u00d7"', m.COPY_JS)   # 不再用字体字形
@@ -809,6 +811,7 @@ class TestBackToTop(unittest.TestCase):
             _read_text = staticmethod(m.Handler._read_text)
             _parent_link = staticmethod(m.Handler._parent_link)
             _index_title = staticmethod(m.Handler._index_title)
+            _render_page = staticmethod(m.Handler._render_page)
 
         with tempfile.TemporaryDirectory() as d:
             md_path = os.path.join(d, "a.md")
@@ -850,6 +853,36 @@ class TestBackToTop(unittest.TestCase):
         if not match:
             raise AssertionError("页面里找不到 <body> 标签")
         return match.group(0)
+
+
+class TestAttributeTitles(unittest.TestCase):
+    """title 是**属性值**，必须先拍成纯文本（`attr_text`）。
+
+    两处真实缺陷，都是"标记漏进属性值"：
+    - `![a](p.png "x &amp; y")` 把 token 哨兵（NUL 分隔）原样写进 title；
+    - `![a](p.png "`c`")` 把行内码标记留到 parse_inline 末尾的还原步骤才展开，
+      `<code>` 落进属性后又被 `wrap_zoom_images` 的标签扫描在 `>` 处截断，
+      产出 `title="<code></a>c</code>"` 这种撕坏的标签（链接那条只是不撕标签，
+      但属性里同样露出一段标签源码）。
+    """
+
+    def test_image_title_is_plain_text(self):
+        out = r('![a](p.png "x &amp; y")')
+        self.assertIn('title="x &amp; y"', out)
+        self.assertNotIn("\x00", out)
+        out = r('![a](p.png "`c`")')
+        self.assertIn('title="c"', out)                  # 拍平成纯文本
+        self.assertNotIn("<code>", out)
+        self.assertNotIn("</a>c", out)                   # 标签没被撕开
+        self.assertNotIn("\x00", r('![a](p.png "`a` &amp; `b`")'))
+
+    def test_link_title_is_plain_text(self):
+        out = r('[t](u.md "`c`")')
+        self.assertIn('title="c"', out)
+        self.assertNotIn("<code>", out)
+        self.assertIn('title="x &amp; y"', r('[t](u.md "x &amp; y")'))
+        # 属性值里的裸 `<` `>` 必须转义，否则标签扫描/属性边界都不安全
+        self.assertIn('title="x &lt;b&gt; y"', r('![a](p.png "x <b> y")'))
 
 
 class TestCopyButton(unittest.TestCase):
@@ -902,11 +935,12 @@ class TestCopyButton(unittest.TestCase):
         """
         page = m._page("t", "")
         start = page.index(".copybtn{")
-        block = page[start:page.index("@media print{.copybtn")]
+        block = page[start:page.index(".copybtn.done")]
         self.assertNotIn("opacity", block, "按钮规则里不该有透明度切换")
         self.assertNotIn("@media (hover:none)", page)     # 常显就不需要触屏特例
         self.assertIn(".copybtn:hover{color:var(--accent)}", page)
-        self.assertIn("@media print{.copybtn{display:none}}", page)
+        # 打印时隐藏：三件 JS 注入物集中在同一条 @media print 里
+        self.assertIn("dialog.zoomdlg[open],.copybtn,.totop{display:none}", page)
         # 顶部条是 flex + space-between（左侧语言名、右侧复制按钮）
         self.assertIn(".codeblock .codebanner{display:flex", page)
         self.assertIn("justify-content:space-between", page)

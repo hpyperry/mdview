@@ -5,14 +5,14 @@
 
 | 项目 | 命令 | 结果 |
 |------|------|------|
-| 渲染器单元测试 | `python3 tests/tests_render.py` | **173 项全部通过**（`Ran 173 tests ... OK`） |
-| 端到端 HTTP 验证 | `bash tests/selftest.sh` | **309 项断言全部通过**（`PASS=309 FAIL=0`） |
+| 渲染器单元测试 | `python3 tests/tests_render.py` | **199 项全部通过**（`Ran 199 tests ... OK`） |
+| 端到端 HTTP 验证 | `bash tests/selftest.sh` | **345 项断言全部通过**（`PASS=345 FAIL=0`） |
 | 语法兼容性 | `ast` 扫描 | 无 walrus / `match` / 3.9+ 独有语法 → 3.6+ 可运行 |
 | `--safe` | 见下 §3 | 只放行 `.md` 与图片，其余 404 |
 | `--no-search` | 见下 §3 | 路由与界面搜索框同时消失 |
 | 端口占用 | 见下 §3 | 自动 +1 回退并打印真实 URL |
 | 视觉确认 | Chrome headless 截图 | 暗色模式、高亮、表格、任务列表、中文排版正常（截图见 §3.1） |
-| 代码块专项 | `docs/guide/code-blocks.md` | 17 种语言 + 全部围栏变体 + 16 条验收清单，自检覆盖每种语言 |
+| 代码块专项 | `docs/guide/code-blocks.md` | 20 种语言 + 全部围栏变体 + 16 条验收清单，自检覆盖每种语言 |
 
 环境：macOS，`Python 3.14.7`（代码按 3.6+ 写，未用新语法）。
 
@@ -1654,3 +1654,62 @@ totop_scrolls_to_top:          587 -> 0 ok=true
 - 端到端 **336 -> 345 项**：主页 / 子目录列表 / 预览页 / 源码视图都带标记，搜索页不带；
   按钮与样式确实进了页面；主页与预览页正文里都没有写死的按钮
 - 压缩版同步重新生成，两套检查对 `dist/mdview.min.py` 各跑一遍
+
+## 33. 整体评审后的一轮收敛：两个真 bug + 去重 + 测试加固
+
+**背景**："review 优化下代码，感觉劣化的有点严重。" 于是按三路并行评审（成文标准 + smell
+基线 / 结构重复 / 测试与文档）把**全仓**过了一遍，这一节只记落地的那部分。
+
+### 修掉的两个真 bug
+
+1. **属性值漏出内部标记**。`render_image` 的 title 少了「取真值」那一步：
+   `![a](p.png "x &amp; y")` 把实体保护区的 NUL 哨兵直接写进属性；`![a](p.png "`c`")`
+   更糟 —— 行内码走的是**另一套**保护标记（`_CODE_OPEN`/`_CODE_CLOSE` + `code_spans`），
+   要到 `parse_inline` 末尾才展开成 `<code>`，落进属性后又被 `wrap_zoom_images` 的标签
+   扫描在 `>` 处截断，产出 `title="<code></a>c</code>"` 这种**撕坏的标签**（链接那条
+   同样在属性里露出一段标签源码，只是没撕开）。
+   修法：新增 `attr_text()` —— 摊平行内码标记 → 解 token → 剥标签 → 反转义，title 与
+   alt 共用同一条「属性值是纯文本」的管线。CommonMark 的 title 本来也不做行内解析。
+2. **`--no-search` 下错误页仍渲染搜索框**：`_error_page` 调 `_page` 时没传
+   `show_search`，默认值是 `True`。修法：`_page(show_search=None)` ⇔「跟随 `CFG.search`」
+   —— 搜索框是全局开关，不该由每个调用点各记一遍。
+
+### 去重与收敛（不加功能，行为不变）
+
+| 动作 | 之前 | 之后 |
+|---|---|---|
+| 协议判定 | **5 处**各抄一份同一个正则（XSS 白名单第一道判据，漂移即漏洞） | 统一 `_has_scheme()` |
+| 图标绘制 | 关闭 × 与回到顶部 ↑ 各抄一遍 `createElementNS` + 6 条 `setAttribute` | 共用 `svgIcon(d, roundCaps)` |
+| 内容页模板 | 三处重复 `show_search=CFG.search, depth_nav=…, to_top=True` | `Handler._render_page()` 一处 |
+| `@media print` | 散在 4 处；其中 dialog 那条因特异度不足**从来没生效** | 合并成一处，改 `dialog.zoomdlg[open]` 让它真生效 |
+| 死代码 | `_IMAGE_RE` / `_LINK_RE` / `_T3` / `_T3U` / `_is_punct` / `.op` + `--t-op` / `var(--bg2)` 回退链 / `_dir_page` 转发层 | 全删 |
+| `_has_md(path, depth)` | 唯一调用点传 `depth=0`，递归进去立刻 `-1 < 0` 返回 —— 那个分支从未执行 | 去掉参数与分支，行为不变 |
+| 分块导航 | 文件头与 README §10 都让人"搜 SECTION 2"，但 CSS 块没有横幅 | 在字符串**外面**加 Python 横幅（不占每页 CSS 字节） |
+
+### 测试加固
+
+- **计数断言不再当字符串比**：`chk "$(… | grep -c …)" '0'` 在计数 10 时会假通过
+  （`10` 含 `0`）、计数 2 也满足 `nchk … '1'` —— 25 处改成 `chk_num` / `nchk_num` 的数值比较。
+- **断言落在正确的位置**：脚本类只扫 `<script>` 段（`script_of`），样式类先剥注释再压空白
+  （`flat_of`）。`chk "放大脚本用 showModal" "$G" 'showModal'` 曾经能被 **CSS 注释**里的
+  `showModal()` 满足 —— 与 §32 那次误命中同源。
+- **死断言**：`nchk "无 .tree 样式" "$IDX" '\.tree'` 用的是 `grep -qF`（字面匹配），
+  `\.tree` 永远不可能命中，改成 `'.tree'`。
+
+### 评审提到、但这轮刻意没动的
+
+- `_bare_url_sub.covered` 每个 URL 线性扫全部保护区间的平方级退化：区间数与 URL 数同级，
+  要修得换数据结构，收益不抵风险（AGENT.md 的"警惕平方级退化"针对的是长行）；
+- `parse_inline`（246 行）/ `render_blocks`（133 行）的体量：拆分要先立一层渲染上下文，
+  属于独立一轮；
+- README 里"21 条路径逐路径差分"的旧声明：仓库并不带那个脚本，已改成不声称结果。
+
+### 验证
+
+- 单元 **197 -> 199 项**（新增 `TestAttributeTitles` 两条：图片/链接的 title 必须是纯文本，
+  且不允许出现 `\x00`、`<code>`、`</a>c`）；端到端 **345 项**（含新加的数值断言写法）
+- 源码与 `dist/mdview.min.py` 各跑一遍全绿；压缩版由 `tools/minify.py` 重新生成
+- 探针实测与改动前**逐字节一致**（截图 sha256 相同）：`close_icon 24x24 offset=0,0`、
+  `totop_on_dirlist/preview 1`、`totop_scrolls_to_top 587 -> 0` —— 说明这轮全是行为保持的重构
+- 文档同步：README 体积表 / 计数 / `?raw=1` 说明 / §10 交叉引用、SELFTEST 首表计数、
+  ADR 0002 的 `allow-discrete` 描述（退场已经是瞬时的）、`selftest.sh` 里"12 种语言"的旧注释

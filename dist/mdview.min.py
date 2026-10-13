@@ -159,14 +159,14 @@ CSS = """
   --bg:#ffffff; --fg:#1f2328; --muted:#59636e; --line:#d1d9e0; --soft:#f6f8fa;
   --accent:#0969da; --mark:#fff3bf; --markfg:#1f2328;
   --t-kw:#cf222e; --t-str:#0a3069; --t-com:#6e7781; --t-num:#0550ae;
-  --t-fn:#8250df; --t-op:#cf222e; --banner:#eaeef2;
+  --t-fn:#8250df; --banner:#eaeef2;
 }
 @media (prefers-color-scheme: dark){
   :root{
     --bg:#0d1117; --fg:#e6edf3; --muted:#9198a1; --line:#3d444d; --soft:#151b23;
     --accent:#4493f8; --mark:#5c4b00; --markfg:#f0f6fc;
     --t-kw:#ff7b72; --t-str:#a5d6ff; --t-com:#8b949e; --t-num:#79c0ff;
-    --t-fn:#d2a8ff; --t-op:#ff7b72; --banner:#1c2128;
+    --t-fn:#d2a8ff; --banner:#1c2128;
   }
 }
 html{-webkit-text-size-adjust:100%}
@@ -263,7 +263,6 @@ dialog.zoomdlg .zoomclose:focus-visible{outline:2px solid #fff;outline-offset:2p
 dialog.zoomdlg:focus{outline:none}
 /* 锁滚动：hidden 负责锁，scrollbar-gutter 负责别让滚动条槽位消失（否则整页右移） */
 html.zoomlock{overflow:hidden;scrollbar-gutter:stable}
-@media print{dialog.zoomdlg{display:none}}
 @media (prefers-reduced-motion: no-preference){
   /* 只做**入场**动画：@starting-style 给首帧起始值，图片与遮罩从透明缩放到原位
      （2024 起 Baseline）。
@@ -285,7 +284,7 @@ mark{background:var(--mark);color:var(--markfg);border-radius:3px;padding:0 2px}
 .codeblock{position:relative;margin:0 0 16px;background:var(--soft);
   border:1px solid var(--line);border-radius:10px;overflow:hidden}
 .codeblock .codebanner{display:flex;align-items:center;justify-content:space-between;
-  gap:12px;padding:9px 14px;background:var(--banner,var(--bg2,var(--soft)));
+  gap:12px;padding:9px 14px;background:var(--banner,var(--soft));
   border-bottom:1px solid var(--line);
   font:11px/18px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
 .codeblock .codebanner .lang{color:var(--muted)}
@@ -298,9 +297,8 @@ mark{background:var(--mark);color:var(--markfg);border-radius:3px;padding:0 2px}
 .copybtn:hover{color:var(--accent)}
 .copybtn.done{color:#1a7f37}
 .copybtn.bad{color:var(--t-kw)}
-@media print{.copybtn{display:none}}
 .kw{color:var(--t-kw)} .str{color:var(--t-str)} .com{color:var(--t-com);font-style:italic}
-.num{color:var(--t-num)} .fn{color:var(--t-fn)} .op{color:var(--t-op)}
+.num{color:var(--t-num)} .fn{color:var(--t-fn)}
 .dirlist{list-style:none;padding:0;margin:0}
 .dirlist li{border-bottom:1px solid var(--line);padding:7px 2px;display:flex;
   align-items:baseline;gap:10px}
@@ -323,7 +321,6 @@ mark{background:var(--mark);color:var(--markfg);border-radius:3px;padding:0 2px}
 .totop:hover{background:var(--line);color:var(--accent)}
 .totop:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .totop svg{display:block;width:20px;height:20px}
-@media print{.totop{display:none}}
 .note{background:var(--soft);border:1px solid var(--line);border-radius:8px;
   padding:12px 15px;color:var(--muted);font-size:14px;margin:0 0 18px}
 .hit{background:var(--soft);border:1px solid var(--line);border-radius:8px;
@@ -341,16 +338,39 @@ pre.rawsrc .srcline:target{background:var(--mark);color:var(--markfg);
    有 JS 时由 scrollIntoView({block:"center"}) 接管为真正居中。 */
 pre.rawsrc .srcline{scroll-margin-top:20vh;scroll-margin-bottom:70vh}
 .bad{color:var(--t-kw)}
+/* 打印：页面装饰（顶栏/面包屑/提示条）与三件 JS 注入物（放大遮罩、复制按钮、
+   回到顶部）都不上纸。集中成一处，别再散回各自的规则旁边。 */
 @media print{
   header.bar,.crumbs,.note{display:none}
   body{background:#fff;color:#000}
   .wrap{max-width:none;padding:0}
   pre,table,blockquote,code{border-color:#999;background:#f7f7f7}
+  dialog.zoomdlg[open],.copybtn,.totop{display:none}   /* [open] 才压得住 display:flex */
 }
 """
 COPY_JS = """
 (function () {
   var SVG_NS = "http://www.w3.org/2000/svg";
+
+  // 全站图标都由这里现画（不引图标字体、也不用字体字形 —— 字形的墨迹在 em 盒里
+  // 不居中且各字体偏得不一样，见 SELFTEST §30）。关闭 × 与回到顶部 ↑ 只差 path
+  // 与线帽，其余那一串 setAttribute 不必抄两遍。
+  function svgIcon(d, roundCaps) {
+    var svg = document.createElementNS(SVG_NS, "svg");
+    var path = document.createElementNS(SVG_NS, "path");
+    svg.setAttribute("viewBox", "0 0 24 24");
+    svg.setAttribute("aria-hidden", "true");   // 可访问名一律由宿主按钮的 aria-label 给
+    path.setAttribute("d", d);
+    path.setAttribute("fill", "none");
+    path.setAttribute("stroke", "currentColor");   // 强制色彩模式下也不会被压没
+    path.setAttribute("stroke-width", "2");
+    if (roundCaps) {
+      path.setAttribute("stroke-linecap", "round");
+      path.setAttribute("stroke-linejoin", "round");
+    }
+    svg.appendChild(path);
+    return svg;
+  }
   // 1) 搜索跳转：把目标行滚到视口竖向居中（浏览器默认只把它贴到视口最上沿）
   //    自己算坐标而不用 scrollIntoView：后者在"带 hash 首次加载"时会被浏览器的
   //    原生锚点滚动盖掉，实测仍停在视口上方。
@@ -439,21 +459,8 @@ COPY_JS = """
     big.alt = "";
     cap.className = "zoomcap"; cap.id = "zoomcap";
     btn.type = "button"; btn.className = "zoomclose";
-    // 图标用**现画的内联 SVG**，不用字体里的 U+00D7：那个字形在 em 盒里并不居中，
-    // 各字体的偏移还不一样（22px 下 macOS 系统字体低 ~2.3px，Arial 几乎为零），
-    // 任何写死的校正值都会在别的平台偏。SVG 的墨迹本来就对称于 viewBox 中心，
-    // 按钮再用 flex 居中即可；stroke 走 currentColor，强制色彩模式下也不会消失。
-    // 两条对角线在 24 格里的墨迹范围 ≈ 10.4px × 10.4px，与原字形（10.1 × 10.5）相仿。
-    var icon = document.createElementNS(SVG_NS, "svg");
-    var line = document.createElementNS(SVG_NS, "path");
-    icon.setAttribute("viewBox", "0 0 24 24");
-    icon.setAttribute("aria-hidden", "true");     // 可访问名由按钮的 aria-label 给
-    line.setAttribute("d", "M7.5 7.5 16.5 16.5M16.5 7.5 7.5 16.5");
-    line.setAttribute("fill", "none");
-    line.setAttribute("stroke", "currentColor");
-    line.setAttribute("stroke-width", "2");
-    icon.appendChild(line);
-    btn.appendChild(icon);
+    // 两条对角线在 24 格里的墨迹范围 ≈ 10.4px × 10.4px，与原字形（10.1 × 10.5）相仿
+    btn.appendChild(svgIcon("M7.5 7.5 16.5 16.5M16.5 7.5 7.5 16.5", false));
     btn.setAttribute("aria-label", "\u5173\u95ed\u653e\u5927\u89c6\u56fe");
     // 不写 autofocus：showModal() 本来就会聚焦 dialog 里第一个可聚焦元素。但打开后的
     // 初始焦点会被下面那次 zoom.focus() 收回遮罩本身 —— 所以"打开"这个动作不画焦点环，
@@ -507,22 +514,12 @@ COPY_JS = """
 
   // 3) 回到顶部：目录页 / Markdown 预览页 / 源码视图才注入（服务端在这些页面的 <body>
   //    上打了 data-totop，见 _page()）。按钮由脚本创建，所以禁用 JS 的基线里没有点不动
-  //    的死按钮 —— 与复制按钮、放大遮罩同一哲学。图标同样现画（一根轴 + 一个箭头），
-  //    不引图标字体。
+  //    的死按钮 —— 与复制按钮、放大遮罩同一哲学。图标是一根轴加一个箭头。
   if (document.body.hasAttribute("data-totop")) {
-    var toTop = document.createElement("button"), up = document.createElementNS(SVG_NS, "svg");
-    var arrow = document.createElementNS(SVG_NS, "path");
+    var toTop = document.createElement("button");
     toTop.type = "button"; toTop.className = "totop";
     toTop.setAttribute("aria-label", "\u56de\u5230\u9876\u90e8");
-    up.setAttribute("viewBox", "0 0 24 24");
-    up.setAttribute("aria-hidden", "true");   // 可访问名由按钮的 aria-label 给
-    arrow.setAttribute("d", "M12 19 12 6M6 12 12 6 18 12");
-    arrow.setAttribute("fill", "none");
-    arrow.setAttribute("stroke", "currentColor");
-    arrow.setAttribute("stroke-width", "2");
-    arrow.setAttribute("stroke-linecap", "round");
-    arrow.setAttribute("stroke-linejoin", "round");
-    up.appendChild(arrow); toTop.appendChild(up);
+    toTop.appendChild(svgIcon("M12 19 12 6M6 12 12 6 18 12", true));
     toTop.addEventListener("click", function () {
       // 动效听系统的：prefers-reduced-motion 时直接跳，不做平滑滚动
       var calm = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -533,8 +530,10 @@ COPY_JS = """
   }
 })();
 """
-def _page(title, body, nav_right="", show_search=True, search_q="", depth_nav="",
+def _page(title, body, nav_right="", show_search=None, search_q="", depth_nav="",
           to_top=False):
+    if show_search is None:
+        show_search = CFG.search
     search = ""
     if show_search:
         search = ('<form action="/search" method="get" role="search">'
@@ -768,6 +767,8 @@ SAFE_SCHEMES = frozenset((
     "irc", "ircs", "xmpp", "magnet", "gemini", "gopher",
 ))
 _SCHEME_RE = re.compile(r"^([A-Za-z][A-Za-z0-9+.-]*):")
+def _has_scheme(text):
+    return _SCHEME_RE.match(text) is not None
 def safe_href(url):
     if url is None:
         return ""
@@ -784,8 +785,6 @@ _AUTOLINK_RE = re.compile(r"<((?:https?|ftp|mailto)://[^\s<>]+|[^\s<>@]+@[^\s<>@
 _TAG_RE = re.compile(r"</?[A-Za-z][A-Za-z0-9-]*(?:\s[^<>]*)?/?>")
 _ENTITY_RE = re.compile(r"&(#[0-9]{1,7}|#[xX][0-9a-fA-F]{1,6}|[A-Za-z][A-Za-z0-9]{1,31});")
 _CODE_SPAN_RE = re.compile(r"(?<!`)(`+)(?!`)(.+?)(?<!`)\1(?!`)", re.DOTALL)
-_IMAGE_RE = re.compile(r"!\[([^\]]*)\]\(([^)\s]+)(?:\s+&quot;([^&]*)&quot;|\s+\"([^\"]*)\")?\)")
-_LINK_RE = re.compile(r"(?<!!)\[([^\]]*)\]\(([^)\s]+)(?:\s+&quot;([^&]*)&quot;|\s+\"([^\"]*)\")?\)")
 _REF_LINK_RE = re.compile(r"(!?)\[([^\]]*)\]\[([^\]]*)\]")
 _REF_DEF_RE = re.compile(
     r"^ {0,3}\[([^\]]+)\]:\s*(<[^<>\n]*>|\S+)"
@@ -1074,20 +1073,24 @@ def parse_inline(text, ctx):
                            for chunk, rendered in batches)
     text = _ENTITY_RE.sub(lambda m: stash(_entity_sub(m)), text)
     text = html.escape(text, quote=False)
+    def attr_text(raw):
+        text = re.sub(re.escape(_CODE_OPEN) + r"(\d+)" + re.escape(_CODE_CLOSE),
+                      lambda m: "<code>%s</code>" % code_spans[int(m.group(1))], raw)
+        return _alt_text(read_tokens_markup(text))
     def render_link(label_raw, dest_raw, title_raw):
         dest = html.unescape(read_tokens(dest_raw))
         try:
             href = urllib.parse.unquote(dest)
         except Exception:
             href = dest
-        if re.match(r"^[A-Za-z][A-Za-z0-9+.-]*:", href):
+        if _has_scheme(href):
             target = safe_href(dest)
             extra = ' rel="noreferrer noopener"' if target else ""
         else:
             target = safe_href(ctx.rewrite_target(dest))
             extra = ""
         attr = ' href="%s"' % target if target else ""
-        title = html.unescape(read_tokens(title_raw)) if title_raw else ""
+        title = attr_text(title_raw) if title_raw else ""
         tattr = ' title="%s"' % html.escape(title, quote=True) if title else ""
         return '<a%s%s%s>%s</a>' % (attr, tattr, extra, render_label(label_raw))
     def render_label(plain):
@@ -1098,8 +1101,8 @@ def parse_inline(text, ctx):
         src = safe_href(ctx.rewrite_target(dest))
         if not src:
             return None
-        tattr = (' title="%s"' % html.escape(title_raw, quote=True)
-                 if title_raw else "")
+        title = attr_text(title_raw) if title_raw else ""
+        tattr = ' title="%s"' % html.escape(title, quote=True) if title else ""
         return '<img src="%s" alt="%s"%s>' % (
             src, html.escape(_alt_text(render_label(alt_raw)), quote=True), tattr)
     def scan_inline(text):
@@ -1146,7 +1149,7 @@ def parse_inline(text, ctx):
     return wrap_zoom_images(text)
 def _ref_link_html(ctx, url, title, label_html):
     decoded = urllib.parse.unquote(url)
-    if re.match(r"^[A-Za-z][A-Za-z0-9+.-]*:", decoded):
+    if _has_scheme(decoded):
         href, extra = safe_href(decoded), ' rel="noreferrer noopener"'
     else:
         href, extra = safe_href(ctx.rewrite_target(url)), ""
@@ -1156,7 +1159,7 @@ def _ref_link_html(ctx, url, title, label_html):
         extra, label_html)
 def _ref_image_html(ctx, url, title, alt_text):
     decoded = urllib.parse.unquote(url)
-    if re.match(r"^[A-Za-z][A-Za-z0-9+.-]*:", decoded):
+    if _has_scheme(decoded):
         src = safe_href(decoded)
     else:
         src = safe_href(ctx.rewrite_target(url))
@@ -1189,12 +1192,6 @@ def _shortcut_ref(m, ctx, render_label, stash):
         img = _ref_image_html(ctx, url, title, _alt_text(render_label(label)))
         return stash(img) if img is not None else m.group(0)
     return stash(_ref_link_html(ctx, url, title, render_label(label)))
-def _is_punct(ch):
-    if not ch:
-        return False
-    if ch in _PUNCT:
-        return True
-    return unicodedata.category(ch)[0] in ("P", "S")
 def _ascii_word(ch):
     return ch.isascii() and ch.isalnum()
 def _flanking(text, sym, start, end, prev=None, nxt=None):
@@ -1216,8 +1213,6 @@ def _flanking(text, sym, start, end, prev=None, nxt=None):
     if sym[0] == "_" and _ascii_word(nxt):
         can_close = False
     return can_open, can_close
-_T3 = r"(?<!\*)\*{3}(?!\*)"
-_T3U = r"(?<!_)_{3}(?!_)"
 def _rewrite_triple(text):
     rx = re.compile(r"(?<![A-Za-z0-9_*])\*{3}(?=\S)((?:(?!\*{3}).)+?)(?<!\s)\*{3}",
                     re.DOTALL)
@@ -1425,7 +1420,7 @@ class RenderContext(object):
             decoded = urllib.parse.unquote(href)
         except Exception:
             decoded = href
-        if re.match(r"^[A-Za-z][A-Za-z0-9+.-]*:", decoded):
+        if _has_scheme(decoded):
             return href
         if decoded.startswith("#"):
             return href
@@ -1438,7 +1433,7 @@ class RenderContext(object):
         return url + query + frag
 def quote_seg_path(path):
     if path.startswith("http://") or path.startswith("https://") or \
-            re.match(r"^[A-Za-z][A-Za-z0-9+.-]*:", path):
+            _has_scheme(path):
         return path
     return "/".join(quote_seg(seg) for seg in path.split("/"))
 def slugify(text):
@@ -2052,7 +2047,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_header("Content-Length", "0")
                 self.end_headers()
                 return
-            self._send(HTTPStatus.OK, self._dir_page(abs_path, rel))
+            self._send(HTTPStatus.OK, self._list_view(abs_path, rel))
             return
         if not os.path.exists(abs_path):
             self._send(HTTPStatus.NOT_FOUND, _error_page("404", "文件不存在", rel))
@@ -2079,19 +2074,20 @@ class Handler(BaseHTTPRequestHandler):
             self._send(status, body)
             return
         self._send_file(abs_path)
-    def _dir_page(self, abs_dir, rel):
-        return self._list_view(abs_dir, rel)
     @staticmethod
     def _parent_link(rel):
         if not rel:
             return ""
         parent = "/".join(rel.split("/")[:-1])
         return '<p><a href="%s">../ 上级目录</a></p>' % url_for_rel(parent, trailing_slash=True)
+    @staticmethod
+    def _render_page(rel, title, body, nav_right=""):
+        return _page(title, body, nav_right=nav_right,
+                     depth_nav=depth_nav_html(rel), to_top=True)
     def _list_view(self, abs_dir, rel):
         head = [x for x in (_crumbs(rel) if rel else "", self._parent_link(rel)) if x]
         body = "\n".join(head) + render_dir_listing(abs_dir, rel)
-        return _page(self._index_title(rel), body, show_search=CFG.search,
-                     depth_nav=depth_nav_html(rel), to_top=True)
+        return self._render_page(rel, self._index_title(rel), body)
     @staticmethod
     def _index_title(rel):
         return "索引 " + ("/" + rel if rel else "/")
@@ -2107,11 +2103,10 @@ class Handler(BaseHTTPRequestHandler):
         body = (_crumbs(rel) + '\n<p class="note">源码视图（每行带锚点，可从搜索直接跳转）。'
                 '<a href="%s">看渲染结果</a></p>\n<pre class="rawsrc">%s</pre>'
                 % (html.escape(url_for_rel(rel), quote=True), "\n".join(rows)))
-        return HTTPStatus.OK, _page(
-            posixpath.basename(rel) + "（源码）", body,
+        return HTTPStatus.OK, self._render_page(
+            rel, posixpath.basename(rel) + "（源码）", body,
             nav_right='<a class="btn" href="%s">渲染</a>'
-            % html.escape(url_for_rel(rel), quote=True),
-            show_search=CFG.search, depth_nav=depth_nav_html(rel), to_top=True)
+            % html.escape(url_for_rel(rel), quote=True))
     @staticmethod
     def _read_text(abs_path):
         if not _is_regular_file(abs_path):
@@ -2139,9 +2134,7 @@ class Handler(BaseHTTPRequestHandler):
         raw_link = ('<a class="btn" href="%s?raw=1" title="查看原始 Markdown">源</a>'
                     % html.escape(url_for_rel(rel), quote=True))
         body = _crumbs(rel) + "\n" + cached
-        return HTTPStatus.OK, _page(title, body, nav_right=raw_link,
-                                    show_search=CFG.search,
-                                    depth_nav=depth_nav_html(rel), to_top=True)
+        return HTTPStatus.OK, self._render_page(rel, title, body, nav_right=raw_link)
 def local_ip_hint():
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -2216,7 +2209,7 @@ def banner(host, port, cfg):
         print("-" * 68)
         print(" ⚠ 局域网内任何人都能读取上述目录下的全部文件（含隐藏文件）。")
         print("   只想自己看:  --host 127.0.0.1      只想给 .md: --safe")
-    if not _has_md(root, 0):
+    if not _has_md(root):
         cands = _docs_root_candidates(root)
         if cands:
             print("-" * 68)
@@ -2253,15 +2246,10 @@ def _docs_root_candidates(root):
     walk("", 3)
     scored.sort(key=lambda x: (x[0], x[1].count("/")))
     return [rel for _score, rel in scored]
-def _has_md(path, depth):
-    if depth < 0:
-        return False
+def _has_md(path):
     try:
         for name in os.listdir(path):
-            full = os.path.join(path, name)
-            if os.path.isfile(full) and name.lower().endswith(MD_EXT):
-                return True
-            if os.path.isdir(full) and not name.startswith(".") and _has_md(full, depth - 1):
+            if os.path.isfile(os.path.join(path, name)) and name.lower().endswith(MD_EXT):
                 return True
     except OSError:
         pass

@@ -338,20 +338,23 @@ def _parse_size(text, what="--max-preview"):
     return value
 
 
+# ============================================================================
+# SECTION 2  CSS（内联样式；内容在这个字符串里，没有横幅是因为它要发给每个页面）
+# ============================================================================
 CSS = """
 *,*::before,*::after{box-sizing:border-box}
 :root{
   --bg:#ffffff; --fg:#1f2328; --muted:#59636e; --line:#d1d9e0; --soft:#f6f8fa;
   --accent:#0969da; --mark:#fff3bf; --markfg:#1f2328;
   --t-kw:#cf222e; --t-str:#0a3069; --t-com:#6e7781; --t-num:#0550ae;
-  --t-fn:#8250df; --t-op:#cf222e; --banner:#eaeef2;
+  --t-fn:#8250df; --banner:#eaeef2;
 }
 @media (prefers-color-scheme: dark){
   :root{
     --bg:#0d1117; --fg:#e6edf3; --muted:#9198a1; --line:#3d444d; --soft:#151b23;
     --accent:#4493f8; --mark:#5c4b00; --markfg:#f0f6fc;
     --t-kw:#ff7b72; --t-str:#a5d6ff; --t-com:#8b949e; --t-num:#79c0ff;
-    --t-fn:#d2a8ff; --t-op:#ff7b72; --banner:#1c2128;
+    --t-fn:#d2a8ff; --banner:#1c2128;
   }
 }
 html{-webkit-text-size-adjust:100%}
@@ -448,7 +451,6 @@ dialog.zoomdlg .zoomclose:focus-visible{outline:2px solid #fff;outline-offset:2p
 dialog.zoomdlg:focus{outline:none}
 /* 锁滚动：hidden 负责锁，scrollbar-gutter 负责别让滚动条槽位消失（否则整页右移） */
 html.zoomlock{overflow:hidden;scrollbar-gutter:stable}
-@media print{dialog.zoomdlg{display:none}}
 @media (prefers-reduced-motion: no-preference){
   /* 只做**入场**动画：@starting-style 给首帧起始值，图片与遮罩从透明缩放到原位
      （2024 起 Baseline）。
@@ -470,7 +472,7 @@ mark{background:var(--mark);color:var(--markfg);border-radius:3px;padding:0 2px}
 .codeblock{position:relative;margin:0 0 16px;background:var(--soft);
   border:1px solid var(--line);border-radius:10px;overflow:hidden}
 .codeblock .codebanner{display:flex;align-items:center;justify-content:space-between;
-  gap:12px;padding:9px 14px;background:var(--banner,var(--bg2,var(--soft)));
+  gap:12px;padding:9px 14px;background:var(--banner,var(--soft));
   border-bottom:1px solid var(--line);
   font:11px/18px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
 .codeblock .codebanner .lang{color:var(--muted)}
@@ -483,9 +485,8 @@ mark{background:var(--mark);color:var(--markfg);border-radius:3px;padding:0 2px}
 .copybtn:hover{color:var(--accent)}
 .copybtn.done{color:#1a7f37}
 .copybtn.bad{color:var(--t-kw)}
-@media print{.copybtn{display:none}}
 .kw{color:var(--t-kw)} .str{color:var(--t-str)} .com{color:var(--t-com);font-style:italic}
-.num{color:var(--t-num)} .fn{color:var(--t-fn)} .op{color:var(--t-op)}
+.num{color:var(--t-num)} .fn{color:var(--t-fn)}
 .dirlist{list-style:none;padding:0;margin:0}
 .dirlist li{border-bottom:1px solid var(--line);padding:7px 2px;display:flex;
   align-items:baseline;gap:10px}
@@ -508,7 +509,6 @@ mark{background:var(--mark);color:var(--markfg);border-radius:3px;padding:0 2px}
 .totop:hover{background:var(--line);color:var(--accent)}
 .totop:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .totop svg{display:block;width:20px;height:20px}
-@media print{.totop{display:none}}
 .note{background:var(--soft);border:1px solid var(--line);border-radius:8px;
   padding:12px 15px;color:var(--muted);font-size:14px;margin:0 0 18px}
 .hit{background:var(--soft);border:1px solid var(--line);border-radius:8px;
@@ -526,11 +526,14 @@ pre.rawsrc .srcline:target{background:var(--mark);color:var(--markfg);
    有 JS 时由 scrollIntoView({block:"center"}) 接管为真正居中。 */
 pre.rawsrc .srcline{scroll-margin-top:20vh;scroll-margin-bottom:70vh}
 .bad{color:var(--t-kw)}
+/* 打印：页面装饰（顶栏/面包屑/提示条）与三件 JS 注入物（放大遮罩、复制按钮、
+   回到顶部）都不上纸。集中成一处，别再散回各自的规则旁边。 */
 @media print{
   header.bar,.crumbs,.note{display:none}
   body{background:#fff;color:#000}
   .wrap{max-width:none;padding:0}
   pre,table,blockquote,code{border-color:#999;background:#f7f7f7}
+  dialog.zoomdlg[open],.copybtn,.totop{display:none}   /* [open] 才压得住 display:flex */
 }
 """
 
@@ -542,6 +545,26 @@ pre.rawsrc .srcline{scroll-margin-top:20vh;scroll-margin-bottom:70vh}
 COPY_JS = """
 (function () {
   var SVG_NS = "http://www.w3.org/2000/svg";
+
+  // 全站图标都由这里现画（不引图标字体、也不用字体字形 —— 字形的墨迹在 em 盒里
+  // 不居中且各字体偏得不一样，见 SELFTEST §30）。关闭 × 与回到顶部 ↑ 只差 path
+  // 与线帽，其余那一串 setAttribute 不必抄两遍。
+  function svgIcon(d, roundCaps) {
+    var svg = document.createElementNS(SVG_NS, "svg");
+    var path = document.createElementNS(SVG_NS, "path");
+    svg.setAttribute("viewBox", "0 0 24 24");
+    svg.setAttribute("aria-hidden", "true");   // 可访问名一律由宿主按钮的 aria-label 给
+    path.setAttribute("d", d);
+    path.setAttribute("fill", "none");
+    path.setAttribute("stroke", "currentColor");   // 强制色彩模式下也不会被压没
+    path.setAttribute("stroke-width", "2");
+    if (roundCaps) {
+      path.setAttribute("stroke-linecap", "round");
+      path.setAttribute("stroke-linejoin", "round");
+    }
+    svg.appendChild(path);
+    return svg;
+  }
   // 1) 搜索跳转：把目标行滚到视口竖向居中（浏览器默认只把它贴到视口最上沿）
   //    自己算坐标而不用 scrollIntoView：后者在"带 hash 首次加载"时会被浏览器的
   //    原生锚点滚动盖掉，实测仍停在视口上方。
@@ -630,21 +653,8 @@ COPY_JS = """
     big.alt = "";
     cap.className = "zoomcap"; cap.id = "zoomcap";
     btn.type = "button"; btn.className = "zoomclose";
-    // 图标用**现画的内联 SVG**，不用字体里的 U+00D7：那个字形在 em 盒里并不居中，
-    // 各字体的偏移还不一样（22px 下 macOS 系统字体低 ~2.3px，Arial 几乎为零），
-    // 任何写死的校正值都会在别的平台偏。SVG 的墨迹本来就对称于 viewBox 中心，
-    // 按钮再用 flex 居中即可；stroke 走 currentColor，强制色彩模式下也不会消失。
-    // 两条对角线在 24 格里的墨迹范围 ≈ 10.4px × 10.4px，与原字形（10.1 × 10.5）相仿。
-    var icon = document.createElementNS(SVG_NS, "svg");
-    var line = document.createElementNS(SVG_NS, "path");
-    icon.setAttribute("viewBox", "0 0 24 24");
-    icon.setAttribute("aria-hidden", "true");     // 可访问名由按钮的 aria-label 给
-    line.setAttribute("d", "M7.5 7.5 16.5 16.5M16.5 7.5 7.5 16.5");
-    line.setAttribute("fill", "none");
-    line.setAttribute("stroke", "currentColor");
-    line.setAttribute("stroke-width", "2");
-    icon.appendChild(line);
-    btn.appendChild(icon);
+    // 两条对角线在 24 格里的墨迹范围 ≈ 10.4px × 10.4px，与原字形（10.1 × 10.5）相仿
+    btn.appendChild(svgIcon("M7.5 7.5 16.5 16.5M16.5 7.5 7.5 16.5", false));
     btn.setAttribute("aria-label", "\u5173\u95ed\u653e\u5927\u89c6\u56fe");
     // 不写 autofocus：showModal() 本来就会聚焦 dialog 里第一个可聚焦元素。但打开后的
     // 初始焦点会被下面那次 zoom.focus() 收回遮罩本身 —— 所以"打开"这个动作不画焦点环，
@@ -698,22 +708,12 @@ COPY_JS = """
 
   // 3) 回到顶部：目录页 / Markdown 预览页 / 源码视图才注入（服务端在这些页面的 <body>
   //    上打了 data-totop，见 _page()）。按钮由脚本创建，所以禁用 JS 的基线里没有点不动
-  //    的死按钮 —— 与复制按钮、放大遮罩同一哲学。图标同样现画（一根轴 + 一个箭头），
-  //    不引图标字体。
+  //    的死按钮 —— 与复制按钮、放大遮罩同一哲学。图标是一根轴加一个箭头。
   if (document.body.hasAttribute("data-totop")) {
-    var toTop = document.createElement("button"), up = document.createElementNS(SVG_NS, "svg");
-    var arrow = document.createElementNS(SVG_NS, "path");
+    var toTop = document.createElement("button");
     toTop.type = "button"; toTop.className = "totop";
     toTop.setAttribute("aria-label", "\u56de\u5230\u9876\u90e8");
-    up.setAttribute("viewBox", "0 0 24 24");
-    up.setAttribute("aria-hidden", "true");   // 可访问名由按钮的 aria-label 给
-    arrow.setAttribute("d", "M12 19 12 6M6 12 12 6 18 12");
-    arrow.setAttribute("fill", "none");
-    arrow.setAttribute("stroke", "currentColor");
-    arrow.setAttribute("stroke-width", "2");
-    arrow.setAttribute("stroke-linecap", "round");
-    arrow.setAttribute("stroke-linejoin", "round");
-    up.appendChild(arrow); toTop.appendChild(up);
+    toTop.appendChild(svgIcon("M12 19 12 6M6 12 12 6 18 12", true));
     toTop.addEventListener("click", function () {
       // 动效听系统的：prefers-reduced-motion 时直接跳，不做平滑滚动
       var calm = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -727,16 +727,20 @@ COPY_JS = """
 
 
 
-def _page(title, body, nav_right="", show_search=True, search_q="", depth_nav="",
+def _page(title, body, nav_right="", show_search=None, search_q="", depth_nav="",
           to_top=False):
     """包一层完整 HTML 页面。样式内联，页面零额外请求。
 
+    `show_search=None` 表示**跟随 `CFG.search`**：搜索框是全局开关，不该由每个调用点
+    各记一遍（漏一处就是 `--no-search` 下某个页面仍长出搜索框 —— 错误页曾经如此）。
+
     `to_top=True` 时给 `<body>` 打一个 `data-totop` 标记，表示这一页要"回到顶部"那颗
-    按钮：目录页（`_list_view`）、Markdown 预览页（`_markdown_page`）、源码视图
-    （`_raw_page`）三个出口传 True，搜索页 / 错误页走默认值。按钮本身由 COPY_JS
-    运行时创建 —— 标记不是元素，所以禁用 JS 的基线里不会留下点不动的死按钮
-    （同复制按钮与放大遮罩）。
+    按钮：目录页 / Markdown 预览页 / 源码视图三个出口传 True（统一走
+    `Handler._render_page`），搜索页与错误页走默认值。按钮本身由 COPY_JS 运行时创建
+    —— 标记不是元素，所以禁用 JS 的基线里不会留下点不动的死按钮（同复制按钮与放大遮罩）。
     """
+    if show_search is None:
+        show_search = CFG.search
     search = ""
     if show_search:
         search = ('<form action="/search" method="get" role="search">'
@@ -1025,6 +1029,15 @@ SAFE_SCHEMES = frozenset((
 _SCHEME_RE = re.compile(r"^([A-Za-z][A-Za-z0-9+.-]*):")
 
 
+def _has_scheme(text):
+    """文本是否带 `scheme:` 前缀 —— **协议判定的唯一入口**。
+
+    这段正则曾在五处各抄一份（链接、裸 URL、图片、目标重写…）。抄多份的风险不在
+    风格：它是 XSS 白名单的第一道判据（`AGENT.md` 硬约束 3），副本一旦漂移就是漏洞。
+    """
+    return _SCHEME_RE.match(text) is not None
+
+
 def safe_href(url):
     """把 URL 变成可安全放进 href/src 属性的字符串。
 
@@ -1052,8 +1065,6 @@ _AUTOLINK_RE = re.compile(r"<((?:https?|ftp|mailto)://[^\s<>]+|[^\s<>@]+@[^\s<>@
 _TAG_RE = re.compile(r"</?[A-Za-z][A-Za-z0-9-]*(?:\s[^<>]*)?/?>")
 _ENTITY_RE = re.compile(r"&(#[0-9]{1,7}|#[xX][0-9a-fA-F]{1,6}|[A-Za-z][A-Za-z0-9]{1,31});")
 _CODE_SPAN_RE = re.compile(r"(?<!`)(`+)(?!`)(.+?)(?<!`)\1(?!`)", re.DOTALL)
-_IMAGE_RE = re.compile(r"!\[([^\]]*)\]\(([^)\s]+)(?:\s+&quot;([^&]*)&quot;|\s+\"([^\"]*)\")?\)")
-_LINK_RE = re.compile(r"(?<!!)\[([^\]]*)\]\(([^)\s]+)(?:\s+&quot;([^&]*)&quot;|\s+\"([^\"]*)\")?\)")
 # 引用式链接与图片共用一张引用表：`![x][ref]` 的 `!` 由第一组捕获。
 _REF_LINK_RE = re.compile(r"(!?)\[([^\]]*)\]\[([^\]]*)\]")
 # 定义里的目标有两种写法：普通 `\S+`，或 CommonMark 的 `<...>`（内部允许空格
@@ -1590,6 +1601,23 @@ def parse_inline(text, ctx):
 
     text = html.escape(text, quote=False)
 
+    def attr_text(raw):
+        """把「属性值消费方」的原始片段拍成**纯文本**：行内码标记 → 解 token → 剥标签 → 反转义。
+
+        title 与 alt 都是属性值，**一律不许出现标记**：
+        - 轻则属性里露出标签源码（`[t](u.md "`c`")` 曾产出 `title="<code>c</code>"`）；
+        - 重则 `wrap_zoom_images` 的标签扫描在属性内部的 `>` 处提前收尾，把 `</a>`
+          插进属性中间 —— `![a](p.png "`c`")` 实测产出的就是这种撕坏的标签。
+
+        行内码走的是**另一套**保护标记（`_CODE_OPEN`/`_CODE_CLOSE` + `code_spans`），
+        不在 token 表里，所以这里要先把它们摊平成 `<code>…</code>`，再交给 `_alt_text`
+        剥标签 —— 只解 token 是不够的。CommonMark 的 title 本来也不做行内解析，
+        拍平不是妥协。
+        """
+        text = re.sub(re.escape(_CODE_OPEN) + r"(\d+)" + re.escape(_CODE_CLOSE),
+                      lambda m: "<code>%s</code>" % code_spans[int(m.group(1))], raw)
+        return _alt_text(read_tokens_markup(text))
+
     def render_link(label_raw, dest_raw, title_raw):
         """构造 <a>。转义与协议过滤统一在这里做（B1 的修复点）。"""
         # 先解 token，再解 HTML 实体：写成 &amp; 的 URL 要还原成 &，
@@ -1601,14 +1629,14 @@ def parse_inline(text, ctx):
             href = urllib.parse.unquote(dest)
         except Exception:
             href = dest
-        if re.match(r"^[A-Za-z][A-Za-z0-9+.-]*:", href):
+        if _has_scheme(href):
             target = safe_href(dest)
             extra = ' rel="noreferrer noopener"' if target else ""
         else:
             target = safe_href(ctx.rewrite_target(dest))
             extra = ""
         attr = ' href="%s"' % target if target else ""
-        title = html.unescape(read_tokens(title_raw)) if title_raw else ""
+        title = attr_text(title_raw) if title_raw else ""
         tattr = ' title="%s"' % html.escape(title, quote=True) if title else ""
         return '<a%s%s%s>%s</a>' % (attr, tattr, extra, render_label(label_raw))
 
@@ -1631,8 +1659,11 @@ def parse_inline(text, ctx):
         src = safe_href(ctx.rewrite_target(dest))
         if not src:
             return None
-        tattr = (' title="%s"' % html.escape(title_raw, quote=True)
-                 if title_raw else "")
+        # title 与 alt 一样是**属性值**，走同一条拍平管线（见 attr_text）：
+        # 少了这一步，受保护区间的哨兵或标记会原样进属性 —— 例如
+        # `![a](p.png "x &amp; y")` 会把 NUL 哨兵写进 title。
+        title = attr_text(title_raw) if title_raw else ""
+        tattr = ' title="%s"' % html.escape(title, quote=True) if title else ""
         # alt 必须是**纯文本**并整段转义：属性值里不允许出现裸引号或标签
         # （标签内容里的 <strong>/<img> 直接塞进来就是属性注入，见 _alt_text）
         return '<img src="%s" alt="%s"%s>' % (
@@ -1711,7 +1742,7 @@ def _ref_link_html(ctx, url, title, label_html):
     `label_html` 是**已渲染的标签内容**（调用方用行内解析器产出），这里只拼装。
     """
     decoded = urllib.parse.unquote(url)
-    if re.match(r"^[A-Za-z][A-Za-z0-9+.-]*:", decoded):
+    if _has_scheme(decoded):
         href, extra = safe_href(decoded), ' rel="noreferrer noopener"'
     else:
         href, extra = safe_href(ctx.rewrite_target(url)), ""
@@ -1731,7 +1762,7 @@ def _ref_image_html(ctx, url, title, alt_text):
     注入新属性（SELFTEST §25）。
     """
     decoded = urllib.parse.unquote(url)
-    if re.match(r"^[A-Za-z][A-Za-z0-9+.-]*:", decoded):
+    if _has_scheme(decoded):
         src = safe_href(decoded)
     else:
         src = safe_href(ctx.rewrite_target(url))
@@ -1782,15 +1813,6 @@ def _shortcut_ref(m, ctx, render_label, stash):
     return stash(_ref_link_html(ctx, url, title, render_label(label)))
 
 
-def _is_punct(ch):
-    """ASCII 标点 + Unicode 标点/符号 —— 否则 *斜体*。 这种中文句末标点会关不掉。"""
-    if not ch:
-        return False
-    if ch in _PUNCT:
-        return True
-    return unicodedata.category(ch)[0] in ("P", "S")
-
-
 def _ascii_word(ch):
     """ASCII 字母/数字才算「词内」；CJK 不是 —— 中文*强调*中文 应当生效。"""
     return ch.isascii() and ch.isalnum()
@@ -1830,8 +1852,6 @@ def _flanking(text, sym, start, end, prev=None, nxt=None):
 
 
 # 恰好三个定界符（前后都不能再挨着同类字符），内部允许 ** 之类但不含三连
-_T3 = r"(?<!\*)\*{3}(?!\*)"
-_T3U = r"(?<!_)_{3}(?!_)"
 
 
 def _rewrite_triple(text):
@@ -2163,7 +2183,7 @@ class RenderContext(object):
             decoded = urllib.parse.unquote(href)
         except Exception:
             decoded = href
-        if re.match(r"^[A-Za-z][A-Za-z0-9+.-]*:", decoded):
+        if _has_scheme(decoded):
             return href
         if decoded.startswith("#"):
             return href
@@ -2179,7 +2199,7 @@ class RenderContext(object):
 def quote_seg_path(path):
     """按 / 分段做百分号编码，保留前导 /。"""
     if path.startswith("http://") or path.startswith("https://") or \
-            re.match(r"^[A-Za-z][A-Za-z0-9+.-]*:", path):
+            _has_scheme(path):
         return path
     return "/".join(quote_seg(seg) for seg in path.split("/"))
 
@@ -2990,7 +3010,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_header("Content-Length", "0")
                 self.end_headers()
                 return
-            self._send(HTTPStatus.OK, self._dir_page(abs_path, rel))
+            self._send(HTTPStatus.OK, self._list_view(abs_path, rel))
             return
 
         if not os.path.exists(abs_path):
@@ -3023,10 +3043,6 @@ class Handler(BaseHTTPRequestHandler):
             return
         self._send_file(abs_path)
 
-    def _dir_page(self, abs_dir, rel):
-        """目录页：分层浏览 —— 列出当前层的目录与文件。"""
-        return self._list_view(abs_dir, rel)
-
     @staticmethod
     def _parent_link(rel):
         """『../ 上级目录』链接；已在根目录时返回空串。"""
@@ -3035,11 +3051,21 @@ class Handler(BaseHTTPRequestHandler):
         parent = "/".join(rel.split("/")[:-1])
         return '<p><a href="%s">../ 上级目录</a></p>' % url_for_rel(parent, trailing_slash=True)
 
+    @staticmethod
+    def _render_page(rel, title, body, nav_right=""):
+        """内容页（目录 / 预览 / 源码）的统一出口。
+
+        这三页只有"内容与右上角按钮"不同，其余三件事完全一样：搜索框跟随全局开关、
+        面包屑下面挂层级导航、右下角装回到顶部按钮。以前这套三件套在三个调用点各
+        抄一遍 —— 加第四个页面时一定会漏一处，所以收在这里。
+        """
+        return _page(title, body, nav_right=nav_right,
+                     depth_nav=depth_nav_html(rel), to_top=True)
+
     def _list_view(self, abs_dir, rel):
         head = [x for x in (_crumbs(rel) if rel else "", self._parent_link(rel)) if x]
         body = "\n".join(head) + render_dir_listing(abs_dir, rel)
-        return _page(self._index_title(rel), body, show_search=CFG.search,
-                     depth_nav=depth_nav_html(rel), to_top=True)
+        return self._render_page(rel, self._index_title(rel), body)
 
     @staticmethod
     def _index_title(rel):
@@ -3063,11 +3089,10 @@ class Handler(BaseHTTPRequestHandler):
         body = (_crumbs(rel) + '\n<p class="note">源码视图（每行带锚点，可从搜索直接跳转）。'
                 '<a href="%s">看渲染结果</a></p>\n<pre class="rawsrc">%s</pre>'
                 % (html.escape(url_for_rel(rel), quote=True), "\n".join(rows)))
-        return HTTPStatus.OK, _page(
-            posixpath.basename(rel) + "（源码）", body,
+        return HTTPStatus.OK, self._render_page(
+            rel, posixpath.basename(rel) + "（源码）", body,
             nav_right='<a class="btn" href="%s">渲染</a>'
-            % html.escape(url_for_rel(rel), quote=True),
-            show_search=CFG.search, depth_nav=depth_nav_html(rel), to_top=True)
+            % html.escape(url_for_rel(rel), quote=True))
 
     @staticmethod
     def _read_text(abs_path):
@@ -3099,9 +3124,7 @@ class Handler(BaseHTTPRequestHandler):
         raw_link = ('<a class="btn" href="%s?raw=1" title="查看原始 Markdown">源</a>'
                     % html.escape(url_for_rel(rel), quote=True))
         body = _crumbs(rel) + "\n" + cached
-        return HTTPStatus.OK, _page(title, body, nav_right=raw_link,
-                                    show_search=CFG.search,
-                                    depth_nav=depth_nav_html(rel), to_top=True)
+        return HTTPStatus.OK, self._render_page(rel, title, body, nav_right=raw_link)
 
 
 # ============================================================================
@@ -3190,7 +3213,7 @@ def banner(host, port, cfg):
         print("-" * 68)
         print(" ⚠ 局域网内任何人都能读取上述目录下的全部文件（含隐藏文件）。")
         print("   只想自己看:  --host 127.0.0.1      只想给 .md: --safe")
-    if not _has_md(root, 0):
+    if not _has_md(root):
         cands = _docs_root_candidates(root)
         if cands:
             print("-" * 68)
@@ -3234,15 +3257,16 @@ def _docs_root_candidates(root):
     return [rel for _score, rel in scored]
 
 
-def _has_md(path, depth):
-    if depth < 0:
-        return False
+def _has_md(path):
+    """目录**顶层**有没有 Markdown 文件（只用于给"空根目录"提个醒，不下钻）。
+
+    曾经带一个 `depth` 参数并递归调用 `_has_md(full, depth - 1)`，但唯一的调用点是
+    `_has_md(root, 0)` —— 递归进去 depth 立刻变 -1 直接返回 False，那个分支从来没
+    执行过。删掉参数与分支，行为不变。
+    """
     try:
         for name in os.listdir(path):
-            full = os.path.join(path, name)
-            if os.path.isfile(full) and name.lower().endswith(MD_EXT):
-                return True
-            if os.path.isdir(full) and not name.startswith(".") and _has_md(full, depth - 1):
+            if os.path.isfile(os.path.join(path, name)) and name.lower().endswith(MD_EXT):
                 return True
     except OSError:
         pass
