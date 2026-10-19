@@ -9,7 +9,7 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BIN="${MDVIEW_BIN:-}"
 BASE_PORT="${PORT:-$((20000 + RANDOM % 10000))}"
-TMP="$(mktemp -d -t mdview-rust-selftest)"
+TMP="$(mktemp -d "${TMPDIR:-/tmp}/mdview-rust-selftest.XXXXXX")"
 ROOT="$TMP/root"
 PIDS=()
 PASS=0
@@ -252,10 +252,10 @@ ASSET_HTML="$(curl -s "$BASE/a.md")"
 chk "页面引用 highlight.js" "$ASSET_HTML" "/_assets/highlight.js"
 chk "页面引用 mdview.js" "$ASSET_HTML" "/_assets/mdview.js"
 
-HEADERS="$(curl -s -I "$BASE/b.txt" | tr -d '\r')"
+HEADERS="$(curl -s -I "$BASE/img.png" | tr -d '\r')"
 chk "HEAD 200" "$HEADERS" "200"
 chk "HEAD Content-Length" "$HEADERS" "Content-Length:"
-chk "HEAD 无 body（-I）" "$(curl -s -I "$BASE/b.txt" | grep -c '^HTTP/')" "1"
+chk "HEAD 无 body（-I）" "$(curl -s -I "$BASE/img.png" | grep -c '^HTTP/')" "1"
 
 echo "== safe server =="
 SAFE_PORT="$((BASE_PORT + 1))"

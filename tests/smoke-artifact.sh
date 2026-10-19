@@ -4,7 +4,7 @@
 set -euo pipefail
 
 BIN="${1:?usage: smoke-artifact.sh <binary>}"
-TMP="$(mktemp -d -t mdview-artifact-smoke)"
+TMP="$(mktemp -d "${TMPDIR:-/tmp}/mdview-artifact-smoke.XXXXXX")"
 ROOT="$TMP/root"
 PORT=$((25000 + RANDOM % 2000))
 PASS=0

@@ -21,7 +21,7 @@ else
   BIN="$REPO_ROOT/target/debug/mdview"
 fi
 
-TMP="$(mktemp -d -t mdview-trust-tty)"
+TMP="$(mktemp -d "${TMPDIR:-/tmp}/mdview-trust-tty.XXXXXX")"
 PIDS=()
 PASS=0
 FAIL=0
