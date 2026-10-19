@@ -184,7 +184,7 @@ async function writeFixture(root) {
   const filler = Array.from({ length: 120 }, (_, i) => `第 ${i + 1} 段，用来把页面撑到可滚动。`).join('\n\n');
   await writeFile(
     join(root, 'page.md'),
-    `# Probe\n\n中文 **粗体**。\n\n## Section A\n\n\`\`\`python\ndef f():\n    return 1\n\`\`\`\n\n### Sub\n\n![图](img.png)\n\n[目录](/)\n\n${filler}\n`,
+    `# Probe\n\n中文 **粗体**。\n\n## Section A\n\n\`\`\`python\ndef f():\n    return 1\n\`\`\`\n\n### Sub\n\n![图](img.png)\n\n[目录](/)\n\n## Section B\n\n末尾段落。\n\n${filler}\n`,
   );
   await writeFile(join(root, 'sub', 'page.md'), '# Sub\n\n[上级](/) · ![图](img.png)\n');
   for (let i = 0; i < 40; i += 1) {
@@ -284,7 +284,7 @@ async function main() {
     check('highlight.js 着色', (await evaluate('document.querySelectorAll("pre code.hljs span").length')) > 0);
     check('复制按钮已注入', (await evaluate('document.querySelectorAll(".copy-btn").length')) === 1);
     check('代码块语言条', (await evaluate('document.querySelector(".code-block .code-bar .lang")?.textContent')) === 'python');
-    check('页内目录已生成', (await evaluate('document.querySelectorAll("#toc-slot .toc a").length')) === 2);
+    check('页内目录已生成', (await evaluate('document.querySelectorAll("#toc-slot .toc a").length')) === 3);
     check('侧栏当前文件', (await evaluate('document.querySelector(".side-link.active")?.textContent')) === 'page.md');
     check('无外部资源请求', requests.every((url) => url.startsWith(base) || url.startsWith('data:')), requests.join(', '));
 
@@ -357,9 +357,9 @@ async function main() {
     check('侧栏填满视口', (await evaluate('Math.abs(document.querySelector(".sidebar").getBoundingClientRect().height - (innerHeight - 58)) <= 1')) === true);
     check('TOC 填满视口', (await evaluate('Math.abs(document.querySelector(".toc-col").getBoundingClientRect().height - (innerHeight - 58)) <= 1')) === true);
     check('TOC 当前项', (await evaluate('!!document.querySelector(".toc-col a.active")')) === true);
-    await evaluate('document.getElementById("toc-2").scrollIntoView()');
-    await sleep(300);
-    check('TOC 跟随滚动', (await evaluate('document.querySelector(".toc-col a.active")?.getAttribute("data-target")')) === 'toc-2');
+    await evaluate('window.scrollTo(0, document.getElementById("toc-3").getBoundingClientRect().top + window.scrollY - 70)');
+    await sleep(400);
+    check('TOC 跟随滚动', (await evaluate('document.querySelector(".toc-col a.active")?.getAttribute("data-target")')) === 'toc-3');
     await evaluate('document.getElementById("toc-toggle").click()');
     check('TOC 可收起', (await evaluate('getComputedStyle(document.querySelector(".toc-col")).display')) === 'none');
     check('TOC 收起后两列', (await evaluate('getComputedStyle(document.getElementById("shell")).gridTemplateColumns.split(" ").length')) === 2);
