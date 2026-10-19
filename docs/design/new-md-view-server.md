@@ -130,21 +130,34 @@ CLI：
   - 拒绝一切 `data:`，**唯一例外**是 `data:image/(gif|png|jpeg|webp);…`
     （分号后不要求 `;base64`；链接与图片位置都放行，这是 VS Code 的实际行为）；
   - 裸 HTML 不经过这条校验，由 CSP 约束。
-- 裸 URL 自动链接只认 `http`/`https`；`www.` 与裸邮箱不链接（`fuzzyLink: false`）。
+- 裸 URL 自动链接：`https://…` 会链接，裸邮箱会变成 `mailto:`
+  （`fuzzyEmail` 默认开启）；`www.example.com` 不链接（`fuzzyLink: false`）。
 
 ### 6.3 comrak 需要补齐的地方
 
-comrak 默认不校验链接协议，因此必须自定义渲染器：
+P0 差分（[报告](../spikes/comrak-vs-markdown-it.md)）确认 comrak 的核心解析可用，
+但以下层必须自定义：
 
-1. **Link/image 渲染**：套用 `validateLink` 与 §6.2 的目标重写。
-2. **Front matter**：comrak 只切出原文；按 VS Code 规则渲染
+1. **Link/image 渲染**：套用 `validateLink` 与 §6.2 的目标重写；被拒目标按
+   markdown-it 的字面/raw tail 回退（生产侧由 Trust/CSP 约束）。
+2. **Linkify**：关闭 comrak 的 `extension.autolink`，用独立 pass 复刻
+   markdown-it/linkify-it 的 `http(s)`、裸邮箱（`mailto:`）与边界规则；
+   `www.` 不链接。
+3. **Reference definition 预扫描**：合法尖括号目标（`[r]: <a b.md>`）归一化；
+   被拒协议的整条定义不注册，保留为段落（与 markdown-it 一致）。
+4. **Front matter**：文档开头的 `---` 块先切出，按 VS Code 规则渲染
    `<table class="frontmatter" title="Frontmatter"><tbody>…`。
-3. **代码块**：输出 `<pre><code class="language-…">`，不在服务端高亮。
-4. **任务列表**：关闭 comrak 的 tasklist 扩展。
-5. **标题 id**：不生成。
-6. **Raw HTML**：`render.unsafe = true`。
-7. **列表紧凑度、HTML block、linkify 边角**：用 golden 差分找出差异，
-   在渲染器或预/后处理里逐条对齐，不在文档里声称未验证的等价性。
+5. **表格对齐**：单元格输出 `style="text-align:…"`，不是 `align="…"`。
+6. **图像 alt**：复刻 markdown-it 的纯文本提取（跳过实体 token）。
+7. **代码块**：输出 `<pre><code class="language-…">`，不在服务端高亮；
+   `~~x~~` 输出 `<s>`（不是 `<del>`）。
+8. **任务列表**：关闭 comrak 的 tasklist 扩展；标题不生成 `id`。
+9. **Raw HTML**：`render.unsafe = true`。
+10. **列表紧凑度、HTML block**：用 golden 差分找出剩余差异，逐条对齐；
+    不在文档里声称未验证的等价性。
+
+P0 的 26 条已知差异已在报告里逐类列出并给出修复顺序；P2 的 golden 语料必须
+逐条覆盖它们。
 
 ### 6.4 视觉
 

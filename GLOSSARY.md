@@ -56,9 +56,10 @@ _Avoid_: 自动链接（与下面那条混用时指代不清）
 _Avoid_: 纯文本链接、自动链接
 
 **裸 URL 自动链接**：
-把裸 URL 变成 `<a>` 的能力（markdown-it 的 linkify）。只认 `http` / `https`；
-`www.example.com` 与裸邮件地址**不在此列**（`fuzzyLink: false`）。
-与尖括号自动链接的区别在**输入形态**：一个要写成 `<>`，一个不用写任何标记。
+把裸 URL 变成 `<a>` 的能力（markdown-it 的 linkify）。`https://…` 与裸邮箱
+`a@b.com` 会被链接（`fuzzyEmail` 默认开启，邮箱变 `mailto:`）；
+`www.example.com` **不链接**（`fuzzyLink: false`）。与尖括号自动链接的区别在
+**输入形态**：一个要写成 `<>`，一个不用写任何标记。
 _Avoid_: 自动链接、URL 识别
 
 **句末标点**：

@@ -32,7 +32,8 @@ markdown-it **14.3.2**。本决定把“一致”钉成可验证的语义与视�
   不带这些；数学/Mermaid 是独立扩展，本次明确不在范围）。
 - markdown-it 选项：`html: true`、`linkify: true` 且 `fuzzyLink: false`、
   `typographer: false`、`breaks: false`、`langPrefix: "language-"`。
-- 裸 URL 自动链接只认 `http`/`https`；`www.` 与裸邮箱不链接。
+- 裸 URL 自动链接：`https://…` 会链接，裸邮箱会变成 `mailto:`（`fuzzyEmail` 默认开启）；
+  `www.example.com` 不链接（`fuzzyLink: false`）。
 
 ### 2. 目标路径与协议
 

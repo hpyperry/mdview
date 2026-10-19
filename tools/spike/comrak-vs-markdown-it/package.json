@@ -1,0 +1,16 @@
+{
+  "name": "comrak-vs-markdown-it",
+  "private": true,
+  "type": "module",
+  "description": "P0 differential probe: comrak 0.56 vs VS Code's markdown-it 14.3.2",
+  "scripts": {
+    "oracle": "node oracle.mjs",
+    "compare": "node compare.mjs",
+    "perf": "node perf.mjs"
+  },
+  "dependencies": {
+    "js-yaml": "4.1.0",
+    "markdown-it": "14.3.2",
+    "parse5": "7.2.1"
+  }
+}

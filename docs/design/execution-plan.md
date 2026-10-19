@@ -1,6 +1,6 @@
 # 执行计划：Rust 单文件 mdview
 
-**Status**: ready to execute（2026-10-19）
+**Status**: P0 complete — **Gate A: Yellow**（2026-10-19）；P1/P2 ready
 **Branch**: `refactor/new-md-view-server`
 **依据**: [设计方案](new-md-view-server.md) · [ADR 0004](../adr/0004-rust-rewrite-and-dependencies.md) ·
 [ADR 0005](../adr/0005-vscode-1.142-as-oracle.md) · [ADR 0006](../adr/0006-html-trust-and-csp.md)
@@ -8,6 +8,11 @@
 这份计划把设计方案落成可执行的工作包。**P0 是决策门**：先量化 comrak 与
 markdown-it 的差异，再决定是否全速实现。P0 不通过时，停下来重选解析器，
 不要在错误的基础上建服务器。
+
+> **P0 结果（2026-10-19）**：1030 条计分语料 **1012 条精确匹配（98.25%）**，
+> **0 条未解释差异**；18 条计分差异全部归入已知自定义层。Gate A = **Yellow**：
+> 继续用 comrak，但把 linkify pass 与 reference-definition 预扫描列为 P2 的
+> 必做项。详见 [差分报告](../spikes/comrak-vs-markdown-it.md)。
 
 ## 0. 原则
 
@@ -22,49 +27,49 @@ markdown-it 的差异，再决定是否全速实现。P0 不通过时，停下�
 
 | 阶段 | 目标 | 粗估 | 依赖 |
 |---|---|---|---|
-| P0 | comrak vs markdown-it 差分探针 + 决策门 | 0.5–1 天 | 无 |
+| P0 | comrak vs markdown-it 差分探针 + 决策门 | **完成（黄）** | 无 |
 | P1 | Rust 骨架、CLI、静态服务、Trust/CSP、测试骨架 | 3–4 天 | 可与 P0 并行 |
-| P2 | Markdown 渲染管线 + golden 差分收敛 | 5–8 天 | P0 绿/黄 |
+| P2 | Markdown 渲染管线 + golden 差分收敛 | **8–12 天** | P0 绿/黄 |
 | P3 | VS Code CSS + 完整 highlight.js + 源码查看页 + 前端 | 3–4 天 | P1、P2 |
 | P4 | 移植旧测试、重写 selftest、安全/性能/跨平台 | 3–5 天 | P2、P3 |
 | P5 | 删除 Python、更新示例与文档、归档旧台账 | 1–2 天 | P4 |
 | P6 | 全平台构建、发布 artifact、许可证与烟测 | 1–2 天 | P4、P5 |
 
-**总量级**：单人全职约 **4–6 周**（含测试）。最大变量是 P2 的边角对齐；
-P0 的红色结果会让估算重新开始。P0 与 P1 可以并行，P3 的资产准备可以在 P2
-期间先做。
+**总量级**：单人全职约 **5–7 周**（含测试；P0 后上调）。最大变量是 P2 的 linkify
+与 reference-definition 自定义层；P0 的红色结果会让估算重新开始。P1 可以在
+P2 之前先落骨架，P3 的资产准备可以在 P2 期间做。
 
 ## 2. P0：解析器差分探针（决策门）
 
 **目标**：回答“comrak + 自定义渲染器能否达到严格 VS Code 语义”，而不是凭感觉。
-**时间盒**：0.5–1 天。**不写产品代码。**
+**时间盒**：0.5–1 天（已完成）。**不写产品代码。**
 
 ### 工作包
 
-- [ ] **P0-1 语料**：收集旧 `docs/`、从 `tests/tests_render.py` 提取的 217 个输入、
-      CommonMark/GFM 规范样例、VS Code 特有边角（CJK 强调、`2*3*4`、全角 URL、
-      Setext、task list、heading id、front matter、data URI、raw HTML、`%xx` 路径）。
-- [ ] **P0-2 Oracle**：Node 22 + `markdown-it@14.3.2` + `linkify-it@5` + YAML；
+- [x] **P0-1 语料**：旧 `docs/`、旧测试实际输入、CommonMark spec、VS Code 特有边角
+      （CJK 强调、`2*3*4`、全角 URL、Setext、task list、heading id、front matter、
+      data URI、raw HTML、`%xx` 路径）。
+- [x] **P0-2 Oracle**：Node 22 + `markdown-it@14.3.2` + `js-yaml`；
       选项 `html:true`、`linkify:true`、`fuzzyLink:false`、`typographer:false`、
       `breaks:false`；front matter 按 VS Code 表格规则。
-- [ ] **P0-3 comrak 探针**：comrak 0.56，开启 table/strikethrough/autolink/front matter，
-      关闭 tasklist/math/footnote，`unsafe` 透传 HTML；先裸渲染，再加最小自定义层
-      （协议校验、URL 重写、front matter 表格）分两阶段对比。
-- [ ] **P0-4 规范化 diff**：DOM 规范化；保留 `pre/code` 内空白；忽略 VS Code 私有
+- [x] **P0-3 comrak 探针**：comrak 0.56，开启 table/strikethrough，关闭
+      tasklist/math/footnote，`unsafe` 透传 HTML；自定义 `validateLink` + sourcepos
+      回退；autolink 的差异单独分类。
+- [x] **P0-4 规范化 diff**：DOM 规范化；保留 `pre/code` 内空白；忽略 VS Code 私有
       `data-line`/`code-line`/`data-vscode-context` 与纯序列化差异。
-- [ ] **P0-5 性能检查**：长行、大文件、linkify 密集输入，确认无平方级退化。
-- [ ] **P0-6 报告**：`docs/spikes/comrak-vs-markdown-it.md`，含通过率、差异分类、
-      典型反例、必须的自定义修复、结论。
+- [x] **P0-5 性能检查**：1 MB/10 MB、URL 密集、256 KB 长行；未发现平方级退化。
+- [x] **P0-6 报告**：[`docs/spikes/comrak-vs-markdown-it.md`](../spikes/comrak-vs-markdown-it.md)；
+      1012/1030 精确匹配，0 未解释差异，Gate A = 黄。
 
 ### 决策门
 
 | 结果 | 条件 | 动作 |
 |---|---|---|
 | 绿 | 差异只剩已知自定义层/序列化噪声 | 继续 P1/P2 |
-| 黄 | 有解析差异，但可在渲染器或薄后处理修 | 带差异清单进 P2，golden 钉住 |
+| **黄（本次）** | 有解析差异，但可在渲染器或薄后处理修 | 带差异清单进 P2，golden 钉住 |
 | 红 | 核心解析/HTML block/列表紧凑度大面积不一致 | 停；重新评估 markdown-it-rs、pulldown-cmark、内嵌 markdown-it；更新 ADR 0005 |
 
-**验收**：报告能明确回答“剩余差异是否可修”；P0 代码可丢弃或留在 `tools/spike/`。
+**验收**：报告已明确回答“剩余差异是否可修”；P0 代码保留在 `tools/spike/` 以便复现。
 
 ## 3. P1：Rust 骨架与静态服务器
 
@@ -103,22 +108,29 @@ P0 的红色结果会让估算重新开始。P0 与 P1 可以并行，P3 的资�
 
 ### 工作包
 
-- [ ] **P2-1 comrak 配置**：`unsafe` HTML、table/strikethrough/autolink、front matter；
-      关闭 tasklist/footnote/math；确认不生成 heading id。
+- [ ] **P2-1 comrak 配置**：`unsafe` HTML、table/strikethrough；关闭 autolink
+      （由自定义 linkify pass 取代）、tasklist/footnote/math；确认不生成 heading id。
 - [ ] **P2-2 自定义渲染器**：
   - `validateLink`：拒 `javascript:`/`vbscript:`/`file:`/非法 `data:`；
-    `data:image/(gif|png|jpeg|webp);…` 在链接与图片位置都放行。
+    `data:image/(gif|png|jpeg|webp);…` 在链接与图片位置都放行；被拒目标按
+    markdown-it 的字面/raw tail 回退（生产侧由 CSP 约束）。
+  - **linkify pass**：关闭 comrak autolink；复刻 markdown-it/linkify-it 的
+    http/https、裸邮箱与边界（`www.` 不链、实体/冒号/引号边界）。
+  - **reference-definition 预扫描**：合法尖括号目标归一化；被拒协议的整条定义
+    不注册，保留为段落。
   - URL 重写：切 `?`/`#` → 解码两次 → 相对解析 → 编码一次 → 根相对 URL。
   - Front matter：表格 + 值渲染规则（null/数组/对象/日期）。
+  - 表格单元格：`style="text-align:…"`（不是 `align=`）。
+  - 图像 alt：复刻 markdown-it 的纯文本提取（跳过实体 token）。
   - 代码块：`<pre><code class="language-…">`，不在服务端高亮。
-  - 裸 HTML 透传；任务列表/标题 id 不生成。
+  - 裸 HTML 透传；任务列表/标题 id 不生成；`~~x~~` 输出 `<s>`。
 - [ ] **P2-3 Golden 测试**：`tests/golden/` 生成器（Node 22 + 锁定依赖）、语料、
-      Rust 对比器；忽略规则写死并注释；golden 入库。
+      Rust 对比器；忽略规则写死并注释；golden 入库。**P0 的 26 条已知差异必须逐条有回归夹具。**
 - [ ] **P2-4 差异收敛**：逐条修 comrak/markdown-it 边角；每条差异要么修，要么
       归类为“有意忽略”并写原因。
 - [ ] **P2-5 渲染缓存**：`(path, mtime_ns, size)` 键；外部编辑自动失效；
       渲染页 `no-store`。
-- [ ] **P2-6 单元/性能测试**：URL/协议/front matter；长行与大输入无平方级退化。
+- [ ] **P2-6 单元/性能测试**：URL/协议/linkify/front matter；长行与大输入无平方级退化。
 
 ### 验收
 
