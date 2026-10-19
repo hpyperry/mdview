@@ -1,6 +1,6 @@
 # 执行计划：Rust 单文件 mdview
 
-**Status**: P0–P5 完成；P6 进行中（CI 已定义，待首次运行与 release 烟测）
+**Status**: P0–P5 完成；P6 基本完成（CI 全绿，release tag 待验证）
 **Branch**: `refactor/new-md-view-server`
 **依据**: [设计方案](new-md-view-server.md) · [ADR 0004](../adr/0004-rust-rewrite-and-dependencies.md) ·
 [ADR 0005](../adr/0005-vscode-1.142-as-oracle.md) · [ADR 0006](../adr/0006-html-trust-and-csp.md) ·
@@ -42,8 +42,8 @@ markdown-it 的差异，再决定是否全速实现。P0 不通过时，停下�
 P2 的 URL/安全/表格对齐层；P1 可以先落骨架，P3 的资产准备可以在 P2 期间做。
 
 > **实现状态（2026-10-19）**：P1–P5 已完成；`cargo test` 45 + 134 + 27 golden、黑盒 110、pty 9、
-> 浏览器 34、artifact 冒烟 7，clippy/fmt 全绿，release 约 3.3 MB。P6 的 CI 矩阵、打包、`cargo audit` 与
-> CHANGELOG 已落，等待 GitHub 实跑；许可证已定为 MIT。
+> 浏览器 34、artifact 冒烟 7，clippy/fmt 全绿，release 约 3.3 MB。P6 的 CI 矩阵、打包与依赖审计已实跑通过；
+> 许可证 MIT，release tag 工作流待验证。
 
 ## 2. P0：解析器差分探针（决策门）
 
@@ -204,10 +204,9 @@ P2 的 URL/安全/表格对齐层；P1 可以先落骨架，P3 的资产准备�
       `X-Content-Type-Options`、level 2 无 CSP 均已断言。
 - [x] **P4-5 安全测试**：协议白名单、data URI 正反例、路径穿越、symlink
       逃逸/根内放行、`--safe`、下载头注入/文件名编码。
-- [~] **P4-6 性能/跨平台**：长行、畸形括号、定界符、链接+裸 URL 混合、
-      1 MB 输入已有上界断言；新增 Windows 风格路径（反斜杠/盘符/双重编码）、
-      Unicode 文件名测试与 `.github/workflows/ci.yml` 三平台矩阵（macOS 14 /
-      Ubuntu / Windows）。CI 首次运行后转 `[x]`。
+- [x] **P4-6 性能/跨平台**：长行、畸形括号、定界符、链接+裸 URL 混合、
+      1 MB 输入已有上界断言；Windows 风格路径/Unicode 文件名测试；CI 三平台
+      矩阵（macOS 14 / Ubuntu / Windows）全绿。
 
 ### 验收
 
@@ -249,17 +248,15 @@ P2 的 URL/安全/表格对齐层；P1 可以先落骨架，P3 的资产准备�
 
 - [x] **P6-1 Cargo profile**：LTO、`codegen-units=1`、`strip` 已启用；
       release 二进制约 **3.3 MB**（含 1 MB highlight.js bundle）。
-- [~] **P6-2 CI matrix**：`.github/workflows/ci.yml` 已定义
-      `aarch64-apple-darwin`、`x86_64-unknown-linux-musl`、
-      `aarch64-unknown-linux-musl`、`x86_64-pc-windows-msvc`（
-      `.cargo/config.toml` 打开 `+crt-static`）；尚未在 GitHub 实跑。
-- [~] **P6-3 打包**：CI 与 `release.yml` 产出 `.tar.gz`/`.zip`（含二进制、
-      README、LICENSE、THIRD-PARTY-NOTICES）；tag 发布时生成 `SHA256SUMS`
-      并上传 GitHub Release；尚未实跑。
+- [x] **P6-2 CI matrix**：4 个目标全部构建成功（GitHub Actions run
+      39274836191）；`.cargo/config.toml` 打开 Windows static CRT。
+- [~] **P6-3 打包**：CI 已产出 4 个 `.tar.gz`/`.zip`（含二进制、README、
+      LICENSE、THIRD-PARTY-NOTICES）；`release.yml` 的 SHA256SUMS 与
+      GitHub Release 仍需一个 tag 验证。
 - [x] **P6-4 依赖审计**：本机 `cargo audit` 无漏洞；`cargo deny check
       advisories licenses bans sources` 全 ok；CI 同样运行两者。
-- [~] **P6-5 artifact 烟测**：`tests/smoke-artifact.sh` 对构建产物做目录/渲染/
-      资产/下载/CSP 冒烟，CI 在可运行目标上执行；跨平台实跑待首次 release。
+- [x] **P6-5 artifact 烟测**：`tests/smoke-artifact.sh` 在 CI 中对 macOS arm64、
+      Linux x86_64 musl、Windows x86_64 产物执行并通过；arm64 musl 只构建。
 - [x] **P6-6 发布说明**：`CHANGELOG.md` 记录 2.0.0 功能、破坏性变更、
       已知后果与测试计数。
 
@@ -302,7 +299,7 @@ P0 ──Gate A──> P2 ──Gate B──> P4 ──Gate C──> P5 ──> 
 ## 11. 完成定义（DoD）
 
 - [x] `cargo fmt --check`、`cargo clippy -- -D warnings`、`cargo test --locked` 全绿。
-- [x] `bash tests/selftest-rust.sh` 在 macOS 全绿；CI 矩阵待首次运行。
+- [x] `bash tests/selftest-rust.sh` 在 macOS/Linux/Windows 全绿（CI 矩阵）。
 - [ ] Golden 语料 100% 规范化匹配；剩余差异有记录。
 - [ ] Trust/CSP/协议/路径安全测试独立通过。
 - [ ] 4 个平台 artifact 烟测通过；单文件运行、零外部请求。

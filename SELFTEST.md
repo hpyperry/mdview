@@ -71,12 +71,21 @@ P0 差分报告：1035 条计分语料 **1015 条精确匹配（98.07%）**，0 
 另用 headless Chrome 截图核对过 VS Code `markdown.css` 排版、vs/vs2015 配色、
 源码页行号与深色模式。
 
+## CI（GitHub Actions）
+
+- 运行：`CI · 39274836191`（2026-10-19），**全部 job 绿色**：
+  macOS 14 / Ubuntu / Windows 测试矩阵、依赖审计、4 目标构建。
+- 测试矩阵覆盖：`cargo test`、黑盒 110、TTY 9、浏览器 34；Windows 跳过
+  pty/浏览器，其余全跑。
+- artifact 冒烟：macOS arm64、Linux x86_64 musl、Windows x86_64 通过；
+  Linux arm64 musl 只构建（x86 runner 无法执行 arm64）。
+- 4 个 artifact 大小：macOS 2.85 MB、Windows 3.31 MB、Linux x64 3.34 MB、
+  Linux arm64 3.05 MB。
+- tag `v*` 触发的 `release.yml`（SHA256SUMS + GitHub Release）尚未实跑。
+
 ## 尚未验证 / 待办
 
-- GitHub Actions 的 macOS / Ubuntu / Windows 矩阵**尚未首次运行**；
-- 本机（macOS）未完成 Linux musl / Windows 交叉构建；由 CI 的 4 目标矩阵负责；
-- 4 个目标的 release artifact 尚未在目标平台烟测（CI 已加
-  `tests/smoke-artifact.sh`，本机只验证了当前平台）；
+- `release.yml` 需要一次 tag 才能验证；当前只验证了 CI 打包。
 - 完整 P0 语料的 golden 生成器仍以 `tools/spike/` 为准（当前为 27 条 curated golden）。
 
 ## 复现
