@@ -1029,6 +1029,10 @@ SAFE_SCHEMES = frozenset((
 ))
 _SCHEME_RE = re.compile(r"^([A-Za-z][A-Za-z0-9+.-]*):")
 
+# data URI 只在图片 src 放行，且只认服务端已有的图片类型（ADR 0003）。
+# 值直接从 MIME 表取，避免两份类型清单漂移 —— 加一种图片扩展名时自动跟上。
+DATA_IMAGE_MIME = frozenset(MIME[ext] for ext in IMAGE_EXT)
+
 
 def _has_scheme(text):
     """文本是否带 `scheme:` 前缀 —— **协议判定的唯一入口**。
@@ -1039,11 +1043,39 @@ def _has_scheme(text):
     return _SCHEME_RE.match(text) is not None
 
 
-def safe_href(url):
+def _is_allowed_data_image(text):
+    """`data:` 是否是可放行的图片源（ADR 0003）。
+
+    只接受 `data:<图片 MIME>[...];base64,<数据>`：类型必须命中 DATA_IMAGE_MIME，
+    编码必须声明为 base64。非 base64 的文本形式刻意不支持 —— 二进制图片实践中
+    都是 base64，放开文本形式还要再设计一套百分号解码规则。
+
+    `text` 是 safe_href 去掉控制字符后的串，也就是最终要写进 src 的那个串；
+    判定与输出必须针对同一份文本，否则「判的是 A、写的是 B」就是绕过口。
+    """
+    if text[:5].lower() != "data:":
+        return False
+    meta, sep, _payload = text[5:].partition(",")
+    if not sep:
+        return False
+    parts = meta.split(";")
+    if parts[0].strip().lower() not in DATA_IMAGE_MIME:
+        return False
+    # 浏览器只把**最后一个**参数 `;base64` 当编码标志（WHATWG data URL 处理）。
+    # 写成 `;base64;charset=utf-8,` 时浏览器会按百分号编码解释 payload，不是
+    # base64 —— 这种串必须拒绝，否则「判的是 base64、浏览器当文本」。
+    return parts[-1].strip().lower() == "base64"
+
+
+def safe_href(url, allow_data_image=False):
     """把 URL 变成可安全放进 href/src 属性的字符串。
 
     两层防护：
       1. 协议白名单：javascript:/data:/vbscript: 等一律拒绝（返回 ""）；
+         唯一的例外是 allow_data_image=True 时的
+         `data:image/<已登记类型>;base64,` —— 这个开关只给图片装配路径
+         （render_image / _ref_image_html），链接路径不传，所以同一段 data:
+         文本进 <img src> 放行、进 <a href> 拒绝（ADR 0003）；
       2. 属性转义：引号、尖括号、& 都转义，杜绝属性注入。
     返回空串表示"不要输出这个属性"。
     """
@@ -1054,7 +1086,10 @@ def safe_href(url):
     text = "".join(ch for ch in text if ord(ch) >= 0x20 and ch != "\x7f")
     match = _SCHEME_RE.match(text)
     if match:
-        if match.group(1).lower() not in SAFE_SCHEMES:
+        scheme = match.group(1).lower()
+        if scheme == "data" and allow_data_image and _is_allowed_data_image(text):
+            pass
+        elif scheme not in SAFE_SCHEMES:
             return ""
     elif text.startswith("//"):
         # 协议相对链接 -> 交给浏览器按当前协议解析，允许
@@ -1062,7 +1097,7 @@ def safe_href(url):
     return html.escape(text, quote=True)
 
 
-def _target_attrs(ctx, dest):
+def _target_attrs(ctx, dest, is_image=False):
     """Markdown 目标 -> (URL, rel 属性)。行内式与引用式**共用这一个出口**。
 
     这里是「解码判协议 -> 重写 -> 协议白名单 -> 属性转义」的唯一装配点。原先
@@ -1075,6 +1110,10 @@ def _target_attrs(ctx, dest):
     （tests_render 的 test_obfuscated_scheme_never_executes 钉着这条，
     test_angle_destination_with_scheme 又钉着 `%20` 不能被解成空格）。
 
+    `is_image` 只影响 `data:` 一项：图片 src 接受 data:image/base64（ADR 0003），
+    链接仍然拒绝。它不改变其它协议的判定，也不改变写进属性的串 —— 判定与输出
+    仍是「解码后判、原样写」。
+
     URL 为空串表示「不要输出这个属性」；rel 只给带协议、且协议被放行的绝对地址
     （协议被拒时 href 是空串，再挂一个 rel 只是噪音）。
     """
@@ -1083,7 +1122,7 @@ def _target_attrs(ctx, dest):
     except Exception:
         decoded = dest
     if _has_scheme(decoded):
-        href = safe_href(dest)
+        href = safe_href(dest, allow_data_image=is_image)
         return href, (' rel="noreferrer noopener"' if href else "")
     return safe_href(ctx.rewrite_target(dest)), ""
 
@@ -1472,6 +1511,8 @@ def wrap_zoom_images(html_text):
     字节串（tests_render 的 TestTargetEncoding 钉着这条）。
 
     这层链接同时是禁用 JS 时的降级路径：点击直接打开原图（同标签）。
+    数据 URI 图片例外：浏览器会拦截 `data:` 顶层跳转，禁用 JS 时点击没有反应
+    —— 图片本来已内联显示，不存在「别处的原图」（ADR 0003）。
     """
     if "<img" not in html_text:
         return html_text
@@ -1691,9 +1732,13 @@ def parse_inline(text, ctx):
         return read_tokens_markup(parse_emphasis(inner))
 
     def render_image(alt_raw, dest_raw, title_raw):
-        """构造 <img>；协议被拒时退化成转义后的字面量。"""
+        """构造 <img>；协议被拒时退化成转义后的字面量。
+
+        `is_image=True` 是 data URI 的唯一放行点：data:image/base64 能产出 src，
+        同样的串用作链接目标时仍被 `_target_attrs` 拒掉（ADR 0003）。
+        """
         dest = html.unescape(read_tokens(dest_raw))
-        src, _rel = _target_attrs(ctx, dest)
+        src, _rel = _target_attrs(ctx, dest, is_image=True)
         if not src:
             return None
         # title 与 alt 一样是**属性值**，走同一条拍平管线（见 attr_text）：
@@ -1793,7 +1838,7 @@ def _ref_image_html(ctx, url, title, alt_text):
     所以必须 `quote=True` 转义 —— 标签里手写的一个 `"` 否则就能闭合属性、
     注入新属性（SELFTEST §25）。
     """
-    src, _rel = _target_attrs(ctx, url)
+    src, _rel = _target_attrs(ctx, url, is_image=True)
     if not src:
         return None
     return '<img src="%s" alt="%s"%s>' % (

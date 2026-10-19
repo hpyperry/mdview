@@ -65,9 +65,9 @@ python3 mdview.py --root docs --safe
 
 | | 字节 | 行数 |
 |---|---|---|
-| `mdview.py`（源码，给人看） | 157,462 | 3,303 |
-| `dist/mdview.min.py`（运行版） | **102,496** | 2,281 |
-| 减少 | **54,966（34.9%）** | |
+| `mdview.py`（源码，给人看） | 162,932 | 3,394 |
+| `dist/mdview.min.py`（运行版） | **102,588** | 2,283 |
+| 减少 | **60,344（37.0%）** | |
 
 ```bash
 python3 tools/minify.py                  # 重新生成
@@ -82,7 +82,7 @@ python3 tools/minify.py --check          # 只看体积
 等价性用两套测试 + 逐路径差分验证（测试支持指向替代实现）：
 
 ```bash
-MDVIEW_FILE=dist/mdview.min.py python3 tests/tests_render.py   # 203 项 OK
+MDVIEW_FILE=dist/mdview.min.py python3 tests/tests_render.py   # 217 项 OK
 MDVIEW=dist/mdview.min.py bash tests/selftest.sh               # 345 项 PASS
 ```
 
@@ -115,6 +115,7 @@ MDVIEW=dist/mdview.min.py bash tests/selftest.sh               # 345 项 PASS
 | 引用 | `>`，支持嵌套与内部块结构 |
 | 表格 | GFM 表格，支持 `:--` `:-:` `--:` 左/中/右对齐；单元格可含行内语法 |
 | 链接与图片 | 行内式、引用式（`[t][r]`、`[r][]`、简写 `[r]` —— **链接与图片都支持**）、自动链接 `<https://…>`、邮件地址；目标支持 `<...>` 写法（内部可含空格与 `)`） |
+| base64 内嵌图片 | 图片目标写成 `data:image/<类型>;base64,…` 时直接内联显示，不依赖磁盘文件。类型集合与文件图片一致（png/jpeg/gif/svg/webp/bmp/ico/avif），行内式、引用式与 `<...>` 写法都支持。**只对图片 `src` 放行**，链接目标仍拒绝 `data:`；裸 HTML `<img>` 不在此列。理由与安全边界见 [`docs/adr/0003`](docs/adr/0003-data-uri-images.md) |
 | 裸 URL 点击化 | 正文里手写的 `http://` / `https://` **自动变成可点链接**（GFM autolink literal），不必写成 `[](…)` 或 `<>`。只认这两种协议：`www.example.com` 与裸邮件刻意不做（前者要猜协议，后者误报率高）。遵循 GFM 的尾部规则：句末 `.` `,` `:` `;` `!` `?` 与成对引号归句子，括号按配平判定，尾部 `/` `#` 与查询串保留。**刻意偏离 GFM 一处**：全角句末标点 `。，、；：！？` 也算句子标点（GFM 只认半角），但 URL 里的汉字（`/wiki/中文条目`）照旧保留。反引号与围栏代码块内的 URL 不受影响 |
 | 分隔线 | `---`、`***`、`___` |
 | HTML 实体 | `&copy;`、`&amp;`、`&#65;` 等 |
@@ -242,7 +243,9 @@ python3 mdview.py                  # ❌ 在 md-preview/ 下启动，/media/logo
 - **路径穿越**：`/../../etc/passwd` 这类请求的 `..` 会被夹紧在 `--root` 内，不可能读到根外文件。
 - **XSS**：两道防线，缺一不可 ——
   1. 正文里的裸 HTML 与**代码块内的 HTML** 一律转义（代码块这条曾经是漏洞，已修）；
-  2. 链接/图片目标过**协议白名单**，`javascript:` / `data:` / `vbscript:` 一律不产出属性。
+  2. 链接/图片目标过**协议白名单**，`javascript:` / `vbscript:` / 链接位置的 `data:`
+     一律不产出属性。唯一的例外是图片 `src` 的 `data:image/<已登记类型>;base64,…`：
+     同一段串进 `<img src>` 放行，进 `<a href>` 仍然拒绝（详见 [`docs/adr/0003`](docs/adr/0003-data-uri-images.md)）。
 
   两层都曾经不完整：早期只做了第 1 条，于是 `<a@b.com"onmouseover="x>` 能在真实
   Chrome 里注入一个**活的**事件处理器，`[x](javascript:alert(1))` 也能点击执行。
@@ -287,9 +290,9 @@ md-preview/
 ├─ README.md            # 本文
 ├─ SELFTEST.md          # 验证结果与缺陷修复台账
 ├─ GLOSSARY.md          # 术语表（目标 / 根相对 URL / 双重编码 …）
-├─ docs/adr/            # 决策记录（目标路径编码语义、图片放大为什么手写遮罩）
+├─ docs/adr/            # 决策记录（目标路径编码语义、图片放大为什么手写遮罩、data URI 图片的安全边界）
 ├─ tests/               # 测试（见 tests/README.md）
-│  ├─ tests_render.py   #   渲染器回归测试（203 项，纯 unittest）
+│  ├─ tests_render.py   #   渲染器回归测试（217 项，纯 unittest）
 │  └─ selftest.sh       #   端到端 HTTP 冒烟测试（345 项断言）
 ├─ tools/minify.py      #   生成运行版（去注释/docstring/空行）
 ├─ tools/zoom-probe.html #  浏览器探针：真机验放大遮罩 / 回到顶部（开发工具，不发布）
@@ -305,7 +308,7 @@ md-preview/
 ## 8. 测试
 
 ```bash
-python3 tests/tests_render.py      # 渲染器单元测试：203 项
+python3 tests/tests_render.py      # 渲染器单元测试：217 项
 bash tests/selftest.sh             # 端到端 HTTP 验证：345 项断言
 ```
 
@@ -331,10 +334,12 @@ bash tests/selftest.sh             # 端到端 HTTP 验证：345 项断言
 - **字面含 `%xx` 的文件名要写 `%25xx`**：`a%2520b.png` 命中 `a%20b.png`。这一处
   **故意与 VS Code 不同** —— 它的相对路径实际解码两次，文件名里真含 `%20` 的文件在它那里
   用相对路径打不开；我们只解一次，保持可达。理由见 [`docs/adr/0001`](docs/adr/0001-markdown-target-encoding.md)。
-- **图片放大的三种边界**：① 禁用 JS 时点图片是**同标签**打开原图（Back 可回文档页，
+- **图片放大的四种边界**：① 禁用 JS 时点图片是**同标签**打开原图（Back 可回文档页，
   但当前页会被替换）；② 遮罩只做「按视口缩放居中」，没有相册、滚轮缩放、双指手势、
   1:1 切换（理由见 [`docs/adr/0002`](docs/adr/0002-image-zoom.md)）；
-  ③ 超过 `--max-preview` 的图片本来就由服务端改为下载（页面里是裂图），点它也会变成下载。
+  ③ 超过 `--max-preview` 的图片本来就由服务端改为下载（页面里是裂图），点它也会变成下载；
+  ④ **数据 URI 图片**禁用 JS 时点不动：浏览器会拦截 `data:` 顶层跳转，而图片本来已内联
+  显示，不需要再打开一份原图（[`docs/adr/0003`](docs/adr/0003-data-uri-images.md)）。
 - **引用式图片嵌在引用式链接里**（`[![i][r]](u)`）本来就产出坏标记：`_REF_LINK_RE` 用
   `[^\]]*` 抓标签，会从外层 `[` 开始匹配、把内层 `[i]` 当成标签内容。行内式写法
   （`[![i](p.png)](u)`）不受影响。

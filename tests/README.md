@@ -5,14 +5,14 @@
 
 | 文件 | 作用 | 命令 |
 |------|------|------|
-| `tests_render.py` | 渲染器回归测试（203 项，纯 `unittest`，不联网不起服务） | `python3 tests/tests_render.py` |
+| `tests_render.py` | 渲染器回归测试（217 项，纯 `unittest`，不联网不起服务） | `python3 tests/tests_render.py` |
 | `selftest.sh` | 端到端 HTTP 冒烟测试（345 项断言，自己起临时服务、跑完自清理） | `bash tests/selftest.sh` |
 
 ## 一套跑完
 
 ```bash
 # 在仓库根执行
-python3 tests/tests_render.py      # 203 项单元测试
+python3 tests/tests_render.py      # 217 项单元测试
 bash tests/selftest.sh             # 345 项端到端断言
 ```
 
@@ -28,6 +28,9 @@ bash tests/selftest.sh             # 345 项端到端断言
 （`C.UTF-8`、`v1.2.3` 不被切）、无语言围栏必须素色、链接与图片重写、路径夹紧、
 **目标路径的编码规则**（`%20`/`%2520`/`%23`/`%3F` 只解一次编一次、`<>` 目标、裸空格
 退化成字面文本、链接与图片同一目标必须逐字节相同、引用式图片三种写法 + 协议被拒）、
+**base64 内嵌图片**（`data:image/…;base64,…` 在行内式/引用式/尖括号定义里都放行、
+含 title 的定义、`IMAGE_EXT` 全类型、链接目标仍拒绝、非图片/非 base64 拒绝、混淆
+scheme 不放行、payload 引号被转义、裸 HTML 仍转义）、
 列表嵌套与松紧、表格对齐、搜索文件名命中；
 **标签渲染的两类消费方**（alt 必须是纯文本 + 引号转义、标签里的裸 HTML 保持转义、
 引用式产出的标记必须 stash 成 token 不被后处理再解析）；

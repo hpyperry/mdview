@@ -5,7 +5,7 @@
 
 | 项目 | 命令 | 结果 |
 |------|------|------|
-| 渲染器单元测试 | `python3 tests/tests_render.py` | **203 项全部通过**（`Ran 203 tests ... OK`） |
+| 渲染器单元测试 | `python3 tests/tests_render.py` | **217 项全部通过**（`Ran 217 tests ... OK`） |
 | 端到端 HTTP 验证 | `bash tests/selftest.sh` | **345 项断言全部通过**（`PASS=345 FAIL=0`） |
 | 语法兼容性 | `ast` 扫描 | 无 walrus / `match` / 3.9+ 独有语法 → 3.6+ 可运行 |
 | `--safe` | 见下 §3 | 只放行 `.md` 与图片，其余 404 |
@@ -24,7 +24,7 @@
 $ python3 tests/tests_render.py
 ...
 ----------------------------------------------------------------------
-Ran 45 tests in 0.014s
+Ran 217 tests in 0.721s
 
 OK
 ```
@@ -1818,3 +1818,49 @@ AST 量了一遍：3349 行里内联 CSS/JS 占 738 行、关键字与 MIME 数�
   更麻烦的是它的 docstring 声称「避开 HTML 实体边界」，而实现并没有 —— **文档与实现
   不符**，正是本仓库最在意的那类问题。修法要改成「在源文本上定位命中区间，再映射到
   转义文本上插标记」，属于匹配逻辑的行为修复，与这轮的「简化 + 性能」不同类，故单列。
+
+## 35. base64 内嵌图片不渲染：`data:` 被协议白名单整类拒绝
+
+**现象**：`![x](data:image/png;base64,…)` 显示成字面文本；引用式
+`![x][r]` + `[r]: data:image/png;base64,…` 显示成 `![x][r]`；尖括号写法同样退化。
+
+**根因**：解析器认识这条语法，是协议闸门把它挡掉了。`SAFE_SCHEMES` 只列了
+http/https/mailto 等协议，`safe_href()` 对 `data:` 返回空串，`render_image()` /
+`_ref_image_html()` 于是返回 `None`，整条图片按字面文本退化。这条拒绝是 §18.1
+修存储型 XSS 时加上的，README 与 AGENT.md 都把它写成硬约束 —— 所以本轮是
+**安全策略的有意变更**（ADR 0003），不是补一个解析分支。
+
+**修法**：把 `data:` 的放行收在**消费方**，而不是全局协议表：
+
+- `safe_href(url, allow_data_image=False)` 默认行为不变；只有 `render_image` /
+  `_ref_image_html` 经 `_target_attrs(..., is_image=True)` 传 `True`。
+- 只接受 `data:<图片 MIME>[...];base64,<数据>`，且 `;base64` 必须是媒体类型部分的
+  最后一个参数（浏览器只认这个位置）；类型集合 `DATA_IMAGE_MIME` 由
+  `MIME[IMAGE_EXT]` 生成，与服务端已有图片类型自动对齐（含 `image/svg+xml`）。
+- 链接、引用式链接、裸 URL、尖括号自动链接都不传这个开关，同一段 `data:` 文本进
+  `<a href>` 仍然不产属性。
+- 非 base64、非图片 MIME、缺逗号的 data URI 一律按字面文本退化；payload 里手写的
+  引号由 `safe_href` 的 `quote=True` 兜住。
+- 数据 URI 图片照常包 `class="zoom"`；禁用 JS 时浏览器拦截 `data:` 顶层跳转，
+  点击无反应（图片已内联显示）。
+
+**验证**：
+
+- 新增 `TestDataURIImages` 14 项：行内 / 引用式 / 尖括号 / 尖括号定义 + title、
+  `IMAGE_EXT` 全类型、大小写、`;charset;base64`、链接目标仍拒绝、非图片/非 base64
+  拒绝、`%64ata:` 混淆保持相对路径、payload 引号转义、裸 HTML 仍转义、zoom href
+  与 src 逐字节相同、徽章不嵌套。
+- **反向验证**：14 项里有 10 项在修改前的实现上失败（全部是放行类）；另外 4 项是
+  边界/拒绝类，改前改后都通过，用于防止放宽过头。
+- 旧断言 `test_rejected_protocol_stays_literal`（`data:text/html` 图片）一行未改，
+  仍然通过。
+- 单元 **203 → 217 项**；端到端 **345 项不变**。源码与 `dist/mdview.min.py` 各跑
+  两套全绿（压缩版因 docstring 被删，`test_known_tradeoff_documented_in_module`
+  按既有约定 skip 1 项）。
+
+**刻意不做的**：
+
+- 裸 HTML `<img src="data:…">` 仍整体转义 —— 「正文裸 HTML 一律转义」是另一条硬约束，
+  本次只放开 Markdown 图片目标。
+- 非 base64 的文本 data URI 不支持。
+- 单张 data URI 不设上限；整份 `.md` 仍受 `--max-preview`（默认 20 MiB）约束。

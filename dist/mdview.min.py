@@ -768,27 +768,41 @@ SAFE_SCHEMES = frozenset((
     "irc", "ircs", "xmpp", "magnet", "gemini", "gopher",
 ))
 _SCHEME_RE = re.compile(r"^([A-Za-z][A-Za-z0-9+.-]*):")
+DATA_IMAGE_MIME = frozenset(MIME[ext] for ext in IMAGE_EXT)
 def _has_scheme(text):
     return _SCHEME_RE.match(text) is not None
-def safe_href(url):
+def _is_allowed_data_image(text):
+    if text[:5].lower() != "data:":
+        return False
+    meta, sep, _payload = text[5:].partition(",")
+    if not sep:
+        return False
+    parts = meta.split(";")
+    if parts[0].strip().lower() not in DATA_IMAGE_MIME:
+        return False
+    return parts[-1].strip().lower() == "base64"
+def safe_href(url, allow_data_image=False):
     if url is None:
         return ""
     text = str(url).strip()
     text = "".join(ch for ch in text if ord(ch) >= 0x20 and ch != "\x7f")
     match = _SCHEME_RE.match(text)
     if match:
-        if match.group(1).lower() not in SAFE_SCHEMES:
+        scheme = match.group(1).lower()
+        if scheme == "data" and allow_data_image and _is_allowed_data_image(text):
+            pass
+        elif scheme not in SAFE_SCHEMES:
             return ""
     elif text.startswith("//"):
         pass
     return html.escape(text, quote=True)
-def _target_attrs(ctx, dest):
+def _target_attrs(ctx, dest, is_image=False):
     try:
         decoded = urllib.parse.unquote(dest)
     except Exception:
         decoded = dest
     if _has_scheme(decoded):
-        href = safe_href(dest)
+        href = safe_href(dest, allow_data_image=is_image)
         return href, (' rel="noreferrer noopener"' if href else "")
     return safe_href(ctx.rewrite_target(dest)), ""
 def _title_attr(title):
@@ -1100,7 +1114,7 @@ def parse_inline(text, ctx):
         return read_tokens_markup(parse_emphasis(inner))
     def render_image(alt_raw, dest_raw, title_raw):
         dest = html.unescape(read_tokens(dest_raw))
-        src, _rel = _target_attrs(ctx, dest)
+        src, _rel = _target_attrs(ctx, dest, is_image=True)
         if not src:
             return None
         title = attr_text(title_raw) if title_raw else ""
@@ -1154,7 +1168,7 @@ def _ref_link_html(ctx, url, title, label_html):
     attr = ' href="%s"' % href if href else ""
     return '<a%s%s%s>%s</a>' % (attr, _title_attr(title), extra, label_html)
 def _ref_image_html(ctx, url, title, alt_text):
-    src, _rel = _target_attrs(ctx, url)
+    src, _rel = _target_attrs(ctx, url, is_image=True)
     if not src:
         return None
     return '<img src="%s" alt="%s"%s>' % (

@@ -29,7 +29,9 @@ python3 tools/minify.py                          # 改完 mdview.py 必须重新
    三者都**由脚本注入** —— 不写死按钮元素、也不写死 `<dialog>`（服务端最多留一个
    `data-totop` 标记，那不是元素；SELFTEST §26/§32 有断言钉着"基线里没有死元素"）。
 3. **XSS 防线**（已经漏过三次，每次都是真实漏洞）：正文与**代码块内**的裸 HTML 一律转义；
-   链接/图片目标过协议白名单（`javascript:`/`data:` 不产出属性）；**标签渲染必须区分
+   链接/图片目标过协议白名单（`javascript:`/`vbscript:`/链接位置的 `data:` 不产出属性；
+   唯一的例外是图片 `src` 的 `data:image/<已登记类型>;base64,…`，见 ADR 0003）；
+   **标签渲染必须区分
    "纯文本消费方"与"标记内容消费方"**（`read_tokens` vs `read_tokens_markup`，
    alt 是属性值所以必须 `quote=True`）—— 第三条漏过的是
    `![a" onerror=…](p.png)`（属性注入）与 `[<script>…](u.md)`（标签里裸 HTML 被反转义）。
@@ -93,6 +95,11 @@ python3 tools/minify.py                          # 改完 mdview.py 必须重新
   其中两份在「协议分支写哪个串」上漂移了 —— 引用式写 `unquote` 后的串、行内式写原样串，
   于是同一个 `https://e.com/a%20b` 在两种写法下产出不同 href。协议判定是 XSS 白名单的
   第一道门，副本漂移就是漏洞；要加新的目标来源，接这个函数，别复制（SELFTEST §34）。
+- **`data:` 的放行口只有 `_target_attrs(..., is_image=True)`**：`safe_href` 默认仍拒绝
+  一切 `data:`，只有 `render_image` / `_ref_image_html` 传 `is_image=True`；链接路径
+  都不传。不要把 `data:image/…` 的允许规则挪进 `safe_href` 的无条件分支 —— 同一段串
+  进 `<a href>` 就是攻击面（ADR 0003）。类型集合 `DATA_IMAGE_MIME` 由 `MIME[IMAGE_EXT]`
+  生成，加图片扩展名时自动跟上。
 - **服务端包裹图片的落点在 `parse_inline` 出口**（`wrap_zoom_images`）：那时源文本已转义，
   输出里的 `<a`/`<img` 只可能是我们自己生成的，锚点深度才数得准；href 一律复用 img 的 src。
 - **遮罩只做入场动画，退场必须瞬时**：不要给 `dialog.zoomdlg` 写

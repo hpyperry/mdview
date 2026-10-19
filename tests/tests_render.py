@@ -480,6 +480,99 @@ class TestReferenceImages(unittest.TestCase):
         self.assertNotIn("<img", r("![x][nope]"))
 
 
+class TestDataURIImages(unittest.TestCase):
+    """base64 内嵌图片：只对图片 src 开口（ADR 0003，SELFTEST §35）。
+
+    背景：`SAFE_SCHEMES` 一律拒绝 `data:`，于是 `![x](data:image/png;base64,…)`
+    退化成字面文本。放开时边界收在**消费方**：同一段串进 `<img src>` 产属性，
+    进 `<a href>`、引用式链接仍然拒绝，裸 HTML 仍然整体转义。
+    """
+
+    PNG = ("data:image/png;base64,"
+           "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAE"
+           "hQGAhKmMIQAAAABJRU5ErkJggg==")
+
+    def test_inline_image_renders(self):
+        out = r("![x](%s)" % self.PNG)
+        self.assertIn('<img src="%s" alt="x">' % self.PNG, out)
+
+    def test_reference_image_renders(self):
+        out = r("![x][pic]\n\n[pic]: %s" % self.PNG)
+        self.assertIn('<img src="%s" alt="x">' % self.PNG, out)
+
+    def test_angle_destination_renders(self):
+        out = r("![x](<%s>)" % self.PNG)
+        self.assertIn('<img src="%s" alt="x">' % self.PNG, out)
+
+    def test_reference_angle_destination_with_title(self):
+        """尖括号定义 + title：编码管线不能把 `;`/`+`/`=` 编坏。"""
+        out = r('![x][pic]\n\n[pic]: <data:image/png;base64,AAAA> "t"')
+        self.assertIn('<img src="data:image/png;base64,AAAA" alt="x" title="t">',
+                      out)
+
+    def test_all_registered_image_types(self):
+        """类型集合与 IMAGE_EXT 对齐：文件能显示的图片类型，data URI 也放行。"""
+        for ext in sorted(m.IMAGE_EXT):
+            uri = "data:%s;base64,AAAA" % m.MIME[ext]
+            out = r("![x](%s)" % uri)
+            self.assertIn('<img src="%s" alt="x">' % uri, out, ext)
+
+    def test_base64_flag_is_case_insensitive(self):
+        uri = "DATA:IMAGE/PNG;BASE64,AAAA"
+        self.assertIn('<img src="%s" alt="x">' % uri, r("![x](%s)" % uri))
+
+    def test_parameters_before_base64_are_allowed(self):
+        uri = "data:image/svg+xml;charset=utf-8;base64,PHN2Zy8+"
+        self.assertIn('<img src="%s" alt="x">' % uri, r("![x](%s)" % uri))
+
+    def test_link_destination_still_rejected(self):
+        """核心边界：同一段 data: 文本进 <a href> 仍不产属性。"""
+        for src in ("[x](%s)" % self.PNG,
+                    "[x][r]\n\n[r]: %s" % self.PNG):
+            out = r(src)
+            self.assertNotIn("href=", out)
+            self.assertIn(">x</a>", out)
+
+    def test_non_image_and_non_base64_data_rejected(self):
+        for uri in ("data:text/html,x",
+                    "data:application/javascript,alert(1)",
+                    "data:image/x-not-registered;base64,AAAA",
+                    "data:image/png,AAAA",
+                    "data:image/png;base64;charset=utf-8,AAAA",
+                    "data:image/png;base64"):
+            out = r("![x](%s)" % uri)
+            self.assertNotIn("<img", out, uri)
+            self.assertIn("![x](", out, uri)
+
+    def test_obfuscated_scheme_stays_a_relative_path(self):
+        """`%64ata:` 不能被当成 data URI 放行（判的是解码后、写的是原样串）。"""
+        out = r("![x](%64ata:image/png;base64,AAAA)")
+        self.assertNotIn('src="data:', out)
+        self.assertIn('src="%64ata:image/png;base64,AAAA"', out)
+
+    def test_payload_quotes_cannot_break_the_attribute(self):
+        # 只校验 meta，payload 里手写的引号必须被属性转义兜住。
+        out = r('![x](data:image/png;base64,"onerror="alert(1))')
+        self.assertNotIn(" onerror=", out)
+        self.assertIn("&quot;onerror=&quot;", out)
+
+    def test_raw_html_img_still_escaped(self):
+        out = r('<img src="%s">' % self.PNG)
+        self.assertNotIn("<img", out)
+        self.assertIn("&lt;img", out)
+
+    def test_zoom_href_is_byte_identical_to_src(self):
+        out = r("![x](%s)" % self.PNG)
+        self.assertIn('<a class="zoom" href="%s"><img src="%s"'
+                      % (self.PNG, self.PNG), out)
+
+    def test_badge_image_is_not_wrapped_in_zoom(self):
+        out = r("[![i](%s)](u.md)" % self.PNG)
+        self.assertIn('<a href="/docs/u.md"><img src="%s" alt="i"></a>'
+                      % self.PNG, out)
+        self.assertNotIn('class="zoom"', out)
+
+
 class TestAutolinkLiteral(unittest.TestCase):
     """裸 URL（GFM autolink literal）：正文里手写的 http(s):// 直接可点。
 
