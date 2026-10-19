@@ -78,12 +78,13 @@ P2 之前先落骨架，P3 的资产准备可以在 P2 期间做。
 
 ### 工作包
 
-- [ ] **P1-1 工程骨架**：Cargo 项目、模块边界（server/render/assets/trust）、
+- [x] **P1-1 工程骨架**：Cargo 项目、模块边界（server/render/assets/trust）、
       `cargo fmt`/`clippy`、`Cargo.lock` 入库。
 - [ ] **P1-2 CLI**：`--host`、`--port`、`--port-tries`、`--root`、`--safe`、
       `--max-preview`、`--no-search`、`--trust`、`--untrusted`、`--security-level`、
       `--version`；启动横幅（真实地址、根绝对路径、信任状态、级别警告）；
       端口回退；Ctrl-C 干净退出。
+      *（CLI 解析、`--max-preview`、banner 已落；端口回退/Ctrl-C 随 P1-5。）*
 - [ ] **P1-3 路径与安全**：HTTP 路径解一次百分号；`..` 夹紧；根规范化；
       symlink 策略；301/404/403；`X-Content-Type-Options: nosniff`。
 - [ ] **P1-4 类型判定**：白名单 → MIME 表 → 前 512 字节 NUL 嗅探；文本/二进制；

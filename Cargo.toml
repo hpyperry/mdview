@@ -1,0 +1,15 @@
+[package]
+name = "mdview"
+version = "2.0.0"
+edition = "2024"
+rust-version = "1.89"
+description = "Single-binary offline Markdown preview server"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
