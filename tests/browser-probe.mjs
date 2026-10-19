@@ -369,9 +369,20 @@ async function main() {
   } finally {
     try { await browser?.send('Browser.close'); } catch { /* closing */ }
     browser?.close();
+    const chromeExited = new Promise((resolve) => {
+      if (chromeChild.exitCode !== null) resolve();
+      else chromeChild.once('exit', resolve);
+    });
     chromeChild.kill('SIGKILL');
     server.kill('SIGKILL');
-    await rm(tmp, { recursive: true, force: true });
+    await Promise.race([chromeExited, sleep(2000)]);
+    // Chrome may still be flushing its profile; retry instead of failing the
+    // probe after every assertion has already passed.
+    try {
+      await rm(tmp, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    } catch {
+      // best-effort cleanup
+    }
   }
 
   console.log(`\nPASS=${pass} FAIL=${fail}`);
