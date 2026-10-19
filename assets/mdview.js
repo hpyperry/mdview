@@ -63,6 +63,13 @@
     document.body.removeChild(area);
   }
 
+  var MAX_HIGHLIGHT_CHARS = 256 * 1024;
+  var VIRTUAL_LINE_HEIGHT = 21;
+
+  function hasExplicitLanguage(code) {
+    return /(?:^|\s)language-[\w-]+/.test(code.className || '');
+  }
+
   function languageOf(code) {
     var match = (code.className || '').match(/(?:^|\s)language-([\w-]+)/);
     if (!match) return '代码';
@@ -79,7 +86,7 @@
       bar.className = 'code-bar';
       var lang = document.createElement('span');
       lang.className = 'lang';
-      lang.textContent = languageOf(code);
+      lang.textContent = languageOf(code) + (code.dataset.highlightSkipped === '1' ? ' · 未高亮' : '');
       var button = document.createElement('button');
       button.type = 'button';
       button.className = 'copy-btn';
@@ -100,6 +107,106 @@
       pre.parentNode.insertBefore(block, pre);
       block.appendChild(bar);
       block.appendChild(pre);
+    });
+  }
+
+  function addVirtualSource() {
+    var host = document.getElementById('source-virtual');
+    if (!host) return;
+    var source = host.getAttribute('data-src');
+    if (!source) return;
+    fetch(source, { credentials: 'same-origin' }).then(function (response) {
+      if (!response.ok) throw new Error('HTTP ' + response.status);
+      return response.text();
+    }).then(function (text) {
+      var lines = text.split('\n');
+      var total = lines.length;
+      host.innerHTML = '';
+      host.classList.add('is-virtual');
+      var meta = document.createElement('div');
+      meta.className = 'vs-meta';
+      meta.textContent = '共 ' + total + ' 行 · 大文件按需渲染（纯文本）';
+      var scroller = document.createElement('div');
+      scroller.className = 'vs-scroll';
+      scroller.tabIndex = 0;
+      var body = document.createElement('div');
+      body.className = 'vs-body';
+      var spacer = document.createElement('div');
+      spacer.className = 'vs-spacer';
+      spacer.style.height = (total * VIRTUAL_LINE_HEIGHT) + 'px';
+      var windowEl = document.createElement('div');
+      windowEl.className = 'vs-window';
+      body.appendChild(spacer);
+      body.appendChild(windowEl);
+      scroller.appendChild(body);
+      host.appendChild(meta);
+      host.appendChild(scroller);
+
+      var first = -1;
+      var last = -1;
+      var targetLine = 0;
+      function markTarget() {
+        if (!targetLine) return;
+        var row = windowEl.querySelector('[data-line="' + targetLine + '"]');
+        if (row) row.classList.add('target');
+      }
+      function render() {
+        var viewport = scroller.clientHeight || 600;
+        var start = Math.max(0, Math.floor(scroller.scrollTop / VIRTUAL_LINE_HEIGHT) - 30);
+        var count = Math.ceil(viewport / VIRTUAL_LINE_HEIGHT) + 60;
+        var end = Math.min(total, start + count);
+        if (start === first && end === last) {
+          markTarget();
+          return;
+        }
+        first = start;
+        last = end;
+        windowEl.style.transform = 'translateY(' + (start * VIRTUAL_LINE_HEIGHT) + 'px)';
+        var fragment = document.createDocumentFragment();
+        for (var i = start; i < end; i += 1) {
+          var row = document.createElement('div');
+          row.className = 'vs-row';
+          row.setAttribute('data-line', String(i + 1));
+          var number = document.createElement('a');
+          number.className = 'ln';
+          number.id = 'L' + (i + 1);
+          number.href = '#L' + (i + 1);
+          number.textContent = String(i + 1);
+          var code = document.createElement('code');
+          code.textContent = lines[i];
+          row.appendChild(number);
+          row.appendChild(code);
+          fragment.appendChild(row);
+        }
+        windowEl.replaceChildren(fragment);
+        markTarget();
+      }
+      function goHash() {
+        var match = window.location.hash.match(/^#L(\d+)$/);
+        if (!match) return;
+        targetLine = Number.parseInt(match[1], 10);
+        if (!targetLine) return;
+        scroller.scrollTop = Math.max(0, (targetLine - 1) * VIRTUAL_LINE_HEIGHT - 60);
+        render();
+      }
+      var scheduled = false;
+      scroller.addEventListener('scroll', function () {
+        if (scheduled) return;
+        scheduled = true;
+        window.requestAnimationFrame(function () {
+          scheduled = false;
+          render();
+        });
+      }, { passive: true });
+      window.addEventListener('resize', render);
+      window.addEventListener('hashchange', goHash);
+      render();
+      goHash();
+    }).catch(function () {
+      var note = host.querySelector('.source-note');
+      if (note) {
+        note.textContent = '完整内容加载失败，当前显示服务端返回的前几行；可下载原文查看全部内容。';
+      }
     });
   }
 
@@ -408,10 +515,16 @@
 
     if (window.hljs) {
       document.querySelectorAll('pre code').forEach(function (code) {
+        if (!hasExplicitLanguage(code)) return;
+        if (code.textContent.length > MAX_HIGHLIGHT_CHARS) {
+          code.dataset.highlightSkipped = '1';
+          return;
+        }
         try { window.hljs.highlightElement(code); } catch (err) { /* keep plain text */ }
       });
     }
     addCodeBlocks();
+    addVirtualSource();
     addToc();
     addZoom();
     addBackToTop();

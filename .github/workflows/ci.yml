@@ -45,6 +45,9 @@ jobs:
       - name: Browser acceptance probe
         if: runner.os != 'Windows'
         run: node tests/browser-probe.mjs
+      - name: Source page performance
+        if: runner.os == 'Linux'
+        run: node tests/perf-source.mjs
 
   build:
     name: build (${{ matrix.target }})

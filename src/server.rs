@@ -145,6 +145,11 @@ const PATH_SEGMENT_SET: &AsciiSet = &CONTROLS
     .add(b'/')
     .add(b'\\');
 
+/// Source pages above this size render only a fallback window on the server;
+/// the browser fetches the full text and virtualizes it.
+const VIRTUAL_SOURCE_THRESHOLD: u64 = 256 * 1024;
+const SOURCE_FALLBACK_LINES: usize = 1000;
+
 #[derive(Clone)]
 pub struct AppState {
     pub root: PathBuf,
@@ -431,6 +436,12 @@ async fn handle(
     let info = classify(&target).await;
     if force_download {
         return serve_file(&state, &target, &info, size, true, is_head).await;
+    }
+
+    if query.get("text").map(|value| value == "1").unwrap_or(false)
+        && matches!(info.kind, Kind::Text | Kind::Markdown)
+    {
+        return serve_raw_text(&state, &target, is_head).await;
     }
 
     match info.kind {
@@ -919,6 +930,25 @@ fn skipped_search_entry(entry: &walkdir::DirEntry) -> bool {
     name.starts_with('.') || SKIP_DIRS.contains(&name.as_ref())
 }
 
+fn source_lines(text: &str, limit: usize) -> (String, String, usize) {
+    let mut gutter = String::new();
+    let mut code = String::new();
+    let mut shown = 0usize;
+    for (index, line) in text.split('\n').enumerate() {
+        if index >= limit {
+            break;
+        }
+        let number = index + 1;
+        gutter.push_str(&format!(
+            "<a id=\"L{number}\" href=\"#L{number}\">{number}</a>"
+        ));
+        code.push_str(&escape_html(line));
+        code.push('\n');
+        shown = number;
+    }
+    (gutter, code, shown)
+}
+
 async fn source_page(
     state: &AppState,
     path: &Path,
@@ -932,16 +962,13 @@ async fn source_page(
     };
     let size = bytes.len();
     let text = String::from_utf8_lossy(&bytes);
-    let mut gutter = String::new();
-    let mut code = String::new();
-    for (index, line) in text.split('\n').enumerate() {
-        let number = index + 1;
-        gutter.push_str(&format!(
-            "<a id=\"L{number}\" href=\"#L{number}\">{number}</a>"
-        ));
-        code.push_str(&escape_html(line));
-        code.push('\n');
-    }
+    let total_lines = text.split('\n').count();
+    let virtual_mode = size as u64 > VIRTUAL_SOURCE_THRESHOLD;
+    let (gutter, code, shown) = if virtual_mode {
+        source_lines(&text, SOURCE_FALLBACK_LINES)
+    } else {
+        source_lines(&text, usize::MAX)
+    };
     let name = path.file_name().and_then(OsStr::to_str).unwrap_or("文件");
     let download = format!("{}?download=1", join_href(parent_rel(rel), name, false));
     let render_link = if info.kind == Kind::Markdown {
@@ -956,20 +983,44 @@ async fn source_page(
     let code_class = highlight_language(path)
         .map(|lang| format!(" class=\"language-{lang}\""))
         .unwrap_or_default();
+    let source_markup = if virtual_mode {
+        format!(
+            "<div class=\"source-virtual\" id=\"source-virtual\" data-src=\"/{}?text=1\" \
+             data-lines=\"{total}\" data-fallback-lines=\"{shown}\">\
+             <div class=\"vs-scroll source-fallback\"><div class=\"source\">\
+             <pre class=\"gutter\">{gutter}</pre>\
+             <pre class=\"code\"><code{code_class}>{code}</code></pre></div></div>\
+             <p class=\"source-note\">文件较大（{size}），已启用按需渲染：当前显示前 {shown} / {total} 行，\
+             滚动时加载完整内容。</p></div>",
+            encode_path(rel),
+            total = total_lines,
+            shown = shown,
+            size = format_size(size as u64),
+            gutter = gutter,
+            code_class = code_class,
+            code = code
+        )
+    } else {
+        format!(
+            "<div class=\"source-wrap\"><div class=\"source\">\
+             <pre class=\"gutter\">{gutter}</pre>\
+             <pre class=\"code\"><code{code_class}>{code}</code></pre></div></div>",
+            gutter = gutter,
+            code_class = code_class,
+            code = code
+        )
+    };
     let body = format!(
         "<div class=\"content-card\"><div class=\"page-head\"><div class=\"grow\">\
          <h1>源码</h1><p>{rel} · {kind} · {size}</p></div>\
          <div class=\"page-actions\">{render_link}\
-         <a class=\"action\" href=\"{download}\">{download_icon}<span>下载</span></a></div></div>\
-         <div class=\"source-wrap\"><div class=\"source\"><pre class=\"gutter\">{gutter}</pre>\
-         <pre class=\"code\"><code{code_class}>{code}</code></pre></div></div></div>",
+         <a class=\"action\" href=\"{download}\" aria-label=\"下载\">{download_icon}<span>下载</span></a>\
+         </div></div>{source_markup}</div>",
         rel = escape_html(rel),
         kind = escape_html(&source_type_label(info)),
         size = format_size(size as u64),
         download_icon = icon("download"),
-        gutter = gutter,
-        code_class = code_class,
-        code = code
+        source_markup = source_markup
     );
     html_page(
         state,
@@ -1146,6 +1197,29 @@ fn highlight_language(path: &Path) -> Option<&'static str> {
         "graphql" | "gql" => "graphql",
         _ => return None,
     })
+}
+
+async fn serve_raw_text(state: &AppState, path: &Path, is_head: bool) -> Response {
+    let bytes = match tokio::fs::read(path).await {
+        Ok(bytes) => bytes,
+        Err(_) => {
+            return error_page(state, StatusCode::NOT_FOUND, "文件不存在", is_head).await;
+        }
+    };
+    let length = bytes.len();
+    let body = if is_head {
+        Body::empty()
+    } else {
+        Body::from(bytes)
+    };
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, "text/plain; charset=utf-8")
+        .header(header::CONTENT_LENGTH, length.to_string())
+        .header(header::CACHE_CONTROL, "no-store")
+        .header("X-Content-Type-Options", "nosniff")
+        .body(body)
+        .unwrap()
 }
 
 async fn serve_file(
@@ -1754,7 +1828,7 @@ fn csp_header(level: u8, nonce: &str) -> Option<String> {
          media-src 'self' https: data:{img_extra}; script-src 'nonce-{nonce}'; \
          style-src 'self' 'unsafe-inline' https: data:{style_extra}; \
          font-src 'self' https: data:{font_extra}; frame-src 'none'; \
-         form-action 'self'; base-uri 'none'; object-src 'none'"
+         form-action 'self'; connect-src 'self'; base-uri 'none'; object-src 'none'"
     ))
 }
 
@@ -1910,6 +1984,31 @@ mod tests {
                 .unwrap()
                 .starts_with("text/html")
         );
+    }
+
+    #[tokio::test]
+    async fn large_source_page_uses_virtualized_fallback_and_text_channel() {
+        let dir = fixture();
+        let content = "line with some text 0123456789\n".repeat(12_000);
+        std::fs::write(dir.path().join("big.txt"), &content).unwrap();
+        let app = app(state(dir.path(), false, 0, 0));
+
+        let (status, _, body) = call(app.clone(), Method::GET, "/big.txt").await;
+        assert_eq!(status, StatusCode::OK);
+        let html = String::from_utf8(body).unwrap();
+        assert!(html.contains("id=\"source-virtual\""), "{html}");
+        assert!(html.contains("data-src=\"/big.txt?text=1\""), "{html}");
+        assert!(html.contains("source-note"), "{html}");
+        assert!(html.contains("id=\"L1000\""), "{html}");
+        assert!(!html.contains("id=\"L1001\""), "{html}");
+
+        let (status, headers, body) = call(app, Method::GET, "/big.txt?text=1").await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            headers.get(header::CONTENT_TYPE).unwrap(),
+            "text/plain; charset=utf-8"
+        );
+        assert_eq!(body, content.as_bytes());
     }
 
     #[tokio::test]
@@ -2202,6 +2301,7 @@ mod tests {
             .unwrap();
         assert!(csp.contains("script-src 'nonce-"));
         assert!(csp.contains("form-action 'self'"));
+        assert!(csp.contains("connect-src 'self'"));
         assert!(!csp.contains("'self' 'nonce"));
 
         let (_, headers, _) = call(strict, Method::GET, "/").await;

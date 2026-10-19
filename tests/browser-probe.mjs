@@ -184,9 +184,12 @@ async function writeFixture(root) {
   const filler = Array.from({ length: 120 }, (_, i) => `第 ${i + 1} 段，用来把页面撑到可滚动。`).join('\n\n');
   await writeFile(
     join(root, 'page.md'),
-    `# Probe\n\n中文 **粗体**。\n\n## Section A\n\n\`\`\`python\ndef f():\n    return 1\n\`\`\`\n\n### Sub\n\n![图](img.png)\n\n[目录](/)\n\n## Section B\n\n末尾段落。\n\n${filler}\n`,
+    `# Probe\n\n中文 **粗体**。\n\n## Section A\n\n\`\`\`python\ndef f():\n    return 1\n\`\`\`\n\n\`\`\`\nplain fence text\n\`\`\`\n\n### Sub\n\n![图](img.png)\n\n[目录](/)\n\n## Section B\n\n末尾段落。\n\n${filler}\n`,
   );
   await writeFile(join(root, 'sub', 'page.md'), '# Sub\n\n[上级](/) · ![图](img.png)\n');
+  await writeFile(join(root, 'plain.txt'), 'plain text without a language\nsecond line\n');
+  const bigLines = Array.from({ length: 15000 }, (_, i) => `line ${i + 1} the quick brown fox jumps over the lazy dog`).join('\n') + '\n';
+  await writeFile(join(root, 'big.txt'), bigLines);
   for (let i = 0; i < 40; i += 1) {
     await writeFile(join(root, 'sub', `f${String(i).padStart(2, '0')}.md`), `# ${i}\n`);
   }
@@ -280,10 +283,11 @@ async function main() {
     console.log('== preview page ==');
     await goto('/page.md');
     check('标题渲染', (await evaluate('document.querySelector("article.markdown-body h1").textContent')) === 'Probe');
-    check('代码块数量', (await evaluate('document.querySelectorAll("pre code").length')) === 1);
+    check('代码块数量', (await evaluate('document.querySelectorAll("pre code").length')) === 2);
     check('highlight.js 着色', (await evaluate('document.querySelectorAll("pre code.hljs span").length')) > 0);
-    check('复制按钮已注入', (await evaluate('document.querySelectorAll(".copy-btn").length')) === 1);
+    check('复制按钮已注入', (await evaluate('document.querySelectorAll(".copy-btn").length')) === 2);
     check('代码块语言条', (await evaluate('document.querySelector(".code-block .code-bar .lang")?.textContent')) === 'python');
+    check('无语言围栏不高亮', (await evaluate('[...document.querySelectorAll(".code-block")].some(b => b.querySelector(".lang")?.textContent === "代码" && !b.querySelector("code.hljs"))')) === true);
     check('页内目录已生成', (await evaluate('document.querySelectorAll("#toc-slot .toc a").length')) === 3);
     check('侧栏当前文件', (await evaluate('document.querySelector(".side-link.active")?.textContent')) === 'page.md');
     check('无外部资源请求', requests.every((url) => url.startsWith(base) || url.startsWith('data:')), requests.join(', '));
@@ -370,6 +374,23 @@ async function main() {
     check('滚动后侧栏贴底', (await evaluate('Math.round(document.querySelector(".sidebar").getBoundingClientRect().bottom)')) === (await evaluate('innerHeight')));
     check('滚动后 TOC 贴底', (await evaluate('Math.round(document.querySelector(".toc-col").getBoundingClientRect().bottom)')) === (await evaluate('innerHeight')));
     await page.send('Emulation.setDeviceMetricsOverride', { width: 1200, height: 320, deviceScaleFactor: 1, mobile: false });
+
+    console.log('== virtual source ==');
+    await goto('/plain.txt');
+    check('无语言源码不自动高亮', (await evaluate('document.querySelectorAll("pre code.hljs").length')) === 0);
+    const virtualStarted = Date.now();
+    await goto('/big.txt');
+    check('虚拟源码容器', (await evaluate('!!document.querySelector(".vs-scroll .vs-row")')) === true);
+    check('虚拟源码行数', (await evaluate('document.querySelector(".vs-meta")?.textContent')) === '共 15001 行 · 大文件按需渲染（纯文本）');
+    check('虚拟源码不整页高亮', (await evaluate('document.querySelectorAll("pre code.hljs").length')) === 0);
+    check('虚拟源码首屏行数有限', (await evaluate('document.querySelectorAll(".vs-scroll .vs-row").length')) < 200);
+    check('虚拟源码加载 < 3000ms', Date.now() - virtualStarted < 3000);
+    await evaluate('(() => { const s = document.querySelector(".vs-scroll"); s.scrollTop = s.scrollHeight; s.dispatchEvent(new Event("scroll")); })()');
+    await sleep(300);
+    check('虚拟源码滚动到末行', (await evaluate('!!document.getElementById("L15001")')) === true);
+    await goto('/big.txt#L12000');
+    check('虚拟源码行锚点', (await evaluate('!!document.querySelector(".vs-row.target")')) === true);
+    await goto('/page.md');
 
     console.log('== search ==');
     await goto('/page.md');

@@ -1,6 +1,7 @@
 # 搜索：放行同源表单、覆盖文本文件、文档优先
 
-**Status**: accepted（2026-10-19）
+**Status**: accepted（2026-10-19）；`connect-src 'self'` 由
+[ADR 0011](0011-virtualized-source-viewer.md) 为虚拟化源码页加入
 
 用户反馈页面里的搜索“无法使用”。复现结果是服务端搜索正常，但 CSP 的
 `form-action 'none'` 让浏览器拒绝提交搜索表单；同时搜索只扫 `.md`，结果一律跳到

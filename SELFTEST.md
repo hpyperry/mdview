@@ -17,13 +17,14 @@
 
 | 套件 | 命令 | 结果 |
 |---|---|---|
-| 单元/集成 | `cargo test --lib` | **45 passed** |
+| 单元/集成 | `cargo test --lib` | **46 passed** |
 | Golden | `cargo test --test golden` | **27 cases passed** |
 | 渲染兼容 | `cargo test --test render_compat` | **134 passed** |
 | 静态检查 | `cargo clippy --all-targets -- -D warnings` | **通过** |
 | 格式 | `cargo fmt --all --check` | **通过** |
 | 黑盒 HTTP | `bash tests/selftest-rust.sh` | **PASS=110 FAIL=0** |
-| 浏览器验收 | `node tests/browser-probe.mjs` | **PASS=58 FAIL=0** |
+| 浏览器验收 | `node tests/browser-probe.mjs` | **PASS=67 FAIL=0** |
+| 源码页性能 | `node tests/perf-source.mjs` | **4 项预算通过** |
 | TTY 信任 | `bash tests/trust-tty.sh` | **PASS=9 FAIL=0** |
 | artifact 冒烟 | `bash tests/smoke-artifact.sh target/release/mdview` | **PASS=7 FAIL=0** |
 | 依赖漏洞 | `cargo audit` | **134 deps，无漏洞** |
@@ -58,11 +59,13 @@ P0 差分报告：1035 条计分语料 **1015 条精确匹配（98.07%）**，0 
 
 ## 浏览器验证
 
-`tests/browser-probe.mjs` 在真实 headless Chrome 里跑 **58 项**断言：
+`tests/browser-probe.mjs` 在真实 headless Chrome 里跑 **67 项**断言：
 
 - 文档站外壳：侧栏当前文件、代码语言条、移动端抽屉与遮罩；
 - 三列布局：≥1360 的 240/780/220、顶栏/侧栏/TOC sticky、滚动后底边贴视口、
   TOC scroll-spy 与独立收起；
+- 虚拟化源码页：大文本首屏有限行、滚动加载、`#L` 深链、无自动语言探测；
+- 性能预算：100 KB/1 MB/10 MB/1 MB Rust 源码页。
 - 搜索表单真实提交、结果分组、查询词高亮；
 - highlight.js 实际着色、复制按钮与剪贴板反馈；
 - 图片放大：`href === src`、`showModal()`、焦点落在 dialog、关闭后焦点归还、
@@ -78,10 +81,14 @@ P0 差分报告：1035 条计分语料 **1015 条精确匹配（98.07%）**，0 
 
 ## CI（GitHub Actions）
 
-- 运行：`CI · 39274836191`（2026-10-19），**全部 job 绿色**：
-  macOS 14 / Ubuntu / Windows 测试矩阵、依赖审计、4 目标构建。
-- 测试矩阵覆盖：`cargo test`、黑盒 110、TTY 9、浏览器 34；Windows 跳过
-  pty/浏览器，其余全跑。
+- 最近一次完整绿色：`CI · 39274836191`（2026-10-19，UI 三列改造前）。
+- `008d01b`（三列/搜索 UI）首跑 macOS 的浏览器验收在“TOC 跟随滚动”失败：
+  测试把 Section B 放在页尾，`scrollTo` 被最大滚动位置夹住，active 仍是上一节；
+  已把 Section B 移到 filler 之前并推送 `b9f5766`。
+- `b9f5766` 的新 run `39285530389` 受 GitHub Actions `degraded_performance`
+  影响，8 个 job 长时间 queued；这是平台事件，不是代码失败。
+- 测试矩阵覆盖：`cargo test`、黑盒 110、TTY 9、浏览器 67、源码页性能 4；
+  Windows 跳过 pty/浏览器/性能，其余全跑。
 - artifact 冒烟：macOS arm64、Linux x86_64 musl、Windows x86_64 通过；
   Linux arm64 musl 只构建（x86 runner 无法执行 arm64）。
 - 4 个 artifact 大小：macOS 2.85 MB、Windows 3.31 MB、Linux x64 3.34 MB、
@@ -90,7 +97,6 @@ P0 差分报告：1035 条计分语料 **1015 条精确匹配（98.07%）**，0 
 
 ## 尚未验证 / 待办
 
-- 本次文档站 UI 与搜索改动尚未提交/推送，CI 需在提交后重跑。
 - `release.yml` 需要一次 tag 才能验证；当前只验证了 CI 打包。
 - 完整 P0 语料的 golden 生成器仍以 `tools/spike/` 为准（当前为 27 条 curated golden）。
 

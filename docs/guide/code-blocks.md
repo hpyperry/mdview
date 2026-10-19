@@ -11,13 +11,14 @@
 <pre><code class="language-python">…</code></pre>
 ```
 
-页面加载后，内嵌的 highlight.js 11.11.1（完整语言包）对每个 `pre code` 调用
-`highlightElement`。因此：
+页面加载后，内嵌的 highlight.js 11.11.1（完整语言包）只对**有明确
+`language-*` 类且不超过 256 KB** 的 `pre code` 调用 `highlightElement`。因此：
 
 - 语言标识映射为 `language-…` 类名，常见语言都有颜色；
-- 不写语言时 highlight.js 会**自动探测**，可能着色也可能不着色，结果取决于内容；
+- 不写语言时**不做自动探测**，保持纯文本（与 VS Code Markdown 预览一致）；
 - 写了未知语言（例如 `foobar`）时保持纯文本；
 - `text` / `plaintext` / `txt` 明确声明纯文本，不着色；
+- 超过 256 KB 的代码块跳过高亮，语言条标注“未高亮”；
 - 禁用 JavaScript 时没有颜色，但代码内容完整可读。
 
 ### Python

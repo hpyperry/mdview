@@ -21,6 +21,8 @@ Rust 重写。旧 Python 单文件实现已删除，历史台账见
 - 搜索覆盖 Markdown/文本正文与所有文件名，结果按文件分组；Markdown 正文命中
   可打开文档或源码行。
 - 页内目录（运行时 h2/h3）、代码块语言条、目录分组列表、源码页“查看渲染页”回链。
+- 大文本源码页虚拟化：>256 KB 时只渲染可见行；1 MB 文本从约 42 s 降到约 0.13 s。
+- 关闭 highlight.js 自动语言探测，仅对明确 `language-*` 且 ≤256 KB 的代码块高亮。
 - 资产 URL 内容哈希（`?v=<FNV-1a>`）+ `immutable` 缓存。
 
 ### 变更（与 1.x 不兼容）
@@ -36,9 +38,9 @@ Rust 重写。旧 Python 单文件实现已删除，历史台账见
 
 ### 测试
 
-- `cargo test`：45 项单元/集成 + 134 项渲染兼容 + 27 条 golden。
+- `cargo test`：46 项单元/集成 + 134 项渲染兼容 + 27 条 golden。
 - `bash tests/selftest-rust.sh`：110 项黑盒 HTTP 断言；`trust-tty.sh` 9 项；
-  `browser-probe.mjs` 58 项；artifact 冒烟 7 项。
+  `browser-probe.mjs` 67 项；性能预算 4 项；artifact 冒烟 7 项。
 - CI：macOS / Linux / Windows 测试矩阵、4 目标构建、`cargo audit`。
 
 ### 已知后果
