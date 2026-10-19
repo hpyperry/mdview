@@ -361,9 +361,8 @@ async function main() {
     check('侧栏填满视口', (await evaluate('Math.abs(document.querySelector(".sidebar").getBoundingClientRect().height - (innerHeight - 58)) <= 1')) === true);
     check('TOC 填满视口', (await evaluate('Math.abs(document.querySelector(".toc-col").getBoundingClientRect().height - (innerHeight - 58)) <= 1')) === true);
     check('TOC 当前项', (await evaluate('!!document.querySelector(".toc-col a.active")')) === true);
-    await evaluate('window.scrollTo(0, document.getElementById("toc-3").getBoundingClientRect().top + window.scrollY - 70)');
-    await sleep(400);
-    check('TOC 跟随滚动', (await evaluate('document.querySelector(".toc-col a.active")?.getAttribute("data-target")')) === 'toc-3');
+    await evaluate('window.scrollTo(0, document.getElementById("toc-3").getBoundingClientRect().top + window.scrollY - 70); window.dispatchEvent(new Event("scroll"))');
+    check('TOC 跟随滚动', await waitFor('document.querySelector(".toc-col a.active")?.getAttribute("data-target") === "toc-3"', 3000));
     await evaluate('document.getElementById("toc-toggle").click()');
     check('TOC 可收起', (await evaluate('getComputedStyle(document.querySelector(".toc-col")).display')) === 'none');
     check('TOC 收起后两列', (await evaluate('getComputedStyle(document.getElementById("shell")).gridTemplateColumns.split(" ").length')) === 2);
