@@ -4,10 +4,28 @@ version = "2.0.0"
 edition = "2024"
 rust-version = "1.89"
 description = "Single-binary offline Markdown preview server"
+license = "MIT"
 
 [dependencies]
 anyhow = "1"
+axum = "0.8"
 clap = { version = "4", features = ["derive"] }
+comrak = { version = "0.56", default-features = false }
+directories = "6"
+mime_guess = "2"
+percent-encoding = "2"
+rand = "0.9"
+serde = { version = "1", features = ["derive"] }
+time = { version = "0.3", features = ["formatting"] }
+tokio = { version = "1", features = ["fs", "io-util", "macros", "net", "rt-multi-thread", "signal"] }
+tokio-util = { version = "0.7", features = ["io"] }
+toml = "0.8"
+walkdir = "2"
+
+[dev-dependencies]
+serde_json = "1"
+tempfile = "3"
+tower = { version = "0.5", features = ["util"] }
 
 [profile.release]
 lto = true

@@ -1,11 +1,15 @@
 # 中文注释：Makefile（无扩展名，按文件名判定为文本）
-PY := python3
+CARGO := cargo
 PORT ?= 8000
 
-.PHONY: run test
+.PHONY: run build test
+
+build:
+	$(CARGO) build --release --locked
 
 run:
-	$(PY) mdview.py --root docs --port $(PORT)
+	./target/release/mdview --root docs --port $(PORT)
 
 test:
-	$(PY) tests/tests_render.py && bash tests/selftest.sh
+	$(CARGO) test && $(CARGO) clippy --all-targets -- -D warnings
+	bash tests/selftest-rust.sh

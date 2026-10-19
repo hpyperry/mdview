@@ -62,15 +62,36 @@ impl SourceMap {
 }
 
 fn is_safe_link(url: &str) -> bool {
-    let s = url.trim().to_lowercase();
-    if s.starts_with("javascript:") || s.starts_with("vbscript:") || s.starts_with("file:") {
+    let trimmed = url.trim();
+    let lower = trimmed.to_lowercase();
+
+    // Server deviation: VS Code's override allows vscode: / vscode-insiders:;
+    // a standalone browser has no handler, so we reject them.
+    if lower.starts_with("vscode:") || lower.starts_with("vscode-insiders:") {
         return false;
     }
-    if s.starts_with("data:") {
-        return s.starts_with("data:image/gif;")
-            || s.starts_with("data:image/png;")
-            || s.starts_with("data:image/jpeg;")
-            || s.starts_with("data:image/webp;");
+
+    // markdown-it's default validateLink (lowercased).
+    if lower.starts_with("javascript:")
+        || lower.starts_with("vbscript:")
+        || lower.starts_with("file:")
+    {
+        return false;
+    }
+    if lower.starts_with("data:") {
+        if lower.starts_with("data:image/gif;")
+            || lower.starts_with("data:image/png;")
+            || lower.starts_with("data:image/jpeg;")
+            || lower.starts_with("data:image/webp;")
+        {
+            return true;
+        }
+        // VS Code's override: any data:image/<type>;... (case-sensitive,
+        // mirrors the extension's /^data:image\/.*?;/ test).
+        if let Some(rest) = trimmed.strip_prefix("data:image/") {
+            return rest.contains(';');
+        }
+        return false;
     }
     true
 }

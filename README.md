@@ -1,369 +1,175 @@
-# mdview —— 零依赖离线 Markdown 预览服务器
+# mdview 2.0 —— 单文件离线 Markdown 预览服务器
 
-> **重写进行中（分支 `refactor/new-md-view-server`）**
->
-> 目标是用 Rust 重写为**单文件可执行程序**，Markdown 语义与视觉严格对齐
-> VS Code 1.142.0，并保留静态文件服务器的 URL/CLI 契约。下方内容描述的是
-> **旧的 Python 实现**，保留作为历史与行为参考；新设计见
-> [`docs/design/new-md-view-server.md`](docs/design/new-md-view-server.md)，
-> 决策见 [`docs/adr/0004`](docs/adr/0004-rust-rewrite-and-dependencies.md)、
-> [`0005`](docs/adr/0005-vscode-1.142-as-oracle.md)、
-> [`0006`](docs/adr/0006-html-trust-and-csp.md)。新实现落地后本文件会整体重写。
-
-内网离线环境下，用一个文件把 Markdown 目录变成可浏览的文档站：**只用 Python 标准库**，
-不装任何包、不下载任何资源、页面不发一个额外请求。
+用一个可执行文件，把一个目录变成可浏览的文档站：Markdown 渲染、文本源码查看、
+所有类型下载、全文搜索；不联网、不请求任何外部资源。Markdown 的核心语义与视觉
+对齐 **VS Code 1.142.0**。
 
 ```bash
-python3 mdview.py --root docs          # 打开 http://127.0.0.1:8000/
+cargo build --release
+./target/release/mdview --root docs --host 127.0.0.1
+# 打开 http://127.0.0.1:8000/
 ```
 
----
+产物是单个二进制（macOS arm64 约 **3.3 MB**，内嵌 CSS、highlight.js 与客户端脚本）。
+运行时不需要 Python、Node 或任何动态资源。
 
-## 1. 它解决什么问题
+## 2.0 与旧 Python 版的关系
 
-`python3 -m http.server` 能把文件发出去，但 `.md` 会被浏览器当纯文本下载或显示成源码。
-要「最小文件 + 内网离线」地把 Markdown 渲染出来，只有三条路：
+- 旧实现（`mdview.py`、Python 测试、`dist/`）已删除；历史与缺陷台账归档在
+  [`docs/legacy/SELFTEST-python.md`](docs/legacy/SELFTEST-python.md)。
+- 新实现是 Rust（edition 2024），允许成熟 crate，但产物仍是单文件。
+- **行为变化**（均为决策，不是回归）：
+  - 裸 HTML **原样透传**，由 Trust + CSP 约束（旧实现一律转义）；
+  - 不生成标题 `id`，不渲染任务列表 checkbox；
+  - 裸 URL / 引用定义 / front matter / URL 与 alt 的硬边角采用 comrak 行为；
+  - 非 Markdown 文本统一进入**源码查看页**；
+  - 增加 Trust 拦截页、4 档 CSP、`vscode:` 链接拒绝与 data URI 策略。
 
-| 方案 | 文件体量 | 离线可行性 | 结论 |
-|------|----------|------------|------|
-| 打包 marked.js / markdown-it | 40–100 KB JS | 一次性内置后可用 | 解析最全，但引入第三方代码，内网审计麻烦 |
-| 浏览器端内联 mini-markdown | 6–8 KB JS | 可用 | 页面能看，但解析能力受自研限制 |
-| **服务端 Python 渲染（本方案）** | **0 额外文件** | **天然可用** | 禁用 JS 也能阅读，任何浏览器/手机都能看 |
+决策记录：[ADR 0004](docs/adr/0004-rust-rewrite-and-dependencies.md)（Rust 重写）、
+[0005](docs/adr/0005-vscode-1.142-as-oracle.md)（VS Code 基准）、
+[0006](docs/adr/0006-html-trust-and-csp.md)（HTML/CSP）、
+[0007](docs/adr/0007-hard-edge-cases-use-comrak.md)（comrak 硬边角）。
 
-本方案选了第三条：**服务端渲染**，所以交付目录里除了自己写的源码，没有任何第三方文件，
-`pip` 也不需要联网。
+## 功能
 
----
+### Markdown 渲染
 
-## 2. 快速开始
+- CommonMark + GFM 表格 / 删除线 / 自动链接；`~~x~~` 输出 `<s>`；
+- 视觉对齐 VS Code：vendored `markdown.css` / `highlight.css`，900px 正文宽、
+  14px/22px 行高、明暗主题跟随系统；
+- 客户端高亮：highlight.js 11.11.1 完整语言包；代码块复制按钮、图片放大遮罩、
+  回到顶部按钮都由脚本注入（禁用 JS 时没有死按钮）；
+- 表格单元格输出 `style="text-align:…"`（与 VS Code 一致，不用 `align=`）；
+- 协议校验：拒绝 `javascript:` / `vbscript:` / `file:` / 非法 `data:` /
+  `vscode:` / `vscode-insiders:`；`data:image/*;…` 在链接与图片位置都放行
+  （VS Code 1.142 的 `validateLink` 覆盖行为）；
+- 相对链接/图片改写为根相对 URL：切 `?`/`#` → 解码两次 → 相对解析 → 编码一次。
 
-```bash
-# 默认：0.0.0.0:8000，服务当前目录（局域网可访问）
-python3 mdview.py
+### 服务器
 
-# 推荐姿势：只服务 docs/，本机访问
-python3 mdview.py --root docs --host 127.0.0.1
+| 请求 | 行为 |
+|------|------|
+| `GET /dir/` | 目录索引：目录优先、大小/时间、文件下载按钮、上级目录、面包屑 |
+| `GET /x.md` | 渲染为 HTML（未信任目录先出现一次确认页） |
+| `GET /x.md?raw=1` | 源码查看页：行号、`id="L<n>"` 行锚点、回渲染/下载入口 |
+| `GET /x.md?download=1` | 原始字节 + `Content-Disposition` |
+| 已知文本扩展名/文件名 | 源码查看页（行号 + 客户端高亮） |
+| 无扩展名 | 前 512 字节无 NUL → 文本；有 NUL → 下载 |
+| 图片 / PDF | 按 MIME 内联 |
+| 其他 | `application/octet-stream` 下载 |
+| `GET /search?q=…` | 只搜 `.md`（文件名 + 正文，最多 100 条正文命中） |
+| `HEAD` / `301` / `404` | 支持；目录缺尾斜杠返回 301 |
 
-# 收紧可读范围：只服务 .md 与图片，其余 404
-python3 mdview.py --root docs --safe
-```
+超过 `--max-preview`（默认 20 MiB）的文件一律改为下载，`?raw=1` 也不例外。
+渲染结果按 `(path, mtime, size)` 缓存，上限 128 条。
 
-拷到别的机器：整个 `md-preview/` 目录复制过去即可，只要有 `python3`（3.6+，无需 3.9+ 语法）。
-
----
-
-## 3. 命令行参数
+## 命令行
 
 | 参数 | 默认 | 说明 |
 |------|------|------|
-| `--host` | `0.0.0.0` | 监听地址。只想自己看就填 `127.0.0.1` |
-| `--port` | `8000` | 端口；被占用时自动 +1 重试（最多 10 次）并打印真实 URL |
-| `--root` | 当前工作目录 | 服务根目录 |
-| `--safe` | 关 | 只服务 `.md` + 图片（png/jpg/jpeg/gif/svg/webp/bmp/ico/avif），其余 404 |
-| `--max-preview SIZE` | `20M` | 超过该大小的文件不再预览、改为下载；支持 `512K`/`20M`/`2G`，`0` = 不限制 |
-| `--no-search` | 关 | 关闭全文搜索页 |
-| `--port-tries N` | `10` | 端口被占用时向后尝试多少个（此前是硬编码隐藏值） |
-| `--version` | — | 打印版本 |
+| `--host` | `0.0.0.0` | 监听地址；本机使用请填 `127.0.0.1` |
+| `--port` | `8000` | 起始端口 |
+| `--port-tries` | `10` | 端口占用时向后尝试次数 |
+| `--root` | 当前目录 | 服务根目录 |
+| `--safe` | 关 | 只放行 `.md` 与图片 |
+| `--max-preview` | `20M` | 超过则下载；`0` 不限制 |
+| `--no-search` | 关 | 关闭搜索路由与搜索框 |
+| `--trust` / `--untrusted` | — | 本次运行强制信任/不信任，不写配置 |
+| `--security-level` | 配置或 `0` | CSP 级别 0–3 |
 
-`Ctrl-C` 干净退出（多线程为 daemon 线程）。
+## Trust 与 CSP
 
----
+裸 HTML 透传意味着“是否信任目录”决定页面能执行什么：
 
-## 3.5 压缩运行版（`dist/mdview.min.py`）
+- **trusted**：直接渲染；
+- **untrusted**：每个 `.md` 首次打开出现确认页 → 一次性令牌（路径绑定、60 秒、
+  消费一次）；`?raw=1` 与 `?download=1` 绕过。
+- 首次启动在 TTY 里询问并持久化；非交互环境默认 untrusted。
+- 配置写在用户配置目录的 `trust.toml`（`directories` crate）。
 
-**只带这一个文件就能运行**：删掉注释、docstring 与空行，逻辑一字未改。
+CSP 四档：0 Strict（默认）、1 允许 HTTP、2 关闭（不推荐）、3 允许 localhost HTTP。
+所有响应带 `X-Content-Type-Options: nosniff`；`script-src` 只信任每个响应新生成的
+nonce，**没有 `'self'`**；`frame/form/base/object 'none'`。
 
-| | 字节 | 行数 |
-|---|---|---|
-| `mdview.py`（源码，给人看） | 162,932 | 3,394 |
-| `dist/mdview.min.py`（运行版） | **102,588** | 2,283 |
-| 减少 | **60,344（37.0%）** | |
+## 与 VS Code 的一致性
 
-```bash
-python3 tools/minify.py                  # 重新生成
-python3 tools/minify.py --check          # 只看体积
-```
+P0 差分探针（comrak 0.56 vs markdown-it 14.3.2）在 1035 条计分语料上
+**1015 条精确匹配（98.07%），0 条未解释差异**。剩余 25 条是记录在案的
+accepted deviations：
 
-压缩只做三件语义安全的事，并用 `tokenize` 精确定位（**不用正则**）：
-删注释、删 docstring（删后作用域变空则补 `pass`）、删空行。
-**字符串字面量内部的空行一律保留** —— 这条例外是实测踩出来的：`COPY_JS` 里有个
-空行，早期实现把它也删了，每个 HTML 页面就少 1 字节。
+- 23 条来自 comrak 的 linkify / reference definition / front matter / URL 与 alt；
+- 2 条是服务器拒绝 `vscode:` / `vscode-insiders:`（VS Code 放行，但本服务器没有处理器）。
 
-等价性用两套测试 + 逐路径差分验证（测试支持指向替代实现）：
+完整分类与反例见 [`docs/spikes/comrak-vs-markdown-it.md`](docs/spikes/comrak-vs-markdown-it.md)。
+新增差异必须修掉或在 ADR 中记录，不能沉默带过。
 
-```bash
-MDVIEW_FILE=dist/mdview.min.py python3 tests/tests_render.py   # 217 项 OK
-MDVIEW=dist/mdview.min.py bash tests/selftest.sh               # 345 项 PASS
-```
-
-两条命令就是全部保证：`MDVIEW_FILE=` / `MDVIEW=` 一换，同一批断言就跑在压缩版上。
-要逐路径对拍，起两个实例（源码 / 压缩版）逐条比响应头与正文哈希即可 —— 仓库**不带**
-这样一个脚本，所以这里也不声称某次对拍的结果。`--help` 与错误文案由人工比对。
-
-## 4. 支持的 Markdown 语法
-
-### 会渲染
-
-| 语法 | 说明 |
-|------|------|
-| 标题 | ATX `#`～`######`，以及 `===` 形式的 Setext 一级标题；自动生成可跳转的 `id` 锚点（中文保留） |
-| 段落 / 换行 | 段内换行按空格连接（与 CommonMark 一致） |
-| 强调 | `**粗**`、`*斜*`、`***粗斜***`、`__粗__`、`_斜_`、`~~删除~~`，可嵌套 |
-| 行内代码 | 单反引号与多反引号定界（`` `a**b**c` `` 里的 `**` 不会被解析） |
-| 反斜杠转义 | `\*`、`` \` ``、`\[` 等，渲染为带虚线标记的字面字符 |
-| 围栏代码块 | ``` 与 ~~~，可带语言标识；内容一律不解析 Markdown |
-| 代码块样式 | 语言条 + 代码区**两段叠放**（顶部条左显语言名、右侧放复制按钮），无语言时不留空白条 |
-| 代码块复制 | 顶部条右侧的「复制」按钮：纯原生 JS、无依赖、内联进页面（不发额外请求）。按钮**由脚本注入**，禁用 JS 时不会出现点了没反应的死按钮；`http://` 下没有 `navigator.clipboard` 时自动回落到 `execCommand` |
-| 下载按钮 | 目录索引里**每个文件**右侧有「⬇ 下载」按钮（目录没有）。走服务端 `?download=1`，因此对任何类型都有效、且**保留准确类型**；`.md` 点下载拿到的是**原始 Markdown** 而不是渲染后的页面 |
-| 预览上限 | 单文件超过 **20 MiB**（可调）就不再把整个文件塞进浏览器，改为**下载**。实测 20 MiB 文本会让 Chrome 卡 **13.7 秒、占 2.5 GiB 内存**，50 MiB 要 34 秒 / 5.9 GiB —— 所以默认值刻意压在 20 MiB（详见 SELFTEST §16） |
-| 生态白名单 | 前端（`yarn.lock`/`bun.lock`/`pnpm-lock.yaml`/`.npmrc`/`.nvmrc`/`.browserslistrc`/`rollup.config.mjs`…）、Java（`pom.xml`/`build.gradle(.kts)`/`gradlew`/`mvnw`/`MANIFEST.MF`）、Go（`go.mod`/`go.sum`）、Rust（`Cargo.lock`）、.NET（`.csproj`/`.sln`/`.props`/`.targets`/`.resx`）、autotools（`Makefile.in`/`configure.ac`）、Xcode/Swift（`.pbxproj`/`Package.resolved`）等常见文本文件**都能预览**。共 94 个扩展名 + 55 个无扩展名文件名 |
-| 类型判定三层 | ① **白名单**（源码/配置，不读文件、零开销）→ ② **内置 MIME 表**（图片/PDF/JSON/XML）→ ③ **内容嗅探兜底**（看开头 512 字节有无 NUL）。所以**任何没登记过的文本文件都能预览**，不必逐个加白名单 |
-| 无扩展名嗅探 | `.git/HEAD` 这类没有扩展名的文件，按**开头 512 字节有无 NUL** 判文本还是二进制：文本内联预览，二进制下载。与 VS Code 的判定方式同源（它也是只看前 512 字节） |
-| 代码高亮 | 内置 **23 种**（每种都实测能着色）：Python / JavaScript / TypeScript / Go / Rust / Java / C / C++ / Shell / SQL / JSON / YAML / TOML / INI / Makefile / Dockerfile / Docker Compose / Containerfile / CSS / HTML / XML / Markdown / Properties。**只有带语言标识的围栏才高亮**；标识未知时退化为通用规则（注释/字符串/数字着色）；不写语言或写 `text`/`plaintext`/`txt` 则整块素色。Dockerfile、Makefile、INI 按**大小写不敏感**匹配 |
-| 列表 | 有序/无序，任意层级嵌套；有序列表支持 `start`（`4.` 开头就输出 `<ol start="4">`） |
-| 任务列表 | `- [ ]` / `- [x]` → 禁用的 checkbox |
-| 引用 | `>`，支持嵌套与内部块结构 |
-| 表格 | GFM 表格，支持 `:--` `:-:` `--:` 左/中/右对齐；单元格可含行内语法 |
-| 链接与图片 | 行内式、引用式（`[t][r]`、`[r][]`、简写 `[r]` —— **链接与图片都支持**）、自动链接 `<https://…>`、邮件地址；目标支持 `<...>` 写法（内部可含空格与 `)`） |
-| base64 内嵌图片 | 图片目标写成 `data:image/<类型>;base64,…` 时直接内联显示，不依赖磁盘文件。类型集合与文件图片一致（png/jpeg/gif/svg/webp/bmp/ico/avif），行内式、引用式与 `<...>` 写法都支持。**只对图片 `src` 放行**，链接目标仍拒绝 `data:`；裸 HTML `<img>` 不在此列。理由与安全边界见 [`docs/adr/0003`](docs/adr/0003-data-uri-images.md) |
-| 裸 URL 点击化 | 正文里手写的 `http://` / `https://` **自动变成可点链接**（GFM autolink literal），不必写成 `[](…)` 或 `<>`。只认这两种协议：`www.example.com` 与裸邮件刻意不做（前者要猜协议，后者误报率高）。遵循 GFM 的尾部规则：句末 `.` `,` `:` `;` `!` `?` 与成对引号归句子，括号按配平判定，尾部 `/` `#` 与查询串保留。**刻意偏离 GFM 一处**：全角句末标点 `。，、；：！？` 也算句子标点（GFM 只认半角），但 URL 里的汉字（`/wiki/中文条目`）照旧保留。反引号与围栏代码块内的 URL 不受影响 |
-| 分隔线 | `---`、`***`、`___` |
-| HTML 实体 | `&copy;`、`&amp;`、`&#65;` 等 |
-| 回到顶部 | **目录页**（`/`、`/guide/` 这类列表页）、**Markdown 预览页**、**源码视图**（`?raw=1`）右下角固定一颗 ↑ 按钮，点一下回到页面顶部（`prefers-reduced-motion: reduce` 时直接跳、不做平滑滚动）；搜索页与错误页不装。按钮由脚本运行时创建（服务端只在 `<body>` 上打个 `data-totop` 标记），所以禁用 JS 时不会留下点不动的死按钮；实测见 [SELFTEST §32](SELFTEST.md) |
-| 图片放大 | 正文里的图片（**不在链接里的**那些）会被包上一层可放大的链接：**禁用 JS** 时点一下直接打开原图，**有 JS 时**弹出遮罩、按视口缩放居中显示原图，并显示图片的 `alt` 作为说明。Esc / 点遮罩空白 / 右上角 × 关闭，关闭后焦点还给图片所在的链接；`Cmd`/`Ctrl`/`Shift`/`Alt` + 点击或中键**不劫持**，照旧走浏览器原生行为。链接里的图片（徽章 `[![i](p.png)](u)`）不包裹 —— 点它要跳转。**不做**相册、滚轮缩放、双指手势。理由与实测见 [`docs/adr/0002`](docs/adr/0002-image-zoom.md) 与 [SELFTEST §26](SELFTEST.md) |
-
-### 刻意不支持（按原文输出）
-
-| 语法 | 原因 |
-|------|------|
-| 裸 HTML 标签 | **安全设计**：全部转义。否则任何能访问该服务的人都能注入脚本 |
-| `2*3*4`、`a*b`、`a__b__c` | 两侧是 ASCII 字母数字 → 判为「词内定界符」，不做强调 |
-| `**a*` | 强度不匹配：`**` 不能被单个 `*` 关闭 |
-| `文字` + `---` | 只当分隔线，不当 Setext 二级标题下划线 —— 真实文档里这几乎总是想要分隔线 |
-| `***a** b*` 这类 2/1 混排 | 三连定界符走预处理，极端混排不保证与 CommonMark 完全一致 |
-| 脚注、定义列表、数学公式、HTML 块 | 未实现；可按需扩展（见 §10） |
-
-### 一处有意偏离 GFM：中文之间的强调
-
-CommonMark 的 flanking 公式在「两侧都是 CJK」时会把 `*` 判成不可配对，于是
-`三*四*五` 按标准应输出**字面量**。本渲染器把 CJK 当作**标点类**处理，所以它会变成
-`三<em>四</em>五` —— 中文文档里 `中文*强调*中文` 这种写法极常见，按标准会全部失效。
-
-这是**刻意的偏离**，不是 bug，因为它与规格里的"GFM 常用子集"不完全一致，特此记录：
-
-| 输入 | 本渲染器 | 严格 CommonMark |
-|------|----------|-----------------|
-| `中文*强调*中文` | `中文<em>强调</em>中文` | 字面量 |
-| `三*四*五` | `三<em>四</em>五` | 字面量 |
-| `a*b` | 字面量 | 字面量 |
-| `2*3*4` | 字面量 | 字面量 |
-
-需要严格 GFM 行为时改 `mdview.py` 的 `_flanking`：把 `_ascii_word` 换成 `str.isalnum`
-即可回到标准判定（代价是中文强调基本失效）。
-
-### 相对链接怎么解析
-
-- 文档内链接按**当前文档所在目录**解析，输出**根相对 URL**，所以从任何层级点都不会错。
-- `.md` 后缀**保留**：`[x](guide/install.md)` → `href="/guide/install.md"`。
-  服务端对 `/x.md` 渲染 HTML、对 `/x.md?raw=1` 返回原文，所以刷新、收藏、转发链接都可靠。
-- 越出根目录的链接（`../../../outside.md`）保留原文，不重写、也不改后缀。
-- **目标路径的编码规则与 VS Code 预览一致**：先切 `?`/`#`，只对路径部分解一次百分号，
-  再编码一次。于是 `%20` 表示空格（`a%20b.png` 命中磁盘上的 `a b.png`），文件名里
-  **字面**的 `%` 要写 `%25`（`a%2520b.png` 命中 `a%20b.png`）。链接与图片走同一条路，
-  同一个目标渲染出的 `src` 与 `href` 逐字节相同 —— 这正是本次修掉的那个 404 的根因。
-- **含空格的路径两种写法都支持，且结果相同**：`![](<a b.png>)`（VS Code 把文件拖进
-  编辑器时写出的形式）与 `![](a%20b.png)`（粘贴 URL 的形式）。示例见
-  [`docs/guide/install.md`](docs/guide/install.md) 的「路径里有空格」一节。
-- **裸空格不是合法写法**：`[x](a b.md)`、`![x](a b.png)` 与 VS Code/CommonMark 一样，
-  整行按字面文本显示（不会截断成一条指向 `a` 的链接）。
-
-### 裸 URL 怎么点击化
-
-正文里手写的 URL 不必再包成链接，`https://…` 直接可点：
-
-```markdown
-见 https://example.com/a 说明        →  <a href="https://example.com/a" rel="noreferrer noopener">https://example.com/a</a>
-```
-
-边界规则（GFM autolink literal）：
-
-| 情况 | 结果 |
-|------|------|
-| 句末 `.` `,` `:` `;` `!` `?` | 归句子，不进 URL：`…/a.` → URL 是 `…/a` |
-| 尾部引号 `"` `'` `“` `”` | 归句子 |
-| 括号 | 按配平判定：`wiki/A_(b)` 保留，`A_(b))` 与 `(见 …/a)` 的收尾 `)` 归句子 |
-| 全角句末标点 `。，、；：！？` | **归句子**（刻意偏离 GFM，见下） |
-| 尾部 `/`、`#片段`、`?查询串` | 保留，属于 URL |
-| 查询串里的 `&` | 转义一次：`href="?a=1&amp;b=2"` |
-| 反引号内、围栏代码块内 | **不**链接化（按代码显示） |
-| `[文字](https://…)` 的目标 | 不重复链接化（它本来就是链接目标） |
-| 链接标签内部 `[见 https://… 说明](u)` | **不**链接化：HTML 不允许 `<a>` 嵌 `<a>` |
-| `www.example.com`、`a@b.com` | **不**链接化：前者要猜协议，后者误报率高 |
-
-一处**刻意偏离 GFM**：GFM 只把半角标点当句末，于是 `见 https://e.com/a。结束` 会把
-「。结束」整段吃进链接。中文技术文档里 URL 后面跟全角句号是常态，所以这里把
-`。，、；：！？` 也算句子标点。**URL 里的汉字不受影响** ——
-`https://zh.wikipedia.org/wiki/中文条目` 完整保留（只有"汉字串左边紧跟全角句末标点"
-时才算句子尾巴）。
-
-**以 `/` 开头的站内路径按「服务根」解析**（标准站点语义：同一个 URL 永远指向同一个文件）。
-所以文档里的 `/media/logo.svg` 只有在 `--root` 恰好指向文档库根时才有效：
+## 构建与平台
 
 ```bash
-python3 mdview.py --root docs      # ✅ /media/logo.svg 命中 docs/media/logo.svg
-python3 mdview.py                  # ❌ 在 md-preview/ 下启动，/media/logo.svg 会 404
+cargo build --release --locked
 ```
 
-启动时如果检测到「根目录下没有 `.md`，但某个子目录里有」，横幅会直接告诉你该用哪个
-`--root`。**想省心就优先写相对路径**（`../media/logo.svg`），它与 `--root` 无关。
+CI（[`.github/workflows/ci.yml`](.github/workflows/ci.yml)）覆盖：
 
----
+| 平台 | target |
+|------|--------|
+| macOS arm64 | `aarch64-apple-darwin` |
+| Linux x86_64 musl | `x86_64-unknown-linux-musl` |
+| Linux arm64 musl | `aarch64-unknown-linux-musl` |
+| Windows x86_64 | `x86_64-pc-windows-msvc`（static CRT） |
 
-## 5. HTTP 行为
+macOS / Linux / Windows 三平台跑 `cargo test` 与黑盒 HTTP 套件。
 
-| 路由 | 行为 |
-|------|------|
-| `/<路径>?download=1` | 强制下载该文件（服务端发 `Content-Disposition: attachment`）。`.md` 也返回原始字节、不渲染。任何类型都适用，不需要 HTML5 `download` 属性 |
-| `/` | 目录索引：目录在前，逐个列出条目（名称 / 大小 / mtime），带面包屑与搜索框。**分层浏览**——每层只列当前目录，点进子目录继续看（无递归展开树） |
-| `/path/doc.md` | 渲染为 HTML，`Cache-Control: no-store`（改了 md 刷新即见） |
-| `/path/doc.md?raw=1` | **源码视图**：仍是 HTML 页面，但每行带 `id="L<n>"` 锚点（供搜索跳转），不做 Markdown 渲染。要磁盘原文用 `?download=1` |
-| `/path/img.png` | 原样返回图片，正确的 `Content-Type` |
-| `/path/*.py` 等源码/配置类 | 按 `text/plain; charset=utf-8` 发送（**保证中文不乱码**）：`.py .sh .c .cpp .h .hpp .cs .java .go .rs .ts .tsx .jsx .rb .php .pl .lua .sql .ini .cfg .conf .properties .log .diff .patch .env .mk .bat .ps1 .vue .svelte .tsv .rst .tex`，以及 `Makefile`/`Dockerfile`/`.gitignore` 这类无扩展名文件 |
-| `/path/*.ts` | 刻意当 **TypeScript** 文本，而不是标准库认定的 `video/mp2t`（MPEG 传输流） |
-| `/search?q=…` | 全文搜索：只扫 `.md`，大小写不敏感子串匹配，文件名命中与正文命中分两块，正文命中带上下文行与 `#L<行号>` 跳转 |
-| 其他任意文件 | 原样返回（`--safe` 下则 404） |
-| 目录缺少结尾 `/` | `301` 补斜杠 |
-| 不存在 | `404` 友好页面 |
-| `HEAD` | 支持（与 `GET` 同样的头，不返回体） |
+推送 `v*` tag 时，[`release.yml`](.github/workflows/release.yml) 会为四个目标构建
+`.tar.gz`/`.zip`（含 `LICENSE`、README、`THIRD-PARTY-NOTICES.md`），生成
+`SHA256SUMS` 并上传到 GitHub Release。CI 还会运行 `cargo audit` 与
+`cargo deny check`。
 
----
-
-## 6. 安全说明（请务必读一遍）
-
-默认参数是**故意与 `http.server` 等价的宽松配置**，因为「方便同事直接访问」是真实需求：
-
-> `--host 0.0.0.0` + `--root` 默认为当前工作目录 + **任意文件可读**
-
-这三条同时成立时，**局域网内任何人都能递归读取该目录下的一切**，包括 `.env`、
-`~/.ssh/id_rsa`、`.git/config`。内网不等于可信网段。启动横幅会打印真实的监听地址与
-根目录绝对路径，请确认那正是你想暴露的范围。
-
-已经做的防护：
-
-- **路径穿越**：`/../../etc/passwd` 这类请求的 `..` 会被夹紧在 `--root` 内，不可能读到根外文件。
-- **XSS**：两道防线，缺一不可 ——
-  1. 正文里的裸 HTML 与**代码块内的 HTML** 一律转义（代码块这条曾经是漏洞，已修）；
-  2. 链接/图片目标过**协议白名单**，`javascript:` / `vbscript:` / 链接位置的 `data:`
-     一律不产出属性。唯一的例外是图片 `src` 的 `data:image/<已登记类型>;base64,…`：
-     同一段串进 `<img src>` 放行，进 `<a href>` 仍然拒绝（详见 [`docs/adr/0003`](docs/adr/0003-data-uri-images.md)）。
-
-  两层都曾经不完整：早期只做了第 1 条，于是 `<a@b.com"onmouseover="x>` 能在真实
-  Chrome 里注入一个**活的**事件处理器，`[x](javascript:alert(1))` 也能点击执行。
-  现已修复，并加了一条针对"标签属性名必须落在白名单内"的核心断言，
-  该断言对修复前的版本有检出能力（已反向验证）。
-- **隐藏裸奔**：`--root` 只想暴露文档时用 `--safe`（只放行 `.md` 与图片），或把 `--host` 改成 `127.0.0.1`。
-
-推荐的最小暴露姿势：
+## 测试
 
 ```bash
-python3 mdview.py --root ./docs --host 127.0.0.1     # 只有自己能看
-python3 mdview.py --root ./docs --safe --port 9000   # 要给同事看，但只给 .md 和图片
+cargo test                      # 45 单元 + 134 渲染兼容 + 27 golden
+cargo clippy --all-targets -- -D warnings
+bash tests/selftest-rust.sh     # 110 项真二进制 HTTP 断言
+node tests/browser-probe.mjs      # 34 项 headless Chrome 验收
+bash tests/trust-tty.sh           # 9 项真实 pty 信任测试
 ```
 
----
+- `tests/render_compat.rs`：旧 217 项渲染断言的 Rust 后继，期望按 ADR 0005/0007 更新；
+- `src/server.rs`：路由、Trust、CSP、symlink、下载头、跨平台路径；
+- `tests/selftest-rust.sh`：目录/301/源码/渲染/下载/搜索/MIME/嗅探/上限/端口回退/
+  Trust/CSP/FIFO/symlink。
 
-## 7. 源码导航（单文件分 section）
+测试说明见 [`tests/README.md`](tests/README.md)。
 
-`mdview.py` 是唯一入口，按功能分块。顶部注释给出 10 个 section 的**唯一标识**
-（每个标识在文件里只有一个匹配，直接搜索即可定位，不写行号也就不会漂移）：
+## 目录结构
 
-| Section | 内容 | 大约位置 |
-|---------|------|----------|
-| `[1] CONSTANTS` | 扩展名、MIME、跳过目录、各类上限 | 文件头 |
-| `[2] CSS` | 内联样式（含暗色模式、打印样式、代码 token 配色） | |
-| `[3] TEMPLATES` | 页面骨架、面包屑、错误页、体积格式化 | |
-| `[4] HIGHLIGHTER` | 关键字表 + 单趟 big-regex token 着色 | |
-| `[5] INLINE` | 行内解析：先摘除受保护区间，再解析强调（帧栈 + 最近配对） | |
-| `[6] URL REWRITE` | 相对链接/图片解析、slug 生成 | |
-| `[7] BLOCKS` | 块级解析：围栏/标题/引用/列表/表格/段落 | |
-| `[8] DIRECTORY & SEARCH` | 目录索引、树、`os.walk` 全文搜索 | |
-| `[9] HANDLER` | `ThreadingHTTPServer` 处理器、路由、渲染缓存、端口回退 | |
-| `[10] CLI` | 参数解析、启动横幅、`main()` | |
-
-渲染结果缓存以 `(路径, mtime_ns, size)` 为键的惰性缓存，文件被外部编辑后自动失效。
-
-配套文件：
-
-```
+```text
 md-preview/
-├─ mdview.py            # 唯一的可交付源码：服务端 + 渲染器
-├─ README.md            # 本文
-├─ SELFTEST.md          # 验证结果与缺陷修复台账
-├─ GLOSSARY.md          # 术语表（目标 / 根相对 URL / 双重编码 …）
-├─ docs/adr/            # 决策记录（目标路径编码语义、图片放大为什么手写遮罩、data URI 图片的安全边界）
-├─ tests/               # 测试（见 tests/README.md）
-│  ├─ tests_render.py   #   渲染器回归测试（217 项，纯 unittest）
-│  └─ selftest.sh       #   端到端 HTTP 冒烟测试（345 项断言）
-├─ tools/minify.py      #   生成运行版（去注释/docstring/空行）
-├─ tools/zoom-probe.html #  浏览器探针：真机验放大遮罩 / 回到顶部（开发工具，不发布）
-├─ dist/mdview.min.py   #   ★ 压缩运行版（100 KB，可单独拿去运行）
-└─ docs/                # 示例语料
-   ├─ index.md          #   表格/任务列表/嵌套列表/代码高亮/相对链接/裸 URL 点击化
-   ├─ guide/            #   安装、边界、代码块专项
-   └─ preview/          #   ★ 支持内联渲染的文件样例（55 个）+ 总览页 + 生成脚本
+├─ Cargo.toml / Cargo.lock
+├─ src/
+│  ├─ main.rs / lib.rs
+│  ├─ cli.rs        # 参数
+│  ├─ trust.rs      # Trust 配置与优先级
+│  ├─ server.rs     # 路由、目录、搜索、CSP、下载
+│  ├─ render.rs     # comrak + VS Code 定制层
+│  └─ assets.rs     # 内嵌资产
+├─ assets/          # markdown.css / highlight.css / highlight.min.js / mdview.js
+├─ tests/           # render_compat.rs + selftest-rust.sh
+├─ docs/            # 示例文档、ADR、设计、归档
+├─ tools/build-assets/  # 重建 highlight.js bundle
+└─ tools/spike/         # P0 差分探针
 ```
 
----
+## 已知限制
 
-## 8. 测试
+- 标题不生成 `id`；任务列表是字面量；脚注/数学公式不渲染。
+- linkify 用 comrak：`www.` 与裸邮箱会链接化，全角句号会进 URL，`&copy;` 会截断 URL。
+- 引用定义的尖括号目标（`[r]: <a b.md>`）在文件末尾没有换行时可能解析失败（EOF quirk）；正常以换行结尾的文件可解析。
+- front matter 被消费，不渲染成 VS Code 的表格。
+- 文件名里字面含 `%xx` 的文件不能通过相对 Markdown 目标到达（双重解码的代价）。
+- 搜索每次实时扫盘，只搜 `.md`；无索引、无编辑保存。
+- Trust 判定按根目录路径字符串保存；移动目录后需要重新确认。
+- 许可证为 MIT，见 [`LICENSE`](LICENSE)；第三方组件见 [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md)。
 
-```bash
-python3 tests/tests_render.py      # 渲染器单元测试：217 项
-bash tests/selftest.sh             # 端到端 HTTP 验证：345 项断言
-```
-
-三者都是零依赖、可重复执行的。`tests/selftest.sh` 会在 `127.0.0.1:8731` 起一个临时实例，
-跑完全部断言后自动关闭，不污染你的环境。测试目录自身的说明见 [`tests/README.md`](tests/README.md)；
-验证结果记录在 [`SELFTEST.md`](SELFTEST.md)。
-
----
-
-## 9. 已知限制
-
-- **大型目录索引不设条数上限**（你可以在 `mdview.py` 里给 `render_dir_listing` 加截断），
-  `node_modules` 级别的目录会较慢。
-- **超过 `--max-preview`（默认 20 MiB）的文件不预览，改为下载**（对 `.md`、图片、PDF 等一切类型生效，`?raw=1` 也不例外）；未超限的非 UTF-8 内容按 `errors="replace"` 解码，不会 500。
-- **无扩展名文件按内容判文本/二进制**：只看开头 512 字节里有没有 NUL 字节（与 VS Code 同法）。
-- **搜索是每次请求实时扫盘**，没有倒排索引；常规文档库（几百个 `.md`）无感。
-- **不支持浏览器内编辑保存**：只读设计，避免写权限与并发覆盖风险。
-- 三连定界符走预处理（`***x***` 一步产出 `<strong><em>`），极端 2/1 混排不保证与 CommonMark 完全一致。
-- Setext 只支持 `===`（`---` 一律当分隔线），理由见 §4。
-- **`<>` 目标的边角**：空目标 `[x](<>)` 按字面文本显示（VS Code 产出 `<a href="">`）；
-  尖括号内用反斜杠转义 `<` / `>`（`](<a\<b.png>)`）不支持，会落到后面的管线里；
-  内部出现**裸** `<` 时仍会生成一条指向不存在路径的链接，而不是退化成字面文本。
-- **字面含 `%xx` 的文件名要写 `%25xx`**：`a%2520b.png` 命中 `a%20b.png`。这一处
-  **故意与 VS Code 不同** —— 它的相对路径实际解码两次，文件名里真含 `%20` 的文件在它那里
-  用相对路径打不开；我们只解一次，保持可达。理由见 [`docs/adr/0001`](docs/adr/0001-markdown-target-encoding.md)。
-- **图片放大的四种边界**：① 禁用 JS 时点图片是**同标签**打开原图（Back 可回文档页，
-  但当前页会被替换）；② 遮罩只做「按视口缩放居中」，没有相册、滚轮缩放、双指手势、
-  1:1 切换（理由见 [`docs/adr/0002`](docs/adr/0002-image-zoom.md)）；
-  ③ 超过 `--max-preview` 的图片本来就由服务端改为下载（页面里是裂图），点它也会变成下载；
-  ④ **数据 URI 图片**禁用 JS 时点不动：浏览器会拦截 `data:` 顶层跳转，而图片本来已内联
-  显示，不需要再打开一份原图（[`docs/adr/0003`](docs/adr/0003-data-uri-images.md)）。
-- **引用式图片嵌在引用式链接里**（`[![i][r]](u)`）本来就产出坏标记：`_REF_LINK_RE` 用
-  `[^\]]*` 抓标签，会从外层 `[` 开始匹配、把内层 `[i]` 当成标签内容。行内式写法
-  （`[![i](p.png)](u)`）不受影响。
-
-## 10. 想扩展时
-
-| 想加的东西 | 落点 |
-|------------|------|
-| 新语言高亮 | 搜 `SECTION 4`，在 `LANG_KEYWORDS` 加一组关键字（大小写不敏感就登记到 `LANG_ICASE`，显示名加到 `LANG_LABEL`） |
-| 改完代码必做 | `python3 tests/tests_render.py` → `bash tests/selftest.sh` |
-| 语法高亮以外的新行内语法 | `SECTION 5` 的 `parse_inline`：先 stash 成 token，再在还原前处理 |
-| 新块级语法 | `SECTION 7` 的 `render_blocks`：加一个分支并同步更新 `_starts_block` |
-| 新路由 | 搜 `SECTION 9` 的 `Handler._route` |
-| 回到顶部：改出现范围/位置/滚动行为 | `SECTION 2` 的 `.totop` 一族样式 + `COPY_JS` 末尾那段；出现范围由 `_page(to_top=)` 的调用点决定（现为 `_list_view` / `_markdown_page` / `_raw_page` 三个） |
-| 图片放大：改可放大的范围（比如只包大图） | `wrap_zoom_images`（`SECTION 5` 的末尾）—— 判据就在那个锚点深度扫描里 |
-| 图片放大：改遮罩/动画/关闭方式 | `SECTION 2` 的 `dialog.zoomdlg` 一族样式 + `COPY_JS` 末尾那段；改动后跑 [`tools/zoom-probe.html`](tools/zoom-probe.html) 真点一次（动画/关闭/图标/焦点的坑见 [SELFTEST §28](SELFTEST.md)、[§29](SELFTEST.md)、[§30](SELFTEST.md)、[§31](SELFTEST.md)，探针别加 `--force-prefers-reduced-motion`） |
-| 目录列表截断 / 白名单扩展 | `SECTION 8` 与 `SECTION 1` 的常量 |
+更细的边界见 [`docs/guide/advanced.md`](docs/guide/advanced.md)。

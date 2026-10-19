@@ -1,0 +1,25 @@
+#!/usr/bin/env expect
+# Drives the interactive trust prompt under a real pty.
+# Environment: BIN, ROOT, PORT, HOME_DIR, PIDFILE.
+
+set timeout 20
+spawn env -u XDG_CONFIG_HOME HOME=$env(HOME_DIR) $env(BIN) \
+  --root $env(ROOT) --host 127.0.0.1 --port $env(PORT) --port-tries 0
+
+expect {
+  "是否信任该目录" {}
+  timeout { exit 2 }
+}
+send "y\r"
+
+expect {
+  "trust:       trusted" {}
+  timeout { exit 3 }
+}
+
+set fh [open $env(PIDFILE) w]
+puts $fh [exp_pid]
+close $fh
+
+# Stay attached to the pty until the harness kills the child.
+expect eof

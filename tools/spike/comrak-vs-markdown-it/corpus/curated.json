@@ -150,5 +150,10 @@
   {"name":"only-newlines","input":"\n\n\n","tags":["empty"]},
   {"name":"crlf","input":"a\r\nb","tags":["line-endings"]},
   {"name":"tab-indent","input":"\tcode","tags":["blocks","indent"]},
-  {"name":"four-space-code","input":"    code","tags":["blocks","indent"]}
+  {"name":"four-space-code","input":"    code","tags":["blocks","indent"]},
+  {"name":"data-bmp-link","input":"[x](data:image/bmp;base64,AAAA)","tags":["data-uri","protocol","link"]},
+  {"name":"data-uppercase-svg-link","input":"[x](DATA:IMAGE/SVG+XML;BASE64,AAAA)","tags":["data-uri","protocol","case"]},
+  {"name":"data-image-semicolon-only","input":"[x](data:image/;)","tags":["data-uri","protocol","edge"]},
+  {"name":"vscode-link","input":"[x](vscode:command:workbench.action.openSettings)","tags":["protocol","server-deviation"]},
+  {"name":"vscode-insiders-link","input":"[x](vscode-insiders:command:foo)","tags":["protocol","server-deviation"]}
 ]

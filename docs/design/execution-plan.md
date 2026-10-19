@@ -1,24 +1,27 @@
 # 执行计划：Rust 单文件 mdview
 
-**Status**: P0 complete — **Gate A: Yellow**（2026-10-19）；P1/P2 ready
+**Status**: P0–P5 完成；P6 进行中（CI 已定义，待首次运行与 release 烟测）
 **Branch**: `refactor/new-md-view-server`
 **依据**: [设计方案](new-md-view-server.md) · [ADR 0004](../adr/0004-rust-rewrite-and-dependencies.md) ·
-[ADR 0005](../adr/0005-vscode-1.142-as-oracle.md) · [ADR 0006](../adr/0006-html-trust-and-csp.md)
+[ADR 0005](../adr/0005-vscode-1.142-as-oracle.md) · [ADR 0006](../adr/0006-html-trust-and-csp.md) ·
+[ADR 0007](../adr/0007-hard-edge-cases-use-comrak.md)
 
 这份计划把设计方案落成可执行的工作包。**P0 是决策门**：先量化 comrak 与
 markdown-it 的差异，再决定是否全速实现。P0 不通过时，停下来重选解析器，
 不要在错误的基础上建服务器。
 
-> **P0 结果（2026-10-19）**：1030 条计分语料 **1012 条精确匹配（98.25%）**，
-> **0 条未解释差异**；18 条计分差异全部归入已知自定义层。Gate A = **Yellow**：
-> 继续用 comrak，但把 linkify pass 与 reference-definition 预扫描列为 P2 的
-> 必做项。详见 [差分报告](../spikes/comrak-vs-markdown-it.md)。
+> **P0 结果（2026-10-19）**：1035 条计分语料 **1015 条精确匹配（98.07%）**，
+> **0 条未解释差异**；20 条计分差异 = 17 条 accepted + 3 条表格对齐待修。
+> 按 [ADR 0007](../adr/0007-hard-edge-cases-use-comrak.md)，linkify、reference
+> definition、front matter、URL normalization、图像 alt 的 23 条差异接受 comrak
+> 行为；另有 2 条 `vscode:` 链接服务器偏差 accepted。P2 由 8–12 天下调到
+> **4–6 天**。详见 [差分报告](../spikes/comrak-vs-markdown-it.md)。
 
 ## 0. 原则
 
 1. **先验证最高风险，再写产品代码**：解析器一致性是唯一可能推翻架构的风险。
 2. **每个阶段有可验收的产物**：不是“写完了”，而是“测试/报告/二进制能证明”。
-3. **旧断言不是规格**：与 VS Code 冲突时按 ADR 0005 改期望，并记录原因。
+3. **旧断言不是规格**：与 VS Code 冲突时按 ADR 0005/0007 改期望，并记录原因。
 4. **安全边界单独验收**：Trust/CSP/协议校验/路径夹紧不混在功能测试里“顺带看看”。
 5. **单二进制是交付形态**：源码可以分模块，运行时不能依赖外部资产。
 6. **代码在 P0 门通过后开始**；P0 的探针是临时代码，不进入发布物。
@@ -29,19 +32,23 @@ markdown-it 的差异，再决定是否全速实现。P0 不通过时，停下�
 |---|---|---|---|
 | P0 | comrak vs markdown-it 差分探针 + 决策门 | **完成（黄）** | 无 |
 | P1 | Rust 骨架、CLI、静态服务、Trust/CSP、测试骨架 | 3–4 天 | 可与 P0 并行 |
-| P2 | Markdown 渲染管线 + golden 差分收敛 | **8–12 天** | P0 绿/黄 |
+| P2 | Markdown 渲染管线 + golden 差分收敛 | **4–6 天** | P0 绿/黄 |
 | P3 | VS Code CSS + 完整 highlight.js + 源码查看页 + 前端 | 3–4 天 | P1、P2 |
 | P4 | 移植旧测试、重写 selftest、安全/性能/跨平台 | 3–5 天 | P2、P3 |
 | P5 | 删除 Python、更新示例与文档、归档旧台账 | 1–2 天 | P4 |
 | P6 | 全平台构建、发布 artifact、许可证与烟测 | 1–2 天 | P4、P5 |
 
-**总量级**：单人全职约 **5–7 周**（含测试；P0 后上调）。最大变量是 P2 的 linkify
-与 reference-definition 自定义层；P0 的红色结果会让估算重新开始。P1 可以在
-P2 之前先落骨架，P3 的资产准备可以在 P2 期间做。
+**总量级**：单人全职约 **4–5 周**（含测试；按 ADR 0007 第二次下调）。最大变量仍是
+P2 的 URL/安全/表格对齐层；P1 可以先落骨架，P3 的资产准备可以在 P2 期间做。
+
+> **实现状态（2026-10-19）**：P1–P5 已完成；`cargo test` 45 + 134 + 27 golden、黑盒 110、pty 9、
+> 浏览器 34、artifact 冒烟 7，clippy/fmt 全绿，release 约 3.3 MB。P6 的 CI 矩阵、打包、`cargo audit` 与
+> CHANGELOG 已落，等待 GitHub 实跑；许可证已定为 MIT。
 
 ## 2. P0：解析器差分探针（决策门）
 
-**目标**：回答“comrak + 自定义渲染器能否达到严格 VS Code 语义”，而不是凭感觉。
+**目标**：回答“comrak + 自定义渲染器能否达到 VS Code 核心语义，哪些硬边角要放弃”，
+而不是凭感觉。
 **时间盒**：0.5–1 天（已完成）。**不写产品代码。**
 
 ### 工作包
@@ -59,7 +66,7 @@ P2 之前先落骨架，P3 的资产准备可以在 P2 期间做。
       `data-line`/`code-line`/`data-vscode-context` 与纯序列化差异。
 - [x] **P0-5 性能检查**：1 MB/10 MB、URL 密集、256 KB 长行；未发现平方级退化。
 - [x] **P0-6 报告**：[`docs/spikes/comrak-vs-markdown-it.md`](../spikes/comrak-vs-markdown-it.md)；
-      1012/1030 精确匹配，0 未解释差异，Gate A = 黄。
+      1015/1035 精确匹配，0 未解释差异，Gate A = 黄。
 
 ### 决策门
 
@@ -67,7 +74,7 @@ P2 之前先落骨架，P3 的资产准备可以在 P2 期间做。
 |---|---|---|
 | 绿 | 差异只剩已知自定义层/序列化噪声 | 继续 P1/P2 |
 | **黄（本次）** | 有解析差异，但可在渲染器或薄后处理修 | 带差异清单进 P2，golden 钉住 |
-| 红 | 核心解析/HTML block/列表紧凑度大面积不一致 | 停；重新评估 markdown-it-rs、pulldown-cmark、内嵌 markdown-it；更新 ADR 0005 |
+| 红 | 核心解析/HTML block/列表紧凑度大面积不一致 | 停；重新评估 markdown-it-rs、pulldown-cmark、内嵌 markdown-it；更新 ADR 0005/0007 |
 
 **验收**：报告已明确回答“剩余差异是否可修”；P0 代码保留在 `tools/spike/` 以便复现。
 
@@ -80,64 +87,68 @@ P2 之前先落骨架，P3 的资产准备可以在 P2 期间做。
 
 - [x] **P1-1 工程骨架**：Cargo 项目、模块边界（server/render/assets/trust）、
       `cargo fmt`/`clippy`、`Cargo.lock` 入库。
-- [ ] **P1-2 CLI**：`--host`、`--port`、`--port-tries`、`--root`、`--safe`、
+- [x] **P1-2 CLI**：`--host`、`--port`、`--port-tries`、`--root`、`--safe`、
       `--max-preview`、`--no-search`、`--trust`、`--untrusted`、`--security-level`、
-      `--version`；启动横幅（真实地址、根绝对路径、信任状态、级别警告）；
-      端口回退；Ctrl-C 干净退出。
-      *（CLI 解析、`--max-preview`、banner 已落；端口回退/Ctrl-C 随 P1-5。）*
-- [ ] **P1-3 路径与安全**：HTTP 路径解一次百分号；`..` 夹紧；根规范化；
-      symlink 策略；301/404/403；`X-Content-Type-Options: nosniff`。
-- [ ] **P1-4 类型判定**：白名单 → MIME 表 → 前 512 字节 NUL 嗅探；文本/二进制；
-      `--safe` 只放行 `.md` + 图片。
-- [ ] **P1-5 静态服务**：目录索引（面包屑、大小、mtime、下载按钮）、二进制原样发送、
-      `?download=1`（RFC 6266/5987）、`HEAD`、缓存头、流式大文件。
-- [ ] **P1-6 Trust/CSP**：用户配置目录、TOML、启动询问、非 TTY 默认未信任、
-      `--trust/--untrusted`、一次性令牌、拦截面、4 档 CSP、nonce。
-- [ ] **P1-7 测试骨架**：Rust 集成测试 + `tests/selftest.sh` 壳；CI 骨架。
+      `--version`；启动横幅、端口回退、Ctrl-C。
+- [x] **P1-3 路径与安全**：HTTP 路径解一次百分号；`..` 夹紧；根规范化；
+      symlink 越界拒绝；301/404/403；`X-Content-Type-Options: nosniff`。
+- [x] **P1-4 类型判定**：白名单 → MIME 表 → 前 512 字节 NUL 嗅探；文本/二进制；
+      `--safe` 只放行 `.md` + 图片。*（常用白名单已落；P4 按旧清单补齐。）*
+- [x] **P1-5 静态服务**：目录索引（面包屑、大小、mtime、下载按钮、搜索框）、
+      二进制原样发送、`?download=1`（RFC 6266/5987）、`HEAD`、缓存头、流式文件、
+      `/search?q=` 全文搜索。
+- [x] **P1-7 测试骨架**：Rust 单元/集成 + `tests/selftest-rust.sh`（后续扩到 110 项）
+      black-box；CI 骨架留到 P6。
+- [x] **P1-6 Trust/CSP**：用户配置目录、TOML、启动询问、非 TTY 默认未信任、
+      `--trust/--untrusted`、4 档 CSP、nonce；未信任 `.md` 拦截面与一次性令牌
+      已有 Rust + black-box 测试。
 
 ### 验收
 
-- `cargo test` 与基础 `tests/selftest.sh` 全绿。
+- `cargo test` 28 项全绿；真实二进制冒烟通过（渲染/源码页/下载/搜索/301/HEAD/CSP）。
 - 路径穿越、`--safe`、下载文件名、301、HEAD、端口回退有断言。
-- Trust 配置可读写；非交互默认未信任；一次性令牌不可复用。
-- `.md` 此时可以临时走源码页，不阻塞服务器验收。
+- Trust 配置可读写；非交互默认未信任；一次性令牌复用拒绝已测。
+- `.md` 正常 URL 已走 Markdown 渲染；`?raw=1` 仍是源码页。
 
 ## 4. P2：Markdown 渲染管线
 
-**目标**：严格 VS Code 语义；golden 差分收敛。
+**目标**：VS Code 核心语义 + comrak 硬边角（ADR 0007）；golden 差分收敛。
 **入口**：P0 绿/黄。
 
 ### 工作包
 
-- [ ] **P2-1 comrak 配置**：`unsafe` HTML、table/strikethrough；关闭 autolink
-      （由自定义 linkify pass 取代）、tasklist/footnote/math；确认不生成 heading id。
-- [ ] **P2-2 自定义渲染器**：
+- [x] **P2-1 comrak 配置**：`unsafe` HTML、table/strikethrough/autolink、
+      `front_matter_delimiter = Some("---")`；关闭 tasklist/footnote/math；
+      确认不生成 heading id。
+- [x] **P2-2 自定义渲染器（只保留安全/服务端语义层）**：
   - `validateLink`：拒 `javascript:`/`vbscript:`/`file:`/非法 `data:`；
-    `data:image/(gif|png|jpeg|webp);…` 在链接与图片位置都放行；被拒目标按
-    markdown-it 的字面/raw tail 回退（生产侧由 CSP 约束）。
-  - **linkify pass**：关闭 comrak autolink；复刻 markdown-it/linkify-it 的
-    http/https、裸邮箱与边界（`www.` 不链、实体/冒号/引号边界）。
-  - **reference-definition 预扫描**：合法尖括号目标归一化；被拒协议的整条定义
-    不注册，保留为段落。
+    **任意 `data:image/*;…` 在链接与图片位置都放行**（VS Code 1.142 实际覆盖逻辑）；
+    `vscode:`/`vscode-insiders:` 拒绝（服务器偏差）。这是安全例外，
+    不交给 comrak `render.unsafe`。
+  - 被拒目标：简化为渲染标签文本、不生成锚点/图片；不做 markdown-it 的
+    sourcepos/raw-tail 回退。绝不产出危险 `href`/`src`。
   - URL 重写：切 `?`/`#` → 解码两次 → 相对解析 → 编码一次 → 根相对 URL。
-  - Front matter：表格 + 值渲染规则（null/数组/对象/日期）。
   - 表格单元格：`style="text-align:…"`（不是 `align=`）。
-  - 图像 alt：复刻 markdown-it 的纯文本提取（跳过实体 token）。
-  - 代码块：`<pre><code class="language-…">`，不在服务端高亮。
-  - 裸 HTML 透传；任务列表/标题 id 不生成；`~~x~~` 输出 `<s>`。
-- [ ] **P2-3 Golden 测试**：`tests/golden/` 生成器（Node 22 + 锁定依赖）、语料、
-      Rust 对比器；忽略规则写死并注释；golden 入库。**P0 的 26 条已知差异必须逐条有回归夹具。**
-- [ ] **P2-4 差异收敛**：逐条修 comrak/markdown-it 边角；每条差异要么修，要么
-      归类为“有意忽略”并写原因。
-- [ ] **P2-5 渲染缓存**：`(path, mtime_ns, size)` 键；外部编辑自动失效；
-      渲染页 `no-store`。
-- [ ] **P2-6 单元/性能测试**：URL/协议/linkify/front matter；长行与大输入无平方级退化。
+  - 代码块：`<pre><code class="language-…">`，不在服务端高亮；
+    `~~x~~` 输出 `<s>`。
+  - 裸 HTML 透传；任务列表/标题 id 不生成。
+- [x] **P2-3 Golden 测试**：`tests/golden/cases.jsonl` 27 条 curated 输入 +
+      `expected/*.html` 逐字节输出；`cargo run --example golden -- --update`
+      重新生成。`render::tests::golden_outputs_are_frozen` 保留 14 条内部输出。
+      P0 的完整差分语料仍在 `tools/spike/`（markdown-it oracle）。
+      **P0 的 28 条：25 条 accepted（23 comrak + 2 vscode），3 条表格对齐按 VS Code 修。**
+- [x] **P2-4 差异收敛**：P0 的 accepted deviations 已按 ADR 0007 固定，
+      由 `render_compat` 正反断言 + `golden` 的 `note` 字段覆盖。
+- [x] **P2-5 渲染缓存**：`(path, mtime, size)` 键；外部编辑自动失效；
+      渲染页 `no-store`；缓存上限 128 条。
+- [x] **P2-6 单元/性能测试**：URL/协议/表格对齐/URL 重写/1 MB 大输入
+      （5 秒上限）已有覆盖；45 项单元测试 + 134 项渲染集成测试全绿。
 
 ### 验收
 
-- Golden 语料规范化后 100% 匹配；任何剩余差异都被显式分类。
-- 旧 217 项渲染断言已审阅/移植，冲突处按 ADR 0005 更新。
-- 协议白名单、data URI、双重解码、front matter 均有正反断言。
+- Golden 语料：3 条表格对齐 + 安全/URL 断言通过；25 条 accepted 差异有固定夹具。
+- 旧 217 项渲染断言已审阅/移植，冲突处按 ADR 0005/0007 更新。
+- 协议白名单、data URI、双重解码、表格对齐均有正反断言。
 - **Gate B**：出现新的解析器级差异时，先修或明确记录，不能沉默带过。
 
 ## 5. P3：视觉、highlight.js、源码查看页
@@ -146,26 +157,31 @@ P2 之前先落骨架，P3 的资产准备可以在 P2 期间做。
 
 ### 工作包
 
-- [ ] **P3-1 VS Code CSS**：vendored `markdown.css`/`highlight.css`；提取
-      Light+/Dark+ `--vscode-*` 变量；`prefers-color-scheme` 自动切换；打印样式。
-- [ ] **P3-2 highlight.js**：完整语言集浏览器 bundle；构建脚本 + 版本固定；
-      语言别名映射照 VS Code；产物入库；许可证。
-- [ ] **P3-3 资产嵌入**：`include_bytes!`/`include_str!`；`/_assets/<hash>/…`；
-      `immutable` 缓存；CSP nonce 集成；无外部请求。
-- [ ] **P3-4 源码查看页**：服务端行号 gutter + `id="L<n>"`；语言映射；highlight.js；
-      无 JS 降级；下载/复制/回顶/面包屑；`--max-preview` 超限下载。
-- [ ] **P3-5 `mdview.js`**：highlight 初始化、复制按钮、图片放大 `<dialog>`、
-      回到顶部；无 JS 时不出现死按钮；焦点/Esc/修饰键行为沿用旧版约束。
-- [ ] **P3-6 Markdown 页 chrome**：面包屑、下载、回顶；内容 `.markdown-body`；
-      代码复制按钮按 VS Code 外观。
-- [ ] **P3-7 浏览器探针**：亮/暗、高亮、复制、缩放、回顶、无 JS；与 VS Code
-      预览并排截图；确认无外部网络请求。
+- [x] **P3-1 VS Code CSS**：`markdown.css` / `highlight.css` 已 vendored；
+      `--vscode-*` 变量映射到明暗变量；正文排版由 VS Code CSS 接管；
+      `prefers-color-scheme` 由 `mdview.js` 切换。
+- [x] **P3-2 highlight.js**：完整语言集浏览器 bundle（1.0 MB）；构建脚本
+      `tools/build-assets/`；语言映射常用项已接；产物入库。
+- [x] **P3-3 资产嵌入**：`include_bytes!`/`include_str!`；`/_assets/…?v=<内容哈希>`
+      + `immutable` 缓存；CSP nonce 集成；无外部请求。
+- [x] **P3-4 源码查看页**：服务端行号 gutter + `id="L<n>"`；语言映射；highlight.js；
+      无 JS 降级为纯文本；下载/复制/回顶/面包屑；`--max-preview` 超限下载。
+- [x] **P3-5 `mdview.js`**：highlight 初始化、复制按钮、图片放大 `<dialog>`、
+      回到顶部；无 JS 时不出现死按钮；修饰键不劫持、Esc/背景关闭、焦点归还。
+- [~] **P3-6 Markdown 页 chrome**：面包屑、下载、回顶、`.markdown-body` 已落；
+      复制按钮是自有 `.copy-btn` 样式，尚未逐像素对齐 VS Code。
+- [x] **P3-7 浏览器探针**：`tests/browser-probe.mjs` 在 headless Chrome 里跑
+      34 项：高亮、复制、放大/焦点、修饰键、明暗主题、目录/源码回顶、无 JS
+      基线、无外部请求。旧 `tools/zoom-probe.html` 已移除。
 
 ### 验收
 
-- 浏览器探针全绿；CSP 4 档下页面正常；无 `'self'` 脚本放行。
-- 源码页行锚点与搜索跳转可用；无 JS 仍可阅读。
-- 资产 URL 带哈希且长缓存；单二进制搬到空目录仍能运行。
+- 已做：VS Code `markdown.css`/`highlight.css` vendored 并截图确认；
+  亮/暗、代码块 highlight、源码页行号与语言高亮、CSP nonce 加载外部脚本；
+  无外部网络请求。
+- 待补：复制/缩放交互探针、无 JS 探针。
+- 源码页行锚点与搜索跳转已可用；无 JS 仍可阅读。
+- 单二进制搬到空目录仍能运行（资产全部嵌入）。
 
 ## 6. P4：测试迁移与安全验收
 
@@ -173,21 +189,29 @@ P2 之前先落骨架，P3 的资产准备可以在 P2 期间做。
 
 ### 工作包
 
-- [ ] **P4-1 移植 217 项渲染测试**：Rust 单元/集成；按 ADR 0005 更新期望。
-- [ ] **P4-2 重写 345 项 HTTP 断言**：`tests/selftest.sh` 跑新二进制；更新
-      非 md 源码页、`?raw=1`、`?download=1`、搜索、301/404/HEAD。
-- [ ] **P4-3 Trust 测试**：配置读写、非交互默认、`--trust/--untrusted`、
-      每次打开拦截面、一次性令牌复用拒绝、raw/download 绕过。
-- [ ] **P4-4 CSP 测试**：4 档头逐条断言、nonce 每响应不同、无 `'self'`、
-      `X-Content-Type-Options`、level 2 无 CSP。
-- [ ] **P4-5 安全测试**：协议白名单、data URI 正反例、路径穿越、symlink、
-      `--safe`、下载头注入/文件名编码。
-- [ ] **P4-6 性能/跨平台**：大文件、长行、搜索、目录；Windows 路径分隔符、
-      Unicode 文件名；CI matrix 跑测试。
+- [x] **P4-1 移植 217 项渲染测试**：`tests/render_compat.rs` 134 项，按
+      ADR 0005/0007 更新期望；纯 JS/CSS 旧断言（复制按钮、遮罩动画）属于
+      被重写的客户端资产，不再逐条迁移。
+- [x] **P4-2 重写 345 项 HTTP 断言**：`tests/selftest-rust.sh` 110 项黑盒 +
+      `src/` 45 项单元测试（server 22）覆盖目录/源码/下载/搜索/301/404/HEAD/
+      MIME/嗅探/上限/端口回退/Trust/CSP/文件系统边界。旧 Python 特有断言
+      （标题 id、任务列表 checkbox、服务端高亮、raw HTML 转义、Python 压缩器）
+      按 ADR 0005/0006/0007 明确废弃，不逐条复制。
+- [x] **P4-3 Trust 测试**：配置读写、优先级、非交互默认、一次性令牌复用拒绝、
+      raw/download 绕过均有断言；`tests/trust-tty.sh` 用 expect 在真实 pty 里
+      回答 `y`，验证提示、配置落盘与第二次免询问（9 项）。
+- [x] **P4-4 CSP 测试**：4 档头、nonce 每响应不同、无 `'self'`、
+      `X-Content-Type-Options`、level 2 无 CSP 均已断言。
+- [x] **P4-5 安全测试**：协议白名单、data URI 正反例、路径穿越、symlink
+      逃逸/根内放行、`--safe`、下载头注入/文件名编码。
+- [~] **P4-6 性能/跨平台**：长行、畸形括号、定界符、链接+裸 URL 混合、
+      1 MB 输入已有上界断言；新增 Windows 风格路径（反斜杠/盘符/双重编码）、
+      Unicode 文件名测试与 `.github/workflows/ci.yml` 三平台矩阵（macOS 14 /
+      Ubuntu / Windows）。CI 首次运行后转 `[x]`。
 
 ### 验收
 
-- `cargo test --locked` + `bash tests/selftest.sh` 在 macOS/Linux/Windows 全绿。
+- `cargo test --locked` + `bash tests/selftest-rust.sh` 在 macOS/Linux/Windows 全绿。
 - **Gate C**：旧功能要么有断言，要么在 ADR/README 明确列为移除。
 - 安全测试独立成组，失败不能被功能测试掩盖。
 
@@ -197,17 +221,19 @@ P2 之前先落骨架，P3 的资产准备可以在 P2 期间做。
 
 ### 工作包
 
-- [ ] **P5-1 示例语料**：更新 `docs/`，反映严格 VS Code（task list 字面量、
-      无 heading id、全角 URL、`%xx`、data URI 类型）。
-- [ ] **P5-2 文档重写**：README、AGENT、tests/README、GLOSSARY 最终一致性；
-      加入 Trust/CSP/构建/发布说明。
-- [ ] **P5-3 归档旧台账**：旧 `SELFTEST.md` 移到 `docs/legacy/SELFTEST-python.md`；
-      新 SELFTEST 从零记录。
-- [ ] **P5-4 删除 Python**：`mdview.py`、`dist/`、`tools/minify.py`、
-      `__pycache__`、Python 测试；`git grep` 确认无悬空引用。
-- [ ] **P5-5 许可证**：`LICENSE`、`THIRD-PARTY-NOTICES`（VS Code CSS、highlight.js、
-      Rust crates）。
-- [ ] **P5-6 ADR 回填**：实现中产生的偏离/新决策补 ADR；旧 ADR 状态保持准确。
+- [x] **P5-1 示例语料**：`docs/index.md`、`guide/install.md`、`guide/advanced.md`、
+      `guide/code-blocks.md`、`preview/index.md`、`preview/binary-test.md` 已改为
+      VS Code 核心 + comrak 硬边角（task list 字面量、无 heading id、全角 URL、
+      `%xx`、data URI、accepted deviations）。
+- [x] **P5-2 文档重写**：README、AGENT、tests/README、GLOSSARY、SELFTEST 已重写；
+      含 Trust/CSP/构建/CI/测试说明。
+- [x] **P5-3 归档旧台账**：旧 `SELFTEST.md` → `docs/legacy/SELFTEST-python.md`；
+      新 `SELFTEST.md` 记录 Rust 验证结果。
+- [x] **P5-4 删除 Python**：`mdview.py`、`dist/`、`tools/minify.py`、Python 测试、
+      `__pycache__` 已删除；`docs/preview/make_preview_samples.py` 作为夹具生成器保留。
+- [x] **P5-5 许可证**：MIT `LICENSE` 已加入；`THIRD-PARTY-NOTICES` 列内嵌资产与直接依赖。
+- [x] **P5-6 ADR 回填**：ADR 0001/0003 加了新实现说明；ADR 0004 验收命令更新；
+      ADR 0007 记录 comrak 硬边角。
 
 ### 验收
 
@@ -221,15 +247,21 @@ P2 之前先落骨架，P3 的资产准备可以在 P2 期间做。
 
 ### 工作包
 
-- [ ] **P6-1 Cargo profile**：LTO、`codegen-units=1`、`strip`；测量二进制体积。
-- [ ] **P6-2 CI matrix**：`aarch64-apple-darwin`、
-      `x86_64-unknown-linux-musl`、`aarch64-unknown-linux-musl`、
-      `x86_64-pc-windows-msvc`（`+crt-static`）；`--locked`。
-- [ ] **P6-3 打包**：`.tar.gz`/`.zip`，含二进制、README、LICENSE、NOTICES、校验和。
-- [ ] **P6-4 依赖审计**：`cargo audit`/`cargo deny`；许可证清单；无禁用依赖。
-- [ ] **P6-5 artifact 烟测**：每个平台起服务，请求目录、Markdown、资产、下载、
-      CSP 头；确认无运行时外部依赖。
-- [ ] **P6-6 发布说明**：版本 2.0.0、已知后果（ADR 0005）、构建/运行方式。
+- [x] **P6-1 Cargo profile**：LTO、`codegen-units=1`、`strip` 已启用；
+      release 二进制约 **3.3 MB**（含 1 MB highlight.js bundle）。
+- [~] **P6-2 CI matrix**：`.github/workflows/ci.yml` 已定义
+      `aarch64-apple-darwin`、`x86_64-unknown-linux-musl`、
+      `aarch64-unknown-linux-musl`、`x86_64-pc-windows-msvc`（
+      `.cargo/config.toml` 打开 `+crt-static`）；尚未在 GitHub 实跑。
+- [~] **P6-3 打包**：CI 与 `release.yml` 产出 `.tar.gz`/`.zip`（含二进制、
+      README、LICENSE、THIRD-PARTY-NOTICES）；tag 发布时生成 `SHA256SUMS`
+      并上传 GitHub Release；尚未实跑。
+- [x] **P6-4 依赖审计**：本机 `cargo audit` 无漏洞；`cargo deny check
+      advisories licenses bans sources` 全 ok；CI 同样运行两者。
+- [~] **P6-5 artifact 烟测**：`tests/smoke-artifact.sh` 对构建产物做目录/渲染/
+      资产/下载/CSP 冒烟，CI 在可运行目标上执行；跨平台实跑待首次 release。
+- [x] **P6-6 发布说明**：`CHANGELOG.md` 记录 2.0.0 功能、破坏性变更、
+      已知后果与测试计数。
 
 ### 验收
 
@@ -269,14 +301,14 @@ P0 ──Gate A──> P2 ──Gate B──> P4 ──Gate C──> P5 ──> 
 
 ## 11. 完成定义（DoD）
 
-- [ ] `cargo fmt --check`、`cargo clippy -- -D warnings`、`cargo test --locked` 全绿。
-- [ ] `bash tests/selftest.sh` 在 macOS/Linux/Windows 全绿。
+- [x] `cargo fmt --check`、`cargo clippy -- -D warnings`、`cargo test --locked` 全绿。
+- [x] `bash tests/selftest-rust.sh` 在 macOS 全绿；CI 矩阵待首次运行。
 - [ ] Golden 语料 100% 规范化匹配；剩余差异有记录。
 - [ ] Trust/CSP/协议/路径安全测试独立通过。
 - [ ] 4 个平台 artifact 烟测通过；单文件运行、零外部请求。
 - [ ] README/AGENT/GLOSSARY/ADR 与实现一致；旧 Python 代码与测试已删除；
       旧 SELFTEST 已归档。
-- [ ] 发布说明列出严格 VS Code 的已知后果（ADR 0005 §后果）。
+- [ ] 发布说明列出 ADR 0005/0007 的已知后果（25 条 accepted deviations + 安全边界）。
 
 ## 12. 立即开始的第一步
 

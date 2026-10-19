@@ -1,6 +1,7 @@
 # VS Code 1.142 作为 Markdown 语义与视觉基准
 
-**Status**: accepted（2026-10-19）
+**Status**: accepted；linkify / reference definition / front matter / URL normalization /
+image alt 的硬边角由 [ADR 0007](0007-hard-edge-cases-use-comrak.md) 改为 comrak 行为
 **Supersedes**: [ADR 0001](0001-markdown-target-encoding.md) 的百分号只解一次，
 [ADR 0003](0003-data-uri-images.md) 的 data URI 放行范围
 
@@ -33,7 +34,8 @@ markdown-it **14.3.2**。本决定把“一致”钉成可验证的语义与视�
 - markdown-it 选项：`html: true`、`linkify: true` 且 `fuzzyLink: false`、
   `typographer: false`、`breaks: false`、`langPrefix: "language-"`。
 - 裸 URL 自动链接：`https://…` 会链接，裸邮箱会变成 `mailto:`（`fuzzyEmail` 默认开启）；
-  `www.example.com` 不链接（`fuzzyLink: false`）。
+  `www.example.com` 不链接（`fuzzyLink: false`）。**实现改用 comrak autolink 后
+  `www.` 会链接，见 ADR 0007。**
 
 ### 2. 目标路径与协议
 
@@ -42,11 +44,14 @@ markdown-it **14.3.2**。本决定把“一致”钉成可验证的语义与视�
   用户实测的 `![](desk%20top.jpg)` 在单解与双解下都能渲染，它不是区分点；
   区分点是磁盘上文件名**字面**含 `%20` 时，相对链接 `desk%2520top.jpg` 在双解下
   指向 `desk top.jpg`，因此字面文件不可达。直接访问编码后的 URL 仍可命中字面文件。
-- **协议校验**：复刻 markdown-it 的 `validateLink`：
+- **协议校验**：复刻 VS Code 1.142 预览的 `validateLink` **覆盖逻辑**（markdown-it
+  默认 + VS Code 扩展；只查 markdown-it 默认会漏掉下面两条）：
   - 拒绝 `javascript:`、`vbscript:`、`file:`；
-  - 拒绝 `data:`，唯一例外是 `data:image/(gif|png|jpeg|webp);…`（冒号后必须有分号；
-    `;base64` 不是必要条件）；
-  - **链接与图片位置都放行**这个例外（VS Code 实际如此）；
+  - 拒绝 `data:`，唯一例外是 `data:image/*;…`（任意类型，含 svg/bmp/ico/avif；
+    冒号后必须有分号；`;base64` 不是必要条件）；
+  - **链接与图片位置都放行**这个 `data:image` 例外（VS Code 实际如此）；
+  - VS Code 还放行 `vscode:` / `vscode-insiders:` 链接；**本站拒绝**（独立浏览器
+    没有处理器，是服务器偏差；ADR 0007 的范围之外）；
   - 裸 HTML 不经过这条校验，由 CSP 约束。
 - 相对目标先切 `?`/`#`，再解码两次，相对当前文档目录解析，最后编码一次，
   输出根相对 URL。
@@ -89,7 +94,7 @@ markdown-it **14.3.2**。本决定把“一致”钉成可验证的语义与视�
   但只有 2 stars、112 下载、1.0 API 未稳定，是个人 fork。作为核心解析器风险过高。
 - **pulldown-cmark**：最成熟、最快，但 GFM 扩展与 front matter 要自己接，
   自定义代码更多。
-- **自研移植旧解析器**：最贴近旧行为，但与“严格 VS Code”目标冲突，且工作量最大。
+- **自研移植旧解析器**：最贴近旧行为，但与核心 VS Code 目标冲突，且工作量最大。
 - **自研近似 CSS**：不直接搬 VS Code 样式；会持续漂移，视觉回归成本更高。
 - **服务端 syntect 高亮**：语言覆盖好，但输出与 VS Code 的 highlight.js 不同，
   还会引入 onig/C 依赖与语法数据体积。
@@ -100,6 +105,9 @@ markdown-it **14.3.2**。本决定把“一致”钉成可验证的语义与视�
   `文字` + `---` 会变大标题。
 - 任务列表勾选框与标题自动锚点消失；`[x](#标题)` 不会滚动。
 - 文件名里字面含 `%xx` 的文件无法用相对链接打开。
-- `data:image/svg+xml` 等旧版允许的 Markdown 图片目标被拒绝；裸 HTML 里的
-  同类 `<img>` 仍可显示（CSP 允许 `data:` 图片）。
-- 这些后果是用户明确选择的“严格 VS Code”，不是回归缺陷。
+- `data:image/*;…`（含 svg/bmp/ico/avif）在 Markdown 链接与图片位置都放行
+  （VS Code 1.142 的 `validateLink` 覆盖）；`vscode:`/`vscode-insiders:` 链接
+  VS Code 放行、本站拒绝。
+- 这些后果是核心语义的 VS Code 对齐结果；linkify、reference definition、
+  front matter、URL normalization、图像 alt 的硬边角按
+  [ADR 0007](0007-hard-edge-cases-use-comrak.md) 采用 comrak 行为。

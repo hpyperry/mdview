@@ -24,7 +24,10 @@ env/
 *.swp
 *~
 
-# 测试产生的临时文件。tests/selftest.sh 的日志都写到 $TMPDIR，
+# ZCode 会话产物（计划、缓存等）
+.zcode/
+
+# 测试产生的临时文件。tests/selftest-rust.sh 的日志都写到 $TMPDIR，
 # 正常不会落到仓库里；这里只兜底手工调试时留下的痕迹。
 /tmp-*
 /tests/*.log

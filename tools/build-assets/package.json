@@ -1,0 +1,12 @@
+{
+  "name": "mdview-build-assets",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "esbuild entry.js --bundle --minify --format=iife --outfile=../../assets/highlight.min.js"
+  },
+  "dependencies": {
+    "esbuild": "^0.25.0",
+    "highlight.js": "^11.11.1"
+  }
+}

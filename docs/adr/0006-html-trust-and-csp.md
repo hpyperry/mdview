@@ -2,7 +2,7 @@
 
 **Status**: accepted（2026-10-19）
 
-严格 VS Code 语义要求裸 HTML 透传（markdown-it `html: true`）。这推翻了旧版
+VS Code 核心语义要求裸 HTML 透传（markdown-it `html: true`）。这推翻了旧版
 “正文与代码块里的裸 HTML 一律转义”的核心防线，必须用另一套模型补上。
 VS Code 的做法是两层：**工作区信任**决定打开预览前是否提示；**预览安全级别**
 决定 CSP 的松紧。本决定把这套模型搬到独立服务器上。
@@ -93,7 +93,7 @@ mdview --security-level 0|3|1|2 --root docs
 
 ## 考虑过的替代方案
 
-- **继续全部转义裸 HTML**：最安全、旧测试全保留；但与“严格 VS Code”直接冲突，
+- **继续全部转义裸 HTML**：最安全、旧测试全保留；但与 VS Code 核心语义直接冲突，
   用户明确否掉。
 - **HTML sanitizer（ammonia 等）**：可以放行安全子集；但这是第三套语义，
   既不是 VS Code 的透传，也不是旧版的转义，且 sanitizer 自身是攻击面。

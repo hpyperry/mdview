@@ -1,17 +1,11 @@
-mod assets;
-mod cli;
-mod render;
-mod server;
-mod trust;
-
 use clap::Parser;
+use mdview::{cli, server, trust};
 
-fn main() -> anyhow::Result<()> {
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
     let cli = cli::Cli::parse();
     let root = cli.resolve_root()?;
     let max_preview = cli.max_preview_bytes()?;
-    let trust = trust::TrustState::from_cli(&cli);
-    server::print_banner(&cli, &root, max_preview, trust);
-    // P1-3/P1-5: bind the listener and wire routes next.
-    Ok(())
+    let trust = trust::resolve(&cli, &root)?;
+    server::run(cli, root, max_preview, trust).await
 }

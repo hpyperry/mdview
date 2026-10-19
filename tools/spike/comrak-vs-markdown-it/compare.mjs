@@ -145,6 +145,9 @@ function classify(entry, diffs, oracleFrontMatter) {
   if (/\[[^\]]+\]:\s*</.test(input) && entry.tags.includes('reference')) {
     return 'reference_angle_definition_gap';
   }
+  if (entry.tags.includes('server-deviation')) {
+    return 'server_vscode_scheme_expected';
+  }
   if (hasTableAlignmentDiff(diffs)) return 'table_alignment_expected';
   if (
     entry.tags.includes('autolink') ||

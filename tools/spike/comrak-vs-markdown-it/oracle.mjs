@@ -16,6 +16,15 @@ const md = new MarkdownIt({
   breaks: false,
   langPrefix: 'language-',
 });
+// VS Code 1.142's markdown preview wraps markdown-it's validateLink:
+//   base(r) || vscode: || vscode-insiders: || /^data:image\/.*?;/
+// Our server accepts the data: part but deliberately rejects vscode: links.
+const baseValidateLink = md.validateLink.bind(md);
+md.validateLink = (url) =>
+  baseValidateLink(url) ||
+  /^vscode:/.test(url) ||
+  /^vscode-insiders:/.test(url) ||
+  /^data:image\/.*?;/.test(url);
 // VS Code's markdown preview sets only fuzzyLink:false.
 md.linkify.set({ fuzzyLink: false });
 

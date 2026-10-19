@@ -43,6 +43,8 @@ _Avoid_: 特殊字符文件名
 **引用式链接 / 引用式图片**：
 `[文字][引用]` 与 `![替代文字][引用]`（含折叠式 `[引用][]` 与简写 `[引用]`），
 目标写在别处的 `[引用]: 目标` 定义里。两者共用同一条目标重写与协议白名单。
+被拒协议的整条定义由 comrak 移除；尖括号目标（`[r]: <a b.md>`）在文件末尾
+无换行时可能留下字面/畸形 raw HTML（EOF quirk，accepted，[ADR 0007](docs/adr/0007-hard-edge-cases-use-comrak.md)）。
 _Avoid_: 参考链接、脚注
 
 **尖括号自动链接**：
@@ -56,15 +58,17 @@ _Avoid_: 自动链接（与下面那条混用时指代不清）
 _Avoid_: 纯文本链接、自动链接
 
 **裸 URL 自动链接**：
-把裸 URL 变成 `<a>` 的能力（markdown-it 的 linkify）。`https://…` 与裸邮箱
-`a@b.com` 会被链接（`fuzzyEmail` 默认开启，邮箱变 `mailto:`）；
-`www.example.com` **不链接**（`fuzzyLink: false`）。与尖括号自动链接的区别在
-**输入形态**：一个要写成 `<>`，一个不用写任何标记。
+把裸 URL 变成 `<a>` 的能力。本站采用 **comrak autolink**：`https://…`、裸邮箱
+`a@b.com`（`mailto:`）与 `www.example.com` 都会链接。实体分号、尾部冒号、
+病态邮箱边界的文本范围跟随 comrak，与 VS Code/markdown-it 可能不同
+（accepted，[ADR 0007](docs/adr/0007-hard-edge-cases-use-comrak.md)）。
+与尖括号自动链接的区别在**输入形态**：一个要写成 `<>`，一个不用写任何标记。
 _Avoid_: 自动链接、URL 识别
 
 **句末标点**：
-URL 紧邻的、**归句子而不归 URL** 的字符。VS Code / markdown-it 只把半角
+URL 紧邻的、**归句子而不归 URL** 的字符。comrak autolink 把半角
 `.` `,` `:` `;` `!` `?` 与成对引号归句子；全角 `。，、；：！？` **属于 URL**。
+实体分号、尾部冒号等边界与 VS Code/markdown-it 可能不同（ADR 0007）。
 _Avoid_: 尾随字符、边界字符
 
 **尖括号目标**：
@@ -78,16 +82,28 @@ _Avoid_: 引号路径、转义路径
 _Avoid_: 无
 
 **协议白名单（scheme whitelist）**：
-决定一段 **Markdown 链接/图片目标**能否产出 `href` / `src` 的协议集合，复刻
-markdown-it 的 `validateLink`：`javascript:`、`vbscript:`、`file:` 与一切 `data:`
-永不产出属性；唯一的例外是 `data:image/(gif|png|jpeg|webp);…`，**链接与图片位置
-都放行**。裸 HTML 不经过这条校验，由 CSP 约束。
+决定一段 **Markdown 链接/图片目标**能否产出 `href` / `src` 的协议集合。按 VS Code
+1.142 的实际预览逻辑：拒绝 `javascript:`、`vbscript:`、`file:` 与一切 `data:`；
+唯一的例外是 `data:image/*;…`（任意类型，含 svg/bmp/ico/avif；冒号后必须有分号），
+**链接与图片位置都放行**。`vscode:` / `vscode-insiders:` 在 VS Code 里放行，但本站
+**拒绝**（独立浏览器没有处理器，是服务器偏差）。裸 HTML 不经过这条校验，由 CSP 约束。
+这是一条**自定义安全层**，不交给 comrak 的 `render.unsafe`。
 _Avoid_: 安全协议列表、scheme 列表、URL 过滤
 
+**硬边角（hard edge）**：
+linkify、reference definition、front matter、URL normalization 与图像 alt 的
+边角集合。P0 确认逐字节对齐 VS Code 的成本过高，按
+[ADR 0007](docs/adr/0007-hard-edge-cases-use-comrak.md) 采用 **comrak 行为**；
+它们是 23 条 comrak accepted deviations，另有 2 条 `vscode:` 链接服务器偏差。
+不属于安全边界。
+_Avoid_: 边角、长尾
+
 **数据 URI 图片（data URI image）**：
-**目标**写成 `data:image/<类型>;…` 的图片。VS Code 的类型集合是
-gif / png / jpeg / webp；冒号后必须有分号，`;base64` 不是必要条件。它是
-Markdown 目标的一种；裸 HTML `<img>` 也可用 data URI，但走 CSP 而不是这条白名单。
+**目标**写成 `data:image/<类型>;…` 的图片。VS Code 1.142 的实际白名单是
+**任意 `data:image/*;…`**（含 svg/bmp/ico/avif）；冒号后必须有分号，
+`;base64` 不是必要条件；链接与图片位置都放行。`vscode:`/`vscode-insiders:`
+链接在 VS Code 放行，本站拒绝。裸 HTML `<img>` 也可用 data URI，
+但走 CSP 而不是这条白名单。
 _Avoid_: base64 图片（只说了编码）、内联图片（与徽章图片混用时指代不清）
 
 **任务列表**：
@@ -100,8 +116,9 @@ _Avoid_: checkbox 列表、待办列表
 _Avoid_: 标题 id、页内锚点
 
 **front matter**：
-文档开头由 `---` 包裹的元数据块。VS Code 默认渲染成一张
-`.frontmatter` 表格；本站跟随。
+文档开头由 `---` 包裹的元数据块。本站启用 comrak 的 front matter 扩展，
+合法块被**消费/省略**；不渲染 VS Code 的 `.frontmatter` 表格。
+空 `---\n---` 不被消费（comrak 行为，accepted）。
 _Avoid_: 前言、元数据头
 
 ## Trust 与安全
@@ -143,17 +160,22 @@ _Avoid_: 源码模式、编辑器页
 
 **VS Code 基准**：
 本机 VS Code 1.142.0 的 Markdown 预览（markdown-it 14.3.2 + highlight.js +
-front matter 表格 + 4 档安全级别）。语义与视觉冲突时以它为准。
+4 档安全级别）。**核心语义与视觉**冲突时以它为准；linkify、reference definition、
+front matter、URL normalization、图像 alt 的硬边角按
+[ADR 0007](docs/adr/0007-hard-edge-cases-use-comrak.md) 采用 comrak 行为。
 _Avoid_: 参考实现、标准
 
 **golden 差分**：
 用 VS Code 同款的 markdown-it 对固定语料生成期望 HTML，再与新实现逐条对比的测试
-方式。允许忽略纯空白与我们主动跳过的 VS Code 私有属性。
+方式。允许忽略纯空白与 VS Code 私有属性；ADR 0007 的 23 条 comrak accepted
+deviations + 2 条 vscode 服务器偏差单独标记为“期望行为”，不算失败。
+当前落地的是 P0 探针（`tools/spike/`）与 `render::tests::golden_outputs_are_frozen`
+的 14 条精确输出；完整 golden 生成器仍待做。
 _Avoid_: 快照测试、对拍
 
-**资产哈希**：
-嵌入式 CSS/JS 的 URL 里带内容哈希（`/_assets/<hash>/…`），因此可以长缓存；
-内容变了 URL 就变。
+**资产版本参数**：
+内嵌 CSS/JS 的 URL 带 `?v=<内容哈希>`（FNV-1a 64，16 位十六进制），响应
+`Cache-Control: immutable`；资产内容变化时哈希变化，浏览器缓存自然失效。
 _Avoid_: 指纹、版本号
 
 ## 图片放大（服务器附加功能，不是 VS Code 行为）

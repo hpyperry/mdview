@@ -2,9 +2,10 @@
 
 **Status**: superseded by [ADR 0005](0005-vscode-1.142-as-oracle.md)
 
-> **新实现注意**：Rust 重写选择“严格 VS Code”语义，data URI 放行范围改为
-> markdown-it 的 `data:image/(gif|png|jpeg|webp);…`，且**链接与图片位置都放行**。
-> 本文保留旧 Python 实现的“只放图片 src、类型更宽”决策记录，不再适用于新实现。
+> **新实现注意**：Rust 重写按 VS Code 1.142 的实际协议行为，data URI 放行范围是
+> **任意 `data:image/*;…`**（含 svg/bmp/ico/avif），且**链接与图片位置都放行**；
+> `vscode:`/`vscode-insiders:` 链接拒绝（服务器偏差）。本文保留旧 Python
+> 实现的“只放图片 src、类型更宽”决策记录，不再适用于新实现。
 
 用户报告 `![x](data:image/png;base64,…)` 不渲染。复现结果：行内式退化成字面文本，
 引用式退化成 `![x][r]`，尖括号形式同样退化。根因不是解析器不认识 `data:`，而是

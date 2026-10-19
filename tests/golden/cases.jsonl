@@ -1,0 +1,27 @@
+{"id":"inline-emphasis","input":"**粗** *斜* ***双*** ~~删~~\n","rel":"docs/a.md","note":"core"}
+{"id":"cjk-emphasis","input":"中文*强调*中文 与 a__b__c\n","rel":"docs/a.md","note":"core"}
+{"id":"entities","input":"&copy; &amp; &#65;\n","rel":"docs/a.md","note":"core"}
+{"id":"headings-no-id","input":"# 标题\n\n## 重复\n\n## 重复\n","rel":"docs/a.md","note":"no heading ids"}
+{"id":"setext","input":"一级\n===\n\n二级\n---\n","rel":"docs/a.md","note":"comrak/commonmark"}
+{"id":"task-list","input":"- [ ] 待办\n- [x] 完成\n","rel":"docs/a.md","note":"literal, no checkboxes"}
+{"id":"raw-html","input":"<div class=\"note\">raw</div>\n\na <b>c</b> d\n","rel":"docs/a.md","note":"trust+csp"}
+{"id":"table","input":"| a | b |\n|:--|--:|\n| 1 | 2 |\n","rel":"docs/a.md","note":"style alignment"}
+{"id":"front-matter","input":"---\ntitle: x\n---\n\n# Hi\n","rel":"docs/a.md","note":"consumed"}
+{"id":"empty-front-matter","input":"---\n---\n","rel":"docs/a.md","note":"two rules"}
+{"id":"link-rewrite","input":"[x](sub/b.md) ![i](img/a.png)\n","rel":"docs/a.md","note":"root-relative"}
+{"id":"dotdot-clamp","input":"[x](../../../outside/x.md)\n","rel":"a.md","note":"clamped"}
+{"id":"target-encoding","input":"[a](my%2520file.png) [b](a%23b.md) [c](doc.md?raw=1#L10)\n","rel":"docs/a.md","note":"double decode"}
+{"id":"image-zoom","input":"![x](p.png \"t\")\n","rel":"docs/a.md","note":"zoom wrapper"}
+{"id":"badge-no-zoom","input":"[![i](p.png)](u.md)\n","rel":"docs/a.md","note":"no nested anchors"}
+{"id":"data-uri-image","input":"![x](data:image/svg+xml;base64,AAAA)\n","rel":"docs/a.md","note":"any image/*; with semicolon"}
+{"id":"data-uri-link","input":"[x](data:image/png;base64,AAAA)\n","rel":"docs/a.md","note":"vscode policy"}
+{"id":"reject-javascript","input":"[x](javascript:alert(1)) ![y](vbscript:x)\n","rel":"docs/a.md","note":"label text only"}
+{"id":"reject-vscode","input":"[x](vscode:command:foo)\n","rel":"docs/a.md","note":"server deviation"}
+{"id":"reference-image","input":"![x][pic]\n\n[pic]: img/my%20file.png \"t\"\n","rel":"docs/a.md","note":"comrak"}
+{"id":"reference-angle-definition","input":"![x][pic]\n\n[pic]: <a b.png>\n","rel":"docs/a.md","note":"angle destination with space"}
+{"id":"bare-url","input":"见 https://example.com/a. 结束\n","rel":"docs/a.md","note":"comrak linkify"}
+{"id":"bare-url-fullwidth","input":"见 https://example.com/a。结束\n","rel":"docs/a.md","note":"accepted comrak deviation"}
+{"id":"image-alt-entity","input":"![a&amp;b](p.png)\n","rel":"docs/a.md","note":"accepted comrak deviation"}
+{"id":"fenced-code","input":"```python\ndef f():\n    return 1\n```\n","rel":"docs/a.md","note":"client highlight later"}
+{"id":"indented-code","input":"    indented code\n","rel":"docs/a.md","note":"commonmark"}
+{"id":"list-blockquote","input":"- a\n  - b\n\n> q\n> > r\n","rel":"docs/a.md","note":"core"}

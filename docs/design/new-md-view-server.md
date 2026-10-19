@@ -23,8 +23,8 @@
 | 依赖边界 | 允许成熟 crate；Cargo.lock 入库；运行时仍完全离线 | ADR 0004 |
 | 平台 | macOS arm64、Linux x86_64/arm64（musl 静态）、Windows x86_64（静态 CRT） | ADR 0004 |
 | 服务器契约 | 保留旧 URL/CLI；新增 Trust 与安全级别参数 | ADR 0004 / 0006 |
-| Markdown 解析器 | comrak 0.56 + 自定义渲染器补齐 VS Code 语义 | [ADR 0005](../adr/0005-vscode-1.142-as-oracle.md) |
-| 语义基准 | **严格 VS Code**：不保留旧版解析偏离 | ADR 0005 |
+| Markdown 解析器 | comrak 0.56 + 必要的安全/视觉自定义层 | [ADR 0005](../adr/0005-vscode-1.142-as-oracle.md) / [ADR 0007](../adr/0007-hard-edge-cases-use-comrak.md) |
+| 语义基准 | **VS Code 核心语义与视觉**；linkify、reference definition、front matter、URL normalization、image alt 的硬边角采用 comrak 行为；`data:image/*` 按 VS Code、`vscode:` 链接拒绝（23 条 comrak + 2 条服务器偏差 = 25 条 accepted） | ADR 0005 / 0007 |
 | 视觉基准 | vendored VS Code `markdown.css` / `highlight.css` + Light+/Dark+ 变量，自动明暗 | ADR 0005 |
 | 代码高亮 | 内嵌完整 highlight.js，浏览器端；与 VS Code 预览同一套 CSS | ADR 0005 |
 | 裸 HTML | 始终透传；靠 Trust + CSP 约束 | [ADR 0006](../adr/0006-html-trust-and-csp.md) |
@@ -102,9 +102,9 @@ CLI：
 
 ## 6. Markdown 渲染
 
-### 6.1 严格 VS Code 语义
+### 6.1 语义基准：VS Code 核心 + comrak 硬边角
 
-以 VS Code 1.142.0 内置的 markdown-it 14.3.2 为准，已实测：
+以 VS Code 1.142.0 内置的 markdown-it 14.3.2 作为核心语义的对照基准，已实测：
 
 - `中文*强调*中文` → `<em>`（CJK 强调本来就能生效，旧 README 的解释有误）。
 - `2*3*4` → `2<em>3</em>4`；`a*b*c` → `a<em>b</em>c`。
@@ -114,9 +114,15 @@ CLI：
 - 标题**不自动生成 `id`**；`[x](#标题)` 不会滚动到标题。
 - 脚注、定义列表、数学、Mermaid、emoji shortcode 不支持。
 - 裸 HTML 透传（安全模型见 §7）。
-- front matter 在文档开头识别，默认渲染为表格。
-- markdown-it 选项：`html: true`、`linkify: true`（`fuzzyLink: false`）、
-  `typographer: false`、`breaks: false`、`langPrefix: "language-"`。
+
+**硬边角采用 comrak 行为**（[ADR 0007](../adr/0007-hard-edge-cases-use-comrak.md)）：
+
+- Linkify：comrak autolink；`www.` 会链接，实体/冒号/邮箱边界跟随 comrak。
+- Reference definition：comrak 解析；被拒协议定义移除；尖括号定义仅在文件末尾无换行时可能留下字面 HTML。
+- Front matter：comrak 扩展消费/省略；不渲染 VS Code 的 `frontmatter` 表格。
+- URL normalization、图像 alt：comrak 默认（`escape_href` / Plain alt）。
+- 这些是 **23 条 comrak accepted deviations**；另有 2 条 `vscode:` 链接服务器偏差，
+  合计 25 条 accepted，不追求与 markdown-it 逐字节一致。
 
 ### 6.2 目标与协议
 
@@ -125,39 +131,43 @@ CLI：
   - `![](desk%20top.jpg)` 命中 `desk top.jpg`（正常）；
   - 文件名**字面**含 `%20` 时，相对链接不可达（VS Code 同样如此）；
   - 直接访问编码后的 URL 仍可命中字面 `%xx` 文件。
-- Markdown 生成的链接/图片目标过 markdown-it 的 `validateLink`：
+- Markdown 生成的链接/图片目标过**自定义** `validateLink`（对照 VS Code 1.142 的实际
+  预览逻辑；这是安全例外，不交给 comrak 的 `render.unsafe`）：
   - 拒绝 `javascript:`、`vbscript:`、`file:`；
-  - 拒绝一切 `data:`，**唯一例外**是 `data:image/(gif|png|jpeg|webp);…`
-    （分号后不要求 `;base64`；链接与图片位置都放行，这是 VS Code 的实际行为）；
+  - 拒绝一切 `data:`，**唯一例外**是 `data:image/*;…`（任意类型，含 svg/bmp/ico/avif；
+    冒号后必须有分号；链接与图片位置都放行，这是 VS Code 的实际行为）；
+  - `vscode:` / `vscode-insiders:` 在 VS Code 里放行，本站**拒绝**（独立浏览器没有
+    处理器，是服务器偏差）；
   - 裸 HTML 不经过这条校验，由 CSP 约束。
-- 裸 URL 自动链接：`https://…` 会链接，裸邮箱会变成 `mailto:`
-  （`fuzzyEmail` 默认开启）；`www.example.com` 不链接（`fuzzyLink: false`）。
+- 裸 URL 自动链接采用 comrak autolink：`https://…` 与裸邮箱会链接；
+  `www.example.com` **会**链接（与 VS Code 不同，accepted）；
+  实体/冒号/病态邮箱边界跟随 comrak（ADR 0007）。
 
 ### 6.3 comrak 需要补齐的地方
 
-P0 差分（[报告](../spikes/comrak-vs-markdown-it.md)）确认 comrak 的核心解析可用，
-但以下层必须自定义：
+P0 差分（[报告](../spikes/comrak-vs-markdown-it.md)）确认 comrak 的核心解析可用。
+按 [ADR 0007](../adr/0007-hard-edge-cases-use-comrak.md)，以下工作保留为自定义层：
 
-1. **Link/image 渲染**：套用 `validateLink` 与 §6.2 的目标重写；被拒目标按
-   markdown-it 的字面/raw tail 回退（生产侧由 Trust/CSP 约束）。
-2. **Linkify**：关闭 comrak 的 `extension.autolink`，用独立 pass 复刻
-   markdown-it/linkify-it 的 `http(s)`、裸邮箱（`mailto:`）与边界规则；
-   `www.` 不链接。
-3. **Reference definition 预扫描**：合法尖括号目标（`[r]: <a b.md>`）归一化；
-   被拒协议的整条定义不注册，保留为段落（与 markdown-it 一致）。
-4. **Front matter**：文档开头的 `---` 块先切出，按 VS Code 规则渲染
-   `<table class="frontmatter" title="Frontmatter"><tbody>…`。
-5. **表格对齐**：单元格输出 `style="text-align:…"`，不是 `align="…"`。
-6. **图像 alt**：复刻 markdown-it 的纯文本提取（跳过实体 token）。
-7. **代码块**：输出 `<pre><code class="language-…">`，不在服务端高亮；
+1. **Link/image 协议校验**：自定义 `validateLink`（§6.2）：拒 `javascript:`/
+   `vbscript:`/`file:`/非法 `data:`；放行任意 `data:image/*;…`（链接与图片位置）；
+   拒绝 `vscode:`/`vscode-insiders:`（服务器偏差）。被拒目标简化为渲染标签文本、
+   不生成锚点/图片，**绝不产出危险 `href`/`src`**；不做 markdown-it 的
+   sourcepos/raw-tail 字面回退。
+2. **URL 重写**：相对/根相对目标按 §6.2 的切分、双重解码、解析、编码管线；
+   这是服务端 URL 语义，不是 markdown-it 的 normalization。
+3. **表格对齐**：单元格输出 `style="text-align:…"`，不是 `align="…"`。
+4. **代码块**：输出 `<pre><code class="language-…">`，不在服务端高亮；
    `~~x~~` 输出 `<s>`（不是 `<del>`）。
-8. **任务列表**：关闭 comrak 的 tasklist 扩展；标题不生成 `id`。
-9. **Raw HTML**：`render.unsafe = true`。
-10. **列表紧凑度、HTML block**：用 golden 差分找出剩余差异，逐条对齐；
-    不在文档里声称未验证的等价性。
+5. **任务列表/标题 id**：tasklist 扩展关闭；标题不生成 `id`。
+6. **Raw HTML**：`render.unsafe = true`，由 Trust/CSP 约束。
+7. **Front matter**：启用 comrak 的 `front_matter_delimiter = Some("---")`，
+   消费/省略该块；不渲染 VS Code 表格。
+8. **Linkify / reference definition / URL normalization / image alt**：直接使用
+   comrak 行为；23 条 comrak accepted deviations 见 ADR 0007。
 
-P0 的 26 条已知差异已在报告里逐类列出并给出修复顺序；P2 的 golden 语料必须
-逐条覆盖它们。
+P0 的 28 条差异中：**25 条 accepted**（linkify 6、reference 6、front matter 10、
+alt 1、vscode 链接 2），**3 条表格对齐仍需自定义**；`<s>` 与协议校验已在探针/设计中处理。
+P2 的 golden 仍要覆盖这 28 条，但期望值按 comrak/服务器行为固定为 accepted。
 
 ### 6.4 视觉
 
@@ -257,17 +267,18 @@ security_level = 0
 
 ## 11. 测试与验收
 
-1. **Rust 单元/集成测试**：URL 重写、协议校验、front matter、源码页、
+1. **Rust 单元/集成测试**：URL 重写、协议校验、表格对齐、源码页、
    trust/CSP、路径夹紧、MIME 判定。
-2. **Golden 差分**：Node 22 + `markdown-it@14.3.2` + `linkify-it@5` + YAML 解析，
-   按 VS Code 选项与 front matter 插件生成期望 HTML；Rust 渲染器对比。
-   允许忽略纯空白差异与我们主动跳过的 VS Code 私有属性（如 `data-line`），
-   其余结构/属性必须一致。golden 与生成脚本入库。
-3. **移植旧测试**：217 项渲染断言逐条审阅，冲突处按 ADR 0005 改期望；
+2. **Golden 差分**：Node 22 + `markdown-it@14.3.2` + VS Code 的 `validateLink`
+   覆盖逻辑生成对照 HTML；Rust 渲染器对比。ADR 0007 的 23 条 comrak accepted
+   deviations + 2 条 vscode 链接服务器偏差固定为期望值；3 条表格对齐按 VS Code
+   行为修。允许忽略纯空白与 VS Code 私有属性；accepted deviations 必须有夹具，
+   不能沉默。golden 入库。
+3. **移植旧测试**：217 项渲染断言逐条审阅，冲突处按 ADR 0005/0007 改期望；
    345 项 HTTP 断言改为跑新二进制，并补 Trust/CSP/源码页/资产断言。
 4. **安全测试**：`javascript:`/`vbscript:`/`file:`/非法 `data:` 拒绝；
-   `data:image/(gif|png|jpeg|webp);` 放行；CSP 头逐级正确；nonce 每响应不同；
-   路径穿越不外泄；`--safe` 生效。
+   任意 `data:image/*;` 在链接与图片位置放行；`vscode:`/`vscode-insiders:` 拒绝；
+   CSP 头逐级正确；nonce 每响应不同；路径穿越不外泄；`--safe` 生效。
 5. **浏览器探针**：highlight.js 是否着色、复制/放大/回到顶部、无 JS 降级。
 6. **跨平台**：CI 在 macOS/Linux/Windows 跑测试；路径分隔符与 Unicode 文件名。
 
@@ -279,7 +290,7 @@ security_level = 0
 1. 建 Cargo 项目；先落 CLI、静态服务、trust/config 与测试骨架。
 2. 接 comrak 与自定义渲染器；golden 差分收敛。
 3. 嵌入 VS Code CSS + highlight.js；实现源码查看页与前端功能。
-4. 移植测试、重写 selftest.sh；更新示例语料与 README/AGENT/GLOSSARY。
+4. 移植测试、重写为 `tests/selftest-rust.sh`；更新示例语料与 README/AGENT/GLOSSARY。
 5. 删除 `mdview.py`、`dist/`、`tools/minify.py`、Python 测试；旧 `SELFTEST.md`
    作为历史归档到 `docs/legacy/`，新台账重新开始。
 6. 建立跨平台 CI 与发布 artifact。
@@ -293,6 +304,16 @@ security_level = 0
 - 非 md 文本的普通 URL 从 `text/plain` 变成 HTML 查看页；原文用 `?download=1`。
 - 二进制体积显著大于 Python 单文件；构建需要 crates.io。
 - 旧的“零第三方依赖”身份结束；运行时离线与单文件交付保持不变。
+- **Linkify 用 comrak**：`www.example.com` 会被链接；实体分号、尾部冒号、
+  病态邮箱边界的文本范围与 VS Code 不同（accepted，ADR 0007）。
+- **Reference definition 用 comrak**：被拒协议的整条定义会被移除；尖括号目标
+  （`[r]: <a b.md>`）可能以字面/畸形 raw HTML 留下（accepted）。
+- **Front matter 用 comrak 扩展**：合法块被消费/省略，不显示 VS Code 表格；
+  空 `---\n---` 不被消费（accepted）。
+- **URL normalization / 图像 alt 用 comrak**：`href` 的 percent/Unicode 边角与
+  markdown-it 可能不同；alt 保留解码后的实体字符（accepted）。
+- **安全例外**：行内链接/图片的 `validateLink` 仍是自定义层，不能交给
+  `render.unsafe`；被拒目标不产出危险 `href`/`src`。
 
 ## 14. 不在本次范围
 

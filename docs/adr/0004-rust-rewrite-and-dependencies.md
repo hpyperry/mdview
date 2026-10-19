@@ -52,5 +52,5 @@ Nuitka 打包，但产物仍是解释器加归档、启动慢、跨平台构建�
 ## 验证
 
 - 跨平台 CI 至少构建并跑测试：macOS arm64、Linux x86_64/arm64、Windows x86_64。
-- `cargo test --locked` + `tests/selftest.sh` 全绿。
+- `cargo test --locked` + `bash tests/selftest-rust.sh` 全绿。
 - 发布包附 `THIRD-PARTY-NOTICES`（VS Code CSS、highlight.js、Rust crates）。
