@@ -373,18 +373,20 @@ async fn handle(
     Query(query): Query<HashMap<String, String>>,
 ) -> Response {
     if method != Method::GET && method != Method::HEAD {
-        return error_page(&state, StatusCode::METHOD_NOT_ALLOWED, "方法不允许", false);
+        return error_page(&state, StatusCode::METHOD_NOT_ALLOWED, "方法不允许", false).await;
     }
     let is_head = method == Method::HEAD;
 
     let raw_path = uri.path();
     let decoded = match percent_decode_str(raw_path).decode_utf8() {
         Ok(value) => value,
-        Err(_) => return error_page(&state, StatusCode::BAD_REQUEST, "URL 编码无效", is_head),
+        Err(_) => {
+            return error_page(&state, StatusCode::BAD_REQUEST, "URL 编码无效", is_head).await;
+        }
     };
     let rel = decoded.trim_start_matches('/');
     if rel.contains('\0') || rel.contains('\\') {
-        return error_page(&state, StatusCode::BAD_REQUEST, "路径包含非法字符", is_head);
+        return error_page(&state, StatusCode::BAD_REQUEST, "路径包含非法字符", is_head).await;
     }
 
     let target = match resolve_path(&state.root, rel).await {
@@ -395,13 +397,13 @@ async fn handle(
             } else {
                 "文件不存在"
             };
-            return error_page(&state, status, message, is_head);
+            return error_page(&state, status, message, is_head).await;
         }
     };
 
     let metadata = match tokio::fs::metadata(&target).await {
         Ok(meta) => meta,
-        Err(_) => return error_page(&state, StatusCode::NOT_FOUND, "文件不存在", is_head),
+        Err(_) => return error_page(&state, StatusCode::NOT_FOUND, "文件不存在", is_head).await,
     };
 
     if metadata.is_dir() {
@@ -416,11 +418,11 @@ async fn handle(
     }
 
     if !metadata.is_file() {
-        return error_page(&state, StatusCode::NOT_FOUND, "不是普通文件", is_head);
+        return error_page(&state, StatusCode::NOT_FOUND, "不是普通文件", is_head).await;
     }
 
     if state.safe && !allowed_in_safe_mode(&target) {
-        return error_page(&state, StatusCode::NOT_FOUND, "文件不存在", is_head);
+        return error_page(&state, StatusCode::NOT_FOUND, "文件不存在", is_head).await;
     }
 
     let size = metadata.len();
@@ -444,7 +446,7 @@ async fn handle(
             {
                 return render_page(&state, &target, rel, is_head).await;
             }
-            interstitial_page(&state, rel, is_head)
+            interstitial_page(&state, rel, is_head).await
         }
         Kind::Text => source_page(&state, &target, rel, &info, is_head).await,
         Kind::Binary => serve_file(&state, &target, &info, size, false, is_head).await,
@@ -498,7 +500,7 @@ async fn list_dir(state: &AppState, path: &Path, rel: &str, is_head: bool) -> Re
     let rel = rel.trim_end_matches('/');
     let mut dir = match tokio::fs::read_dir(path).await {
         Ok(dir) => dir,
-        Err(_) => return error_page(state, StatusCode::FORBIDDEN, "无法读取目录", is_head),
+        Err(_) => return error_page(state, StatusCode::FORBIDDEN, "无法读取目录", is_head).await,
     };
     let mut entries = Vec::new();
     loop {
@@ -515,7 +517,7 @@ async fn list_dir(state: &AppState, path: &Path, rel: &str, is_head: bool) -> Re
             Err(_) => continue,
         };
         let is_dir = metadata.is_dir();
-        if is_dir && SKIP_DIRS.contains(&name.as_str()) {
+        if is_dir && (name.starts_with('.') || SKIP_DIRS.contains(&name.as_str())) {
             continue;
         }
         if !is_dir && state.safe && !allowed_in_safe_mode(&entry.path()) {
@@ -528,62 +530,76 @@ async fn list_dir(state: &AppState, path: &Path, rel: &str, is_head: bool) -> Re
             .then_with(|| a.1.to_lowercase().cmp(&b.1.to_lowercase()))
     });
 
-    let mut rows = String::new();
+    let mut dir_rows = String::new();
+    let mut file_rows = String::new();
     for (is_dir, name, metadata) in &entries {
         let href = join_href(rel, name, *is_dir);
-        let label = if *is_dir {
-            format!("📁 {}", escape_html(name))
+        if *is_dir {
+            dir_rows.push_str(&format!(
+                "<div class=\"dir-row\"><span class=\"file-icon folder\">{icon}</span>\
+                 <a class=\"nm\" href=\"{href}\">{name}</a>\
+                 <span class=\"meta\">目录</span></div>",
+                icon = icon("folder"),
+                name = escape_html(name)
+            ));
         } else {
-            escape_html(name)
-        };
-        let meta = if *is_dir {
-            "目录".to_string()
-        } else {
-            format!(
+            let meta = format!(
                 "{} · {}",
                 format_size(metadata.len()),
                 format_mtime(metadata.modified().unwrap_or(SystemTime::UNIX_EPOCH))
-            )
-        };
-        let dl = if *is_dir {
-            String::new()
-        } else {
-            format!("<a class=\"dl\" href=\"{href}?download=1\">⬇ 下载</a>")
-        };
-        rows.push_str(&format!(
-            "<li><span class=\"nm\"><a href=\"{href}\">{label}</a></span><span class=\"meta\">{meta}</span>{dl}</li>"
-        ));
+            );
+            file_rows.push_str(&format!(
+                "<div class=\"dir-row\"><span class=\"file-icon\">{icon}</span>\
+                 <a class=\"nm\" href=\"{href}\">{name}</a>\
+                 <span class=\"meta\">{meta}</span>\
+                 <a class=\"dl\" href=\"{href}?download=1\" title=\"下载 {name}\">\
+                 {download}<span>下载</span></a></div>",
+                icon = icon("file"),
+                name = escape_html(name),
+                download = icon("download")
+            ));
+        }
     }
-    if rows.is_empty() {
-        rows.push_str("<li class=\"note\">这个目录是空的。</li>");
+    let mut sections = String::new();
+    if !dir_rows.is_empty() {
+        sections.push_str("<div class=\"dir-section\"><h2>目录</h2>");
+        sections.push_str(&dir_rows);
+        sections.push_str("</div>");
     }
-
-    let title = if rel.is_empty() {
-        "目录索引".to_string()
+    if !file_rows.is_empty() {
+        sections.push_str("<div class=\"dir-section\"><h2>文件</h2>");
+        sections.push_str(&file_rows);
+        sections.push_str("</div>");
+    }
+    if sections.is_empty() {
+        sections.push_str("<div class=\"empty-state\">这个目录是空的。</div>");
+    }
+    let dir_name = if rel.is_empty() {
+        root_name(state)
     } else {
-        format!("目录 /{rel}")
-    };
-    let parent_link = if rel.is_empty() {
-        String::new()
-    } else {
-        let parent = parent_rel(rel);
-        let href = if parent.is_empty() {
-            "/".to_string()
-        } else {
-            format!("/{}/", encode_path(parent))
-        };
-        format!("<p class=\"toolbar\"><a class=\"parent\" href=\"{href}\">⬆ 上级目录</a></p>")
-    };
-    let search_box = if state.no_search {
-        String::new()
-    } else {
-        search_form("")
+        rel.rsplit('/').next().unwrap_or(rel).to_string()
     };
     let body = format!(
-        "{}<h1>{title}</h1>{parent_link}{search_box}<ul class=\"dirlist\">{rows}</ul>",
-        breadcrumb(rel, true)
+        "<div class=\"content-card\"><div class=\"dir-head\"><h1>{}</h1>\
+         <p>{} 个条目 · 只读文档库</p></div>{}</div>",
+        escape_html(&dir_name),
+        entries.len(),
+        sections
     );
-    html_page(state, StatusCode::OK, &title, &body, is_head)
+    html_page(
+        state,
+        StatusCode::OK,
+        Page {
+            title: dir_name,
+            rel: rel.to_string(),
+            sidebar_dir: rel.to_string(),
+            query: String::new(),
+            kind: PageKind::Dir,
+            body,
+        },
+        is_head,
+    )
+    .await
 }
 
 async fn search(
@@ -593,10 +609,10 @@ async fn search(
 ) -> Response {
     let is_head = method == Method::HEAD;
     if method != Method::GET && method != Method::HEAD {
-        return error_page(&state, StatusCode::METHOD_NOT_ALLOWED, "方法不允许", false);
+        return error_page(&state, StatusCode::METHOD_NOT_ALLOWED, "方法不允许", false).await;
     }
     if state.no_search {
-        return error_page(&state, StatusCode::NOT_FOUND, "搜索已关闭", is_head);
+        return error_page(&state, StatusCode::NOT_FOUND, "搜索已关闭", is_head).await;
     }
     let q = query
         .get("q")
@@ -604,80 +620,188 @@ async fn search(
         .unwrap_or_default()
         .trim()
         .to_string();
-    let body = if q.is_empty() {
-        format!(
-            "<h1>全文搜索</h1>{}<p class=\"note\">只搜索 .md 文件；大小写不敏感。</p>",
-            search_form("")
-        )
+    let started = Instant::now();
+    let results = if q.is_empty() {
+        SearchResults::default()
     } else {
         let root = state.root.clone();
         let needle = q.clone();
         let max_preview = state.max_preview;
-        let results =
-            tokio::task::spawn_blocking(move || search_files(&root, &needle, max_preview))
-                .await
-                .unwrap_or_default();
-        render_search(&q, results)
+        tokio::task::spawn_blocking(move || search_files(&root, &needle, max_preview))
+            .await
+            .unwrap_or_default()
     };
-    html_page(&state, StatusCode::OK, &format!("搜索 {q}"), &body, is_head)
+    let elapsed = started.elapsed();
+    let body = render_search(&q, &results, elapsed);
+    html_page(
+        &state,
+        StatusCode::OK,
+        Page {
+            title: if q.is_empty() {
+                "搜索".to_string()
+            } else {
+                format!("搜索 {q}")
+            },
+            rel: String::new(),
+            sidebar_dir: String::new(),
+            query: q,
+            kind: PageKind::Search,
+            body,
+        },
+        is_head,
+    )
+    .await
 }
 
 #[derive(Default)]
 struct SearchResults {
-    names: Vec<String>,
-    bodies: Vec<(String, usize, String)>,
+    groups: Vec<SearchGroup>,
+    files: usize,
+    hits: usize,
     truncated: bool,
 }
 
-fn search_form(q: &str) -> String {
-    format!(
-        "<form class=\"search\" action=\"/search\" method=\"get\">\
-         <input type=\"search\" name=\"q\" value=\"{}\" placeholder=\"搜索 .md 全文\">\
-         <button type=\"submit\">搜索</button></form>",
-        escape_html(q)
-    )
+struct SearchGroup {
+    path: String,
+    kind: SearchKind,
+    name_hit: bool,
+    hits: Vec<SearchHit>,
 }
 
-fn render_search(q: &str, results: SearchResults) -> String {
-    let mut out = format!("<h1>搜索 “{}”</h1>{}", escape_html(q), search_form(q));
-    if results.names.is_empty() && results.bodies.is_empty() {
-        out.push_str("<p class=\"note\">没有命中。</p>");
-        return out;
-    }
-    if !results.names.is_empty() {
-        out.push_str("<div class=\"hits\"><h2>文件名命中</h2><ul>");
-        for name in results.names {
-            out.push_str(&format!(
-                "<li><a href=\"/{}\">{}</a></li>",
-                encode_path(&name),
-                escape_html(&name)
-            ));
+struct SearchHit {
+    line: usize,
+    text: String,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum SearchKind {
+    Doc,
+    Text,
+    File,
+}
+
+impl SearchKind {
+    fn label(self) -> &'static str {
+        match self {
+            SearchKind::Doc => "文档",
+            SearchKind::Text => "源码",
+            SearchKind::File => "文件",
         }
-        out.push_str("</ul></div>");
     }
-    if !results.bodies.is_empty() {
-        out.push_str("<div class=\"hits\"><h2>正文命中</h2><ul>");
-        for (name, line, text) in results.bodies {
-            out.push_str(&format!(
-                "<li><a href=\"/{}?raw=1#L{}\">{}:{}</a> <span class=\"line\">{}</span></li>",
-                encode_path(&name),
-                line,
-                escape_html(&name),
-                line,
-                escape_html(&text)
-            ));
+
+    fn icon(self) -> &'static str {
+        match self {
+            SearchKind::Doc => icon("file"),
+            SearchKind::Text => icon("code"),
+            SearchKind::File => icon("file"),
         }
-        out.push_str("</ul></div>");
+    }
+
+    fn rank(self) -> u8 {
+        match self {
+            SearchKind::Doc => 0,
+            SearchKind::Text => 1,
+            SearchKind::File => 2,
+        }
+    }
+}
+
+fn render_search(q: &str, results: &SearchResults, elapsed: Duration) -> String {
+    if q.is_empty() {
+        return format!(
+            "<div class=\"content-card\"><div class=\"search-head\"><h1>搜索</h1>\
+             <p>搜索文件名与正文，覆盖 Markdown 与文本源码；大小写不敏感。</p></div>\
+             <div class=\"page-body\"><div class=\"empty-state\">{}<div>在上方输入关键词开始搜索。</div></div></div></div>",
+            icon("search")
+        );
+    }
+    let mut body = format!(
+        "<div class=\"content-card\"><div class=\"search-head\"><h1>搜索 “{}”</h1>\
+         <p>{} 个文件 · {} 条命中 · 实时扫描 {} ms</p></div><div class=\"page-body\">",
+        escape_html(q),
+        results.files,
+        results.hits,
+        elapsed.as_millis()
+    );
+    if results.groups.is_empty() {
+        body.push_str(&format!(
+            "<div class=\"empty-state\">{}<div>没有命中。试试更短的关键词。</div></div>",
+            icon("search")
+        ));
+    } else {
+        for group in &results.groups {
+            let count = group.hits.len() + usize::from(group.name_hit);
+            body.push_str(&format!(
+                "<section class=\"result-group\"><header class=\"result-head\">\
+                 <span class=\"path\">{}<span>{}</span></span>\
+                 <span class=\"badge badge-{}\">{}</span>\
+                 <span class=\"badge\">{} 条命中</span></header>",
+                group.kind.icon(),
+                escape_html(&group.path),
+                match group.kind {
+                    SearchKind::Doc => "doc",
+                    SearchKind::Text => "text",
+                    SearchKind::File => "file",
+                },
+                group.kind.label(),
+                count
+            ));
+            if group.name_hit {
+                let action = match group.kind {
+                    SearchKind::File => {
+                        format!("<a href=\"/{}\">打开文件</a>", encode_path(&group.path))
+                    }
+                    _ => format!(
+                        "<a href=\"/{}\">打开</a><a href=\"/{}?raw=1#L1\">源码 Ln 1</a>",
+                        encode_path(&group.path),
+                        encode_path(&group.path)
+                    ),
+                };
+                body.push_str(&format!(
+                    "<div class=\"hit\"><div class=\"hit-top\"><span>文件名命中</span>{action}</div></div>"
+                ));
+            }
+            for hit in &group.hits {
+                let actions = match group.kind {
+                    SearchKind::Doc => format!(
+                        "<a href=\"/{}\">打开文档</a><a href=\"/{}?raw=1#L{}\">源码 Ln {}</a>",
+                        encode_path(&group.path),
+                        encode_path(&group.path),
+                        hit.line,
+                        hit.line
+                    ),
+                    SearchKind::Text => format!(
+                        "<a href=\"/{}#L{}\">打开源码 Ln {}</a>",
+                        encode_path(&group.path),
+                        hit.line,
+                        hit.line
+                    ),
+                    SearchKind::File => {
+                        format!("<a href=\"/{}\">打开文件</a>", encode_path(&group.path))
+                    }
+                };
+                body.push_str(&format!(
+                    "<div class=\"hit\"><div class=\"hit-top\"><span>第 {} 行</span>{actions}</div>\
+                     <p class=\"hit-snippet\">{}</p></div>",
+                    hit.line,
+                    escape_html(&hit.text)
+                ));
+            }
+            body.push_str("</section>");
+        }
     }
     if results.truncated {
-        out.push_str("<p class=\"note\">结果过多，已截断。</p>");
+        body.push_str("<p class=\"search-note\">结果过多，已截断；请使用更精确的关键词。</p>");
     }
-    out
+    body.push_str("</div></div>");
+    body
 }
 
 fn search_files(root: &Path, needle: &str, max_preview: u64) -> SearchResults {
     let needle = needle.to_lowercase();
-    let mut results = SearchResults::default();
+    let mut groups: Vec<SearchGroup> = Vec::new();
+    let mut total_hits = 0usize;
+    let mut truncated = false;
     let walker = WalkDir::new(root)
         .follow_links(false)
         .into_iter()
@@ -686,49 +810,105 @@ fn search_files(root: &Path, needle: &str, max_preview: u64) -> SearchResults {
         if !entry.file_type().is_file() {
             continue;
         }
-        let is_md = entry
-            .path()
-            .extension()
-            .and_then(OsStr::to_str)
-            .map(|ext| ext.eq_ignore_ascii_case("md"))
-            .unwrap_or(false);
-        if !is_md {
-            continue;
-        }
-        if max_preview > 0
-            && entry
-                .metadata()
-                .map(|meta| meta.len() > max_preview)
-                .unwrap_or(false)
-        {
-            continue;
-        }
         let rel = entry
             .path()
             .strip_prefix(root)
             .unwrap_or(entry.path())
             .to_string_lossy()
             .replace('\\', "/");
-        if rel.to_lowercase().contains(&needle) && results.names.len() < 100 {
-            results.names.push(rel.clone());
-        }
-        let bytes = match std::fs::read(entry.path()) {
-            Ok(bytes) => bytes,
-            Err(_) => continue,
+        let ext = entry
+            .path()
+            .extension()
+            .and_then(OsStr::to_str)
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        let kind = if ext == "md" {
+            SearchKind::Doc
+        } else if is_search_text(entry.path()) {
+            SearchKind::Text
+        } else {
+            SearchKind::File
         };
-        let text = String::from_utf8_lossy(&bytes);
-        for (index, line) in text.lines().enumerate() {
-            if line.to_lowercase().contains(&needle) {
-                let snippet: String = line.trim().chars().take(240).collect();
-                results.bodies.push((rel.clone(), index + 1, snippet));
-                if results.bodies.len() >= 100 {
-                    results.truncated = true;
-                    return results;
+        let name_hit = rel.to_lowercase().contains(&needle);
+        let mut hits = Vec::new();
+        if kind != SearchKind::File
+            && (max_preview == 0
+                || entry
+                    .metadata()
+                    .map(|meta| meta.len() <= max_preview)
+                    .unwrap_or(false))
+        {
+            let Ok(bytes) = std::fs::read(entry.path()) else {
+                continue;
+            };
+            let text = String::from_utf8_lossy(&bytes);
+            for (index, line) in text.lines().enumerate() {
+                if line.to_lowercase().contains(&needle) {
+                    let snippet: String = line.trim().chars().take(240).collect();
+                    hits.push(SearchHit {
+                        line: index + 1,
+                        text: snippet,
+                    });
+                    total_hits += 1;
+                    if hits.len() >= 5 || total_hits >= 200 {
+                        truncated = true;
+                        break;
+                    }
                 }
             }
         }
+        if name_hit || !hits.is_empty() {
+            if groups.len() >= 60 {
+                truncated = true;
+                break;
+            }
+            groups.push(SearchGroup {
+                path: rel,
+                kind,
+                name_hit,
+                hits,
+            });
+            if total_hits >= 200 {
+                truncated = true;
+                break;
+            }
+        }
     }
-    results
+    groups.sort_by(|a, b| {
+        a.kind
+            .rank()
+            .cmp(&b.kind.rank())
+            .then_with(|| a.path.to_lowercase().cmp(&b.path.to_lowercase()))
+    });
+    let files = groups.len();
+    let name_hits = groups.iter().filter(|group| group.name_hit).count();
+    SearchResults {
+        groups,
+        files,
+        hits: total_hits + name_hits,
+        truncated,
+    }
+}
+
+fn is_search_text(path: &Path) -> bool {
+    let name = path.file_name().and_then(OsStr::to_str).unwrap_or("");
+    let ext = path
+        .extension()
+        .and_then(OsStr::to_str)
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    ext == "md"
+        || is_text_ext(&ext)
+        || is_text_name(name)
+        || (ext.is_empty() && sniff_text_sync(path).unwrap_or(false))
+}
+
+fn sniff_text_sync(path: &Path) -> Option<bool> {
+    use std::io::Read;
+    let mut file = std::fs::File::open(path).ok()?;
+    let mut buffer = [0u8; 512];
+    let read = file.read(&mut buffer).ok()?;
+    Some(!buffer[..read].contains(&0))
 }
 
 fn skipped_search_entry(entry: &walkdir::DirEntry) -> bool {
@@ -748,8 +928,9 @@ async fn source_page(
 ) -> Response {
     let bytes = match tokio::fs::read(path).await {
         Ok(bytes) => bytes,
-        Err(_) => return error_page(state, StatusCode::NOT_FOUND, "文件不存在", is_head),
+        Err(_) => return error_page(state, StatusCode::NOT_FOUND, "文件不存在", is_head).await,
     };
+    let size = bytes.len();
     let text = String::from_utf8_lossy(&bytes);
     let mut gutter = String::new();
     let mut code = String::new();
@@ -762,47 +943,54 @@ async fn source_page(
         code.push('\n');
     }
     let name = path.file_name().and_then(OsStr::to_str).unwrap_or("文件");
-    let note = if info.kind == Kind::Markdown {
-        "<p class=\"note\">源码视图</p>"
-    } else {
-        ""
-    };
+    let download = format!("{}?download=1", join_href(parent_rel(rel), name, false));
     let render_link = if info.kind == Kind::Markdown {
-        format!("<a href=\"/{}\">看渲染结果</a>", encode_path(rel))
+        format!(
+            "<a class=\"action primary\" href=\"/{}\">{}<span>查看渲染页</span></a>",
+            encode_path(rel),
+            icon("book")
+        )
     } else {
         String::new()
     };
-    let download = format!("{}?download=1", join_href(parent_rel(rel), name, false));
     let code_class = highlight_language(path)
         .map(|lang| format!(" class=\"language-{lang}\""))
         .unwrap_or_default();
     let body = format!(
-        "{}<h1>{}</h1>{}<div class=\"toolbar\">{}<a href=\"{}\">⬇ 下载</a><span>{}</span></div>\
-         <div class=\"source\"><pre class=\"gutter\">{}</pre>\
-         <pre class=\"code\"><code{}>{}</code></pre></div>",
-        breadcrumb(rel, false),
-        escape_html(name),
-        note,
-        render_link,
-        download,
-        escape_html(&source_type_label(info)),
-        gutter,
-        code_class,
-        code
+        "<div class=\"content-card\"><div class=\"page-head\"><div class=\"grow\">\
+         <h1>源码</h1><p>{rel} · {kind} · {size}</p></div>\
+         <div class=\"page-actions\">{render_link}\
+         <a class=\"action\" href=\"{download}\">{download_icon}<span>下载</span></a></div></div>\
+         <div class=\"source-wrap\"><div class=\"source\"><pre class=\"gutter\">{gutter}</pre>\
+         <pre class=\"code\"><code{code_class}>{code}</code></pre></div></div></div>",
+        rel = escape_html(rel),
+        kind = escape_html(&source_type_label(info)),
+        size = format_size(size as u64),
+        download_icon = icon("download"),
+        gutter = gutter,
+        code_class = code_class,
+        code = code
     );
     html_page(
         state,
         StatusCode::OK,
-        &format!("源码 {name}"),
-        &body,
+        Page {
+            title: format!("源码 {name}"),
+            rel: rel.to_string(),
+            sidebar_dir: parent_rel(rel).to_string(),
+            query: String::new(),
+            kind: PageKind::Source,
+            body,
+        },
         is_head,
     )
+    .await
 }
 
 async fn render_page(state: &AppState, path: &Path, rel: &str, is_head: bool) -> Response {
     let metadata = match tokio::fs::metadata(path).await {
         Ok(meta) => meta,
-        Err(_) => return error_page(state, StatusCode::NOT_FOUND, "文件不存在", is_head),
+        Err(_) => return error_page(state, StatusCode::NOT_FOUND, "文件不存在", is_head).await,
     };
     let mtime = metadata.modified().unwrap_or(SystemTime::UNIX_EPOCH);
     let size = metadata.len();
@@ -818,7 +1006,7 @@ async fn render_page(state: &AppState, path: &Path, rel: &str, is_head: bool) ->
     } else {
         let bytes = match tokio::fs::read(path).await {
             Ok(bytes) => bytes,
-            Err(_) => return error_page(state, StatusCode::NOT_FOUND, "文件不存在", is_head),
+            Err(_) => return error_page(state, StatusCode::NOT_FOUND, "文件不存在", is_head).await,
         };
         let text = String::from_utf8_lossy(&bytes);
         let html = render_markdown(&text, rel);
@@ -842,17 +1030,35 @@ async fn render_page(state: &AppState, path: &Path, rel: &str, is_head: bool) ->
         .and_then(OsStr::to_str)
         .unwrap_or("Markdown");
     let encoded = encode_path(rel);
+    let meta = format!("Markdown · {} · {}", format_size(size), format_mtime(mtime));
     let body = format!(
-        "{}<h1>{}</h1><div class=\"toolbar\"><a href=\"/{encoded}?raw=1\">源码</a>\
-         <a href=\"/{encoded}?download=1\">下载</a></div>\
-         <article class=\"markdown-body\">{rendered}</article>",
-        breadcrumb(rel, false),
-        escape_html(name)
+        "<div class=\"content-card\"><h1 class=\"sr-only\">{name}</h1>\
+         <div class=\"article-toolbar\"><span class=\"doc-meta\">{meta}</span>\
+         <div class=\"page-actions\"><a class=\"action\" href=\"/{encoded}?raw=1\">{code_icon}<span>源码</span></a>\
+         <a class=\"action\" href=\"/{encoded}?download=1\">{download_icon}<span>下载</span></a></div></div>\
+         <div class=\"toc-inline\" id=\"toc-slot\"><details class=\"toc\">         <summary>本页目录</summary><nav class=\"toc-list\" aria-label=\"本页目录\"></nav></details></div>         <article class=\"markdown-body\">{rendered}</article></div>",
+        name = escape_html(name),
+        meta = escape_html(&meta),
+        code_icon = icon("code"),
+        download_icon = icon("download")
     );
-    html_page(state, StatusCode::OK, name, &body, is_head)
+    html_page(
+        state,
+        StatusCode::OK,
+        Page {
+            title: name.to_string(),
+            rel: rel.to_string(),
+            sidebar_dir: parent_rel(rel).to_string(),
+            query: String::new(),
+            kind: PageKind::Doc,
+            body,
+        },
+        is_head,
+    )
+    .await
 }
 
-fn interstitial_page(state: &AppState, rel: &str, is_head: bool) -> Response {
+async fn interstitial_page(state: &AppState, rel: &str, is_head: bool) -> Response {
     let token = state.store_token(rel);
     let encoded = encode_path(rel);
     let cancel = match rel.rfind('/') {
@@ -860,11 +1066,28 @@ fn interstitial_page(state: &AppState, rel: &str, is_head: bool) -> Response {
         None => "/".to_string(),
     };
     let body = format!(
-        "<h1>未信任目录</h1>\
-         <p>此 Markdown 文件位于未信任目录中。仍要打开吗？</p>\
-         <p><a href=\"{cancel}\">取消</a> <a href=\"/{encoded}?open={token}\">仍要打开</a></p>"
+        "<div class=\"content-card\"><div class=\"trust-panel\"><div class=\"trust-icon\">{lock}</div>\
+         <h1>未信任目录</h1><p>此 Markdown 文件位于未信任目录中。仍要打开吗？</p>\
+         <p class=\"trust-path\">{rel}</p><div class=\"trust-actions\">\
+         <a class=\"action\" href=\"{cancel}\">取消</a>\
+         <a class=\"action primary\" href=\"/{encoded}?open={token}\">仍要打开</a></div></div></div>",
+        lock = icon("lock"),
+        rel = escape_html(rel)
     );
-    html_page(state, StatusCode::OK, "未信任目录", &body, is_head)
+    html_page(
+        state,
+        StatusCode::OK,
+        Page {
+            title: "未信任目录".to_string(),
+            rel: rel.to_string(),
+            sidebar_dir: parent_rel(rel).to_string(),
+            query: String::new(),
+            kind: PageKind::Other,
+            body,
+        },
+        is_head,
+    )
+    .await
 }
 
 fn source_type_label(info: &FileInfo) -> String {
@@ -935,7 +1158,7 @@ async fn serve_file(
 ) -> Response {
     let file = match tokio::fs::File::open(path).await {
         Ok(file) => file,
-        Err(_) => return error_page(state, StatusCode::NOT_FOUND, "文件不存在", is_head),
+        Err(_) => return error_page(state, StatusCode::NOT_FOUND, "文件不存在", is_head).await,
     };
     let name = path
         .file_name()
@@ -958,26 +1181,330 @@ async fn serve_file(
     builder.body(body).unwrap()
 }
 
-fn html_page(
-    state: &AppState,
-    status: StatusCode,
-    title: &str,
-    body: &str,
-    is_head: bool,
-) -> Response {
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum PageKind {
+    Dir,
+    Doc,
+    Source,
+    Search,
+    Other,
+}
+
+struct Page {
+    title: String,
+    rel: String,
+    sidebar_dir: String,
+    query: String,
+    kind: PageKind,
+    body: String,
+}
+
+fn icon(name: &str) -> &'static str {
+    match name {
+        "search" => {
+            r#"<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>"#
+        }
+        "chevron" => {
+            r#"<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>"#
+        }
+        "folder" => {
+            r#"<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>"#
+        }
+        "file" => {
+            r#"<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>"#
+        }
+        "code" => {
+            r#"<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m8 9-3 3 3 3"/><path d="m16 9 3 3-3 3"/></svg>"#
+        }
+        "download" => {
+            r#"<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>"#
+        }
+        "copy" => {
+            r#"<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>"#
+        }
+        "check" => {
+            r#"<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>"#
+        }
+        "panel" => {
+            r#"<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></svg>"#
+        }
+        "sun" => {
+            r#"<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>"#
+        }
+        "moon" => {
+            r#"<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8z"/></svg>"#
+        }
+        "monitor" => {
+            r#"<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>"#
+        }
+        "arrow-left" => {
+            r#"<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H5"/><path d="m12 19-7-7 7-7"/></svg>"#
+        }
+        "book" => {
+            r#"<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>"#
+        }
+        "lock" => {
+            r#"<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>"#
+        }
+        "file-search" => {
+            r#"<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h6"/><path d="M14 2v6h6"/><circle cx="17" cy="17" r="3"/><path d="m21 21-1.5-1.5"/></svg>"#
+        }
+        _ => "",
+    }
+}
+
+fn root_name(state: &AppState) -> String {
+    state
+        .root
+        .file_name()
+        .and_then(OsStr::to_str)
+        .filter(|name| !name.is_empty())
+        .unwrap_or("docs")
+        .to_string()
+}
+
+fn crumbs_html(rel: &str, kind: PageKind) -> String {
+    if kind == PageKind::Search {
+        return "<span class=\"current\">搜索</span>".to_string();
+    }
+    if kind == PageKind::Other {
+        return String::new();
+    }
+    let parts: Vec<&str> = rel.split('/').filter(|part| !part.is_empty()).collect();
+    if parts.is_empty() {
+        return if kind == PageKind::Dir {
+            "<span class=\"current\">目录</span>".to_string()
+        } else {
+            String::new()
+        };
+    }
+    let mut html = String::new();
+    let mut accumulated = String::new();
+    for (index, part) in parts.iter().enumerate() {
+        if index > 0 {
+            html.push_str(icon("chevron"));
+        }
+        accumulated.push('/');
+        accumulated.push_str(part);
+        if index + 1 == parts.len() {
+            html.push_str("<span class=\"current\">");
+            html.push_str(&escape_html(part));
+            html.push_str("</span>");
+        } else {
+            html.push_str("<a href=\"");
+            html.push_str(&encode_path(&accumulated));
+            html.push_str("/\">");
+            html.push_str(&escape_html(part));
+            html.push_str("</a>");
+        }
+    }
+    html
+}
+
+fn topbar_search(query: &str) -> String {
+    format!(
+        "<form class=\"searchbox\" action=\"/search\" method=\"get\" role=\"search\">\
+         {search}<input type=\"search\" name=\"q\" value=\"{query}\" \
+         placeholder=\"搜索文档与源码…\" aria-label=\"搜索文档与源码\" autocomplete=\"off\">\
+         <kbd>/</kbd><button type=\"submit\">搜索</button></form>",
+        search = icon("search"),
+        query = escape_html(query)
+    )
+}
+
+fn is_sidebar_file(name: &str) -> bool {
+    let ext = Path::new(name)
+        .extension()
+        .and_then(OsStr::to_str)
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    ext == "md" || is_text_ext(&ext) || is_text_name(name)
+}
+
+async fn sidebar_html(state: &AppState, dir_rel: &str, active_rel: &str) -> String {
+    let dir_rel = dir_rel.trim_matches('/');
+    let active_rel = active_rel.trim_matches('/');
+    let dir_path = if dir_rel.is_empty() {
+        state.root.clone()
+    } else {
+        state.root.join(dir_rel)
+    };
+    let mut dirs: Vec<String> = Vec::new();
+    let mut files: Vec<String> = Vec::new();
+    if let Ok(mut read_dir) = tokio::fs::read_dir(&dir_path).await {
+        while let Ok(Some(entry)) = read_dir.next_entry().await {
+            let name = entry.file_name().to_string_lossy().to_string();
+            if name == ".DS_Store" {
+                continue;
+            }
+            let Ok(file_type) = entry.file_type().await else {
+                continue;
+            };
+            if file_type.is_dir() {
+                if name.starts_with('.') || SKIP_DIRS.contains(&name.as_str()) {
+                    continue;
+                }
+                dirs.push(name);
+            } else if file_type.is_file()
+                && is_sidebar_file(&name)
+                && (!state.safe || allowed_in_safe_mode(&entry.path()))
+            {
+                files.push(name);
+            }
+        }
+    }
+    dirs.sort_by_key(|name| name.to_lowercase());
+    files.sort_by_key(|name| name.to_lowercase());
+
+    let current = if dir_rel.is_empty() {
+        root_name(state)
+    } else {
+        dir_rel.rsplit('/').next().unwrap_or(dir_rel).to_string()
+    };
+    let mut html = format!(
+        "<aside class=\"sidebar\" id=\"sidebar\" aria-label=\"当前目录\">\
+         <div class=\"side-head\"><span>当前目录</span><span class=\"side-current\">{}</span></div>",
+        escape_html(&current)
+    );
+    if !dir_rel.is_empty() {
+        let parent = parent_rel(dir_rel);
+        let href = if parent.is_empty() {
+            "/".to_string()
+        } else {
+            format!("/{}/", encode_path(parent))
+        };
+        html.push_str(&format!(
+            "<a class=\"side-parent\" href=\"{href}\">{}<span>上级目录</span></a>",
+            icon("arrow-left")
+        ));
+    }
+    if !dirs.is_empty() {
+        html.push_str("<div class=\"side-label\">目录</div>");
+        for name in &dirs {
+            let href = join_href(dir_rel, name, true);
+            html.push_str(&format!(
+                "<a class=\"side-link\" href=\"{href}\">{}<span>{}</span></a>",
+                icon("folder"),
+                escape_html(name)
+            ));
+        }
+    }
+    if !files.is_empty() {
+        html.push_str("<div class=\"side-label\">文件</div>");
+        for name in &files {
+            let href = join_href(dir_rel, name, false);
+            let rel_path = if dir_rel.is_empty() {
+                name.clone()
+            } else {
+                format!("{dir_rel}/{name}")
+            };
+            let active = rel_path == active_rel;
+            html.push_str(&format!(
+                "<a class=\"side-link{}\" href=\"{href}\"{}>{}<span>{}</span></a>",
+                if active { " active" } else { "" },
+                if active { " aria-current=\"page\"" } else { "" },
+                icon("file"),
+                escape_html(name)
+            ));
+        }
+    }
+    if dirs.is_empty() && files.is_empty() {
+        html.push_str("<div class=\"side-empty\">这个目录没有可导航的文本文件。</div>");
+    }
+    html.push_str("<div class=\"side-foot\">只读 · 离线<br>");
+    if state.no_search {
+        html.push_str("搜索已关闭");
+    } else {
+        html.push_str("搜索覆盖 .md 与文本源码");
+    }
+    html.push_str("</div></aside>");
+    html
+}
+
+async fn html_page(state: &AppState, status: StatusCode, page: Page, is_head: bool) -> Response {
     let nonce = random_nonce();
     let version = crate::assets::asset_version();
+    let sidebar = sidebar_html(state, &page.sidebar_dir, &page.rel).await;
+    let search = if state.no_search {
+        String::new()
+    } else {
+        topbar_search(&page.query)
+    };
+    let root = escape_html(&root_name(state));
+    let crumbs = crumbs_html(&page.rel, page.kind);
+    let crumbs = if crumbs.is_empty() {
+        String::new()
+    } else {
+        format!("{}{crumbs}", icon("chevron"))
+    };
+    let is_doc = page.kind == PageKind::Doc;
+    let shell_class = if is_doc { "shell has-toc" } else { "shell" };
+    let toc_button = if is_doc {
+        format!(
+            "<button class=\"icon-btn toc-toggle\" id=\"toc-toggle\" type=\"button\"              aria-label=\"切换本页目录\" aria-pressed=\"true\" title=\"隐藏本页目录\">{}</button>",
+            icon("list")
+        )
+    } else {
+        String::new()
+    };
+    let toc_column = if is_doc {
+        "<aside class=\"toc-col\" id=\"toc-col\" aria-label=\"本页目录\">         <div class=\"toc-head\">本页目录</div>         <nav class=\"toc-list\" id=\"toc-nav\" aria-label=\"本页目录\"></nav></aside>"
+            .to_string()
+    } else {
+        String::new()
+    };
+    let page_class = match page.kind {
+        PageKind::Dir => "dir",
+        PageKind::Doc => "doc",
+        PageKind::Source => "source",
+        PageKind::Search => "search",
+        PageKind::Other => "other",
+    };
     let html = format!(
-        "<!doctype html><html lang=\"zh-CN\"><head><meta charset=\"utf-8\">\
+        "<!doctype html><html lang=\"zh-CN\" class=\"no-js\"><head><meta charset=\"utf-8\">\
          <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\
-         <title>{}</title><link rel=\"stylesheet\" href=\"/_assets/markdown.css?v={version}\">\
+         <title>{title} · mdview</title>\
+         <script nonce=\"{nonce}\">(function(){{try{{var t=localStorage.getItem('mdview-theme');\
+         if(t==='light'||t==='dark'){{document.documentElement.dataset.theme=t;document.documentElement.dataset.themeMode=t;}}\
+         else if(t==='system'){{document.documentElement.dataset.themeMode='system';}}\
+         var s=localStorage.getItem('mdview-sidebar');if(s==='collapsed'){{document.documentElement.dataset.sidebar='collapsed';}}\
+         var c=localStorage.getItem('mdview-toc');if(c==='hidden'){{document.documentElement.dataset.toc='hidden';}}\
+         }}catch(e){{}}}})();</script>\
+         <link rel=\"stylesheet\" href=\"/_assets/markdown.css?v={version}\">\
          <link rel=\"stylesheet\" href=\"/_assets/highlight.css?v={version}\">\
          <style>{SERVER_CSS}</style>\
          <script nonce=\"{nonce}\" src=\"/_assets/highlight.js?v={version}\" defer></script>\
          <script nonce=\"{nonce}\" src=\"/_assets/mdview.js?v={version}\" defer></script>\
-         </head><body class=\"vscode-light\" data-totop=\"1\">{}</body></html>",
-        escape_html(title),
-        body
+         </head><body data-totop=\"1\" data-page=\"{page_class}\">\
+         <div class=\"app\"><header class=\"topbar\">\
+         <button class=\"icon-btn sidebar-toggle\" id=\"sidebar-toggle\" type=\"button\" aria-label=\"切换目录栏\">{panel}</button>\
+         <a class=\"brand\" href=\"/\"><span class=\"brand-mark\">m</span><span>mdview</span></a>\
+         <a class=\"root-name\" href=\"/\">{root}</a>\
+         <nav class=\"crumbs\" aria-label=\"面包屑\">{crumbs}</nav>\
+         {search}\
+         {toc_button}<button class=\"icon-btn theme-toggle\" id=\"theme-toggle\" type=\"button\" aria-label=\"切换主题\" title=\"主题：跟随系统\">\
+         <span class=\"theme-icon theme-system\">{monitor}</span>\
+         <span class=\"theme-icon theme-light\">{sun}</span>\
+         <span class=\"theme-icon theme-dark\">{moon}</span></button>\
+         </header><div class=\"{shell_class}\" id=\"shell\">{sidebar}<main class=\"main\">{body}</main>{toc_column}</div></div>\
+         <div class=\"scrim\" id=\"scrim\" hidden></div></body></html>",
+        title = escape_html(&page.title),
+        nonce = nonce,
+        version = version,
+        SERVER_CSS = SERVER_CSS,
+        page_class = page_class,
+        panel = icon("panel"),
+        root = root,
+        crumbs = crumbs,
+        search = search,
+        toc_button = toc_button,
+        shell_class = shell_class,
+        toc_column = toc_column,
+        monitor = icon("monitor"),
+        sun = icon("sun"),
+        moon = icon("moon"),
+        sidebar = sidebar,
+        body = page.body
     );
     let length = html.len();
     let mut builder = Response::builder()
@@ -997,7 +1524,12 @@ fn html_page(
     builder.body(body).unwrap()
 }
 
-fn error_page(state: &AppState, status: StatusCode, message: &str, is_head: bool) -> Response {
+async fn error_page(
+    state: &AppState,
+    status: StatusCode,
+    message: &str,
+    is_head: bool,
+) -> Response {
     let title = match status {
         StatusCode::FORBIDDEN => "403 禁止访问",
         StatusCode::BAD_REQUEST => "400 请求无效",
@@ -1005,10 +1537,25 @@ fn error_page(state: &AppState, status: StatusCode, message: &str, is_head: bool
         _ => "404 未找到",
     };
     let body = format!(
-        "<h1>{title}</h1><p class=\"note\">{}</p><p><a href=\"/\">返回目录</a></p>",
-        escape_html(message)
+        "<div class=\"content-card\"><div class=\"empty-state\"><h1>{title}</h1>\
+         <p>{message}</p><a class=\"action primary\" href=\"/\">返回目录</a></div></div>",
+        title = escape_html(title),
+        message = escape_html(message)
     );
-    html_page(state, status, title, &body, is_head)
+    html_page(
+        state,
+        status,
+        Page {
+            title: title.to_string(),
+            rel: String::new(),
+            sidebar_dir: String::new(),
+            query: String::new(),
+            kind: PageKind::Other,
+            body,
+        },
+        is_head,
+    )
+    .await
 }
 
 async fn classify(path: &Path) -> FileInfo {
@@ -1162,29 +1709,6 @@ fn parent_rel(rel: &str) -> &str {
     }
 }
 
-fn breadcrumb(rel: &str, is_dir: bool) -> String {
-    let mut html = String::from("<header><span class=\"crumb\"><a href=\"/\">根目录</a>");
-    let mut accumulated = String::new();
-    let parts: Vec<&str> = rel.split('/').filter(|part| !part.is_empty()).collect();
-    for (index, part) in parts.iter().enumerate() {
-        accumulated.push('/');
-        accumulated.push_str(part);
-        let is_last = index + 1 == parts.len();
-        if is_last && !is_dir {
-            html.push_str(" / ");
-            html.push_str(&escape_html(part));
-        } else {
-            html.push_str(" / <a href=\"");
-            html.push_str(&encode_path(&accumulated));
-            html.push_str("/\">");
-            html.push_str(&escape_html(part));
-            html.push_str("</a>");
-        }
-    }
-    html.push_str("</span></header>");
-    html
-}
-
 fn encode_segment(value: &str) -> String {
     utf8_percent_encode(value, PATH_SEGMENT_SET).to_string()
 }
@@ -1230,7 +1754,7 @@ fn csp_header(level: u8, nonce: &str) -> Option<String> {
          media-src 'self' https: data:{img_extra}; script-src 'nonce-{nonce}'; \
          style-src 'self' 'unsafe-inline' https: data:{style_extra}; \
          font-src 'self' https: data:{font_extra}; frame-src 'none'; \
-         form-action 'none'; base-uri 'none'; object-src 'none'"
+         form-action 'self'; base-uri 'none'; object-src 'none'"
     ))
 }
 
@@ -1245,7 +1769,8 @@ fn random_nonce() -> String {
 }
 
 fn format_mtime(time: SystemTime) -> String {
-    let datetime = OffsetDateTime::from(time);
+    let offset = time::UtcOffset::current_local_offset().unwrap_or(time::UtcOffset::UTC);
+    let datetime = OffsetDateTime::from(time).to_offset(offset);
     format!(
         "{:04}-{:02}-{:02} {:02}:{:02}",
         datetime.year(),
@@ -1331,11 +1856,12 @@ mod tests {
         assert!(html.contains("a.md"));
         assert!(html.contains("sub/"));
         assert!(!html.contains("上级目录"));
+        assert!(!html.contains("id=\"toc-nav\""));
 
         let (_, _, body) = call(app.clone(), Method::GET, "/sub/").await;
         let html = String::from_utf8(body).unwrap();
         assert!(html.contains("上级目录"), "{html}");
-        assert!(html.contains("class=\"parent\" href=\"/\""), "{html}");
+        assert!(html.contains("class=\"side-parent\" href=\"/\""), "{html}");
         assert!(html.contains("href=\"/sub/c.md\""), "{html}");
         assert!(!html.contains("//c.md"), "{html}");
 
@@ -1358,7 +1884,7 @@ mod tests {
         let (status, _, body) = call(app.clone(), Method::GET, "/a.md?raw=1").await;
         assert_eq!(status, StatusCode::OK);
         let html = String::from_utf8(body).unwrap();
-        assert!(html.contains("看渲染结果"), "{html}");
+        assert!(html.contains("查看渲染页"), "{html}");
         assert!(html.contains("href=\"/a.md\""), "{html}");
         assert!(html.contains("id=\"L1\""), "{html}");
 
@@ -1395,12 +1921,15 @@ mod tests {
         let html = String::from_utf8(body).unwrap();
         assert!(html.contains("<h1>hi</h1>"));
         assert!(html.contains("class=\"markdown-body\""));
-        assert!(!html.contains("源码视图"));
+        assert!(html.contains("class=\"shell has-toc\""));
+        assert!(html.contains("id=\"toc-nav\""));
+        assert!(html.contains("id=\"toc-toggle\""));
+        assert!(!html.contains("<h1>源码</h1>"));
 
         let (status, _, body) = call(app, Method::GET, "/a.md?raw=1").await;
         assert_eq!(status, StatusCode::OK);
         let html = String::from_utf8(body).unwrap();
-        assert!(html.contains("源码视图"));
+        assert!(html.contains("<h1>源码</h1>"));
         assert!(html.contains("id=\"L1\""));
     }
 
@@ -1435,7 +1964,7 @@ mod tests {
         let (status, _, body) = call(app, Method::GET, "/a.md?raw=1").await;
         assert_eq!(status, StatusCode::OK);
         let html = String::from_utf8(body).unwrap();
-        assert!(html.contains("源码视图"));
+        assert!(html.contains("<h1>源码</h1>"));
     }
 
     #[tokio::test]
@@ -1672,6 +2201,7 @@ mod tests {
             .to_str()
             .unwrap();
         assert!(csp.contains("script-src 'nonce-"));
+        assert!(csp.contains("form-action 'self'"));
         assert!(!csp.contains("'self' 'nonce"));
 
         let (_, headers, _) = call(strict, Method::GET, "/").await;
@@ -1713,18 +2243,33 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn search_finds_markdown_only() {
+    async fn search_groups_docs_text_and_files() {
         let dir = fixture();
         let app = app(state(dir.path(), false, 0, 0));
         let (status, _, body) = call(app.clone(), Method::GET, "/search?q=second").await;
         assert_eq!(status, StatusCode::OK);
         let html = String::from_utf8(body).unwrap();
-        assert!(html.contains("a.md"));
-        assert!(html.contains("#L3"));
+        assert!(html.contains("a.md"), "{html}");
+        assert!(html.contains("?raw=1#L3"), "{html}");
 
         let (_, _, body) = call(app.clone(), Method::GET, "/search?q=hello").await;
         let html = String::from_utf8(body).unwrap();
-        assert!(html.contains("没有命中"));
+        assert!(html.contains("b.txt"), "{html}");
+        assert!(html.contains("打开源码"), "{html}");
+
+        let (_, _, body) = call(app.clone(), Method::GET, "/search?q=fn%20main").await;
+        let html = String::from_utf8(body).unwrap();
+        assert!(html.contains("code.rs"), "{html}");
+        assert!(html.contains("源码"), "{html}");
+
+        let (_, _, body) = call(app.clone(), Method::GET, "/search?q=img.png").await;
+        let html = String::from_utf8(body).unwrap();
+        assert!(html.contains("img.png"), "{html}");
+        assert!(html.contains("文件名命中"), "{html}");
+
+        let (_, _, body) = call(app.clone(), Method::GET, "/search?q=zzz").await;
+        let html = String::from_utf8(body).unwrap();
+        assert!(html.contains("没有命中"), "{html}");
 
         let (status, _, _) = call(app, Method::GET, "/search").await;
         assert_eq!(status, StatusCode::OK);

@@ -16,16 +16,18 @@ bash tests/selftest-rust.sh
 ```
 
 必须全绿：`cargo test`（45 单元 + 134 渲染兼容 + 27 golden）、110 项黑盒 HTTP、
-9 项 pty 信任测试、34 项 headless Chrome 验收。
+9 项 pty 信任测试、58 项 headless Chrome 验收。
 
 ## 规格来源
 
 按优先级读：
 
-1. `docs/adr/0005-vscode-1.142-as-oracle.md`：核心语义与视觉对齐 VS Code；
+1. `docs/adr/0005-vscode-1.142-as-oracle.md`：Markdown 语义、代码高亮与渲染结构对齐 VS Code；
 2. `docs/adr/0007-hard-edge-cases-use-comrak.md`：linkify / 引用定义 / front matter /
    URL 与 alt 的 accepted deviations；
 3. `docs/adr/0006-html-trust-and-csp.md`：裸 HTML 透传与 Trust/CSP；
+   [ADR 0008](docs/adr/0008-docs-shell-and-reading-typography.md) 文档站外壳/排版，
+   [ADR 0009](docs/adr/0009-search-scope-and-form-csp.md) 搜索与同源表单；
 4. `docs/design/new-md-view-server.md` 与 `docs/design/execution-plan.md`；
 5. `docs/spikes/comrak-vs-markdown-it.md`：P0 差分证据。
 
@@ -61,10 +63,18 @@ bash tests/selftest-rust.sh
    编码一次 → 根相对。链接与图片共用；不要在别处再实现一份。
 4. **渲染缓存**键是 `(path, mtime, size)`；改动渲染器后确认
    `render_cache_invalidates_on_mtime_and_size` 仍绿。
-5. **服务端不生成高亮 HTML**：只输出 `language-…` 类名，highlight.js 在浏览器执行。
+5. **服务端不生成高亮 HTML**：只输出 `language-…` 类名，highlight.js 在浏览器执行；
+   语言条、复制按钮、TOC 由 `assets/mdview.js` 运行时生成，服务端 Markdown 输出
+   不得添加标题 id。
+
+   外壳布局约束：顶栏 sticky；桌面侧栏/TOC 用 `top:58px` + `height:calc(100vh-58px)`；
+   Markdown 页 ≥1360px 为 240/780/220 三列，正文固定 780；窄屏 TOC 回正文顶部，
+   ≤900px 侧栏抽屉。改布局后必须核对侧栏/TOC 底边贴视口。
 6. **目录 `rel` 带尾斜杠**：`list_dir` 入口会 `trim_end_matches('/')`；新增目录页逻辑
    注意不要拼出 `//` 或把 `/sub/` 的上级算成 `/sub/`。
-7. 文档与提交信息用中文，提交前缀 `feat:` / `fix:` / `docs:` / `refactor:` /
+7. **搜索范围**：文件名覆盖所有文件；正文只扫 Markdown/文本，跳过隐藏目录、
+   `SKIP_DIRS` 与超 `--max-preview` 的文件；结果按文件分组。
+8. 文档与提交信息用中文，提交前缀 `feat:` / `fix:` / `docs:` / `refactor:` /
    `style:` / `test:`。
 
 ## 改哪里
@@ -74,7 +84,10 @@ bash tests/selftest-rust.sh
 | 新 Markdown 语法/渲染差异 | `src/render.rs` 的 comrak options 或 formatter |
 | 新链接/图片协议规则 | `is_safe_link` + `tests/render_compat.rs` 正反例 |
 | URL 编码/相对路径 | `rewrite_target` + `%20/%2520/%23/%3F` 测试 |
-| 新路由/页面 | `src/server.rs` 的 `app`/`handle` |
+| 新路由/页面 | `src/server.rs` 的 `app`/`handle` 与 `Page` 外壳 |
+| 搜索范围/结果 | `search_files` / `render_search`；正文只扫文本文件 |
+| 顶部栏/侧栏/页面 chrome/三列 | `html_page`、`sidebar_html`、`crumbs_html` |
+| TOC/代码条/主题/侧栏交互 | `assets/mdview.js` |
 | CSP/安全级别 | `csp_header` + `csp_levels` 测试 |
 | Trust 配置 | `src/trust.rs` + 配置往返测试 |
 | 页面样式 | `src/assets.rs` 的 `SERVER_CSS`，VS Code 样式在 `assets/*.css` |

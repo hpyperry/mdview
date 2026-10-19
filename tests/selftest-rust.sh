@@ -139,7 +139,7 @@ BASE="http://127.0.0.1:$TRUST_PORT"
 HOME_HTML="$(curl -s "$BASE/")"
 chk "目录索引 200" "$(code "$BASE/")" "200"
 chk "目录列出 a.md" "$HOME_HTML" "a.md"
-chk "目录有搜索框" "$HOME_HTML" 'class="search"'
+chk "目录有搜索框" "$HOME_HTML" 'class="searchbox"'
 chk "目录显示文件大小" "$HOME_HTML" ' B · '
 chk "文件带下载入口" "$HOME_HTML" 'a.md?download=1'
 nchk "目录不带下载入口" "$HOME_HTML" 'sub/?download=1'
@@ -149,7 +149,7 @@ nchk "根目录无上级链接" "$HOME_HTML" '上级目录'
 chk "空目录提示" "$(curl -s "$BASE/empty/")" '这个目录是空的。'
 SUB_HTML="$(curl -s "$BASE/sub/")"
 chk "子目录有上级链接" "$SUB_HTML" '上级目录'
-chk "一级上级指到根" "$SUB_HTML" 'class="parent" href="/"'
+chk "一级上级指到根" "$SUB_HTML" 'class="side-parent" href="/"'
 chk "子目录文件链接正确" "$SUB_HTML" 'href="/sub/c.md"'
 nchk "子目录无双重斜杠" "$SUB_HTML" '/sub//'
 nchk "上级链接不是 //" "$SUB_HTML" 'href="//"'
@@ -187,7 +187,7 @@ RAW="$(curl -s "$BASE/a.md?raw=1")"
 chk "raw 原文" "$RAW" "# Hello"
 nchk "raw 不渲染" "$RAW" "<strong>bold</strong>"
 chk "raw 行锚点" "$RAW" 'id="L1"'
-chk "raw 回渲染链接" "$RAW" '看渲染结果'
+chk "raw 回渲染链接" "$RAW" '查看渲染页'
 chk "raw 下载入口" "$RAW" "?download=1"
 LINE5_SRC="$(sed -n '5p' "$ROOT/a.md")"
 chk "raw 第 5 行内容一致" "$RAW" "$LINE5_SRC"
@@ -204,7 +204,7 @@ chk "下载原始字节" "$(cat "$TMP/dl.md")" "# Hello"
 chk "文本下载" "$(curl -s "$BASE/b.txt?download=1")" "hello"
 
 SEARCH="$(curl -s --get --data-urlencode 'q=needle' "$BASE/search")"
-chk "搜索正文命中" "$SEARCH" "正文命中"
+chk "搜索正文命中" "$SEARCH" "result-group"
 chk "搜索文件名命中" "$SEARCH" "search.md"
 chk "搜索大小写不敏感" "$(curl -s "$BASE/search?q=CASENEEDLE")" "CaseNeedle.md"
 chk "搜索文件名命中标记" "$(curl -s "$BASE/search?q=CaseNeedle")" "文件名命中"
@@ -287,7 +287,7 @@ MPB="http://127.0.0.1:$MP_PORT"
 chk "上限内仍渲染" "$(curl -s "$MPB/small.md")" "small big hit"
 chk "超限强制下载" "$(header "$MPB/huge.md" content-disposition)" "attachment"
 chk "超限内容完整" "$(curl -s -o /dev/null -w '%{size_download}' "$MPB/huge.md")" "$(wc -c <"$MP/huge.md" | tr -d ' ')"
-MP_SEARCH="$(curl -s "$MPB/search?q=big")"
+MP_SEARCH="$(curl -s "$MPB/search?q=big" | sed 's#.*<main class="main">##' | sed 's#</main>.*##')"
 chk "搜索仍命中上限内文件" "$MP_SEARCH" "small.md"
 nchk "搜索跳过超限文件" "$MP_SEARCH" "huge.md"
 
@@ -319,7 +319,7 @@ OPENED="$(curl -s "$UNTRUST/a.md?open=$TOKEN")"
 chk "一次性令牌打开" "$OPENED" "<h1>Hello</h1>"
 REUSED="$(curl -s "$UNTRUST/a.md?open=$TOKEN")"
 chk "令牌复用再次拦截" "$REUSED" "仍要打开"
-chk "raw 绕过拦截" "$(curl -s "$UNTRUST/a.md?raw=1")" "源码视图"
+chk "raw 绕过拦截" "$(curl -s "$UNTRUST/a.md?raw=1")" "<h1>源码</h1>"
 chk "download 绕过拦截" "$(curl -s "$UNTRUST/a.md?download=1")" "# Hello"
 
 echo "== filesystem edge cases =="

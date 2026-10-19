@@ -1,8 +1,8 @@
 # mdview 2.0 —— 单文件离线 Markdown 预览服务器
 
 用一个可执行文件，把一个目录变成可浏览的文档站：Markdown 渲染、文本源码查看、
-所有类型下载、全文搜索；不联网、不请求任何外部资源。Markdown 的核心语义与视觉
-对齐 **VS Code 1.142.0**。
+所有类型下载、全文搜索；不联网、不请求任何外部资源。Markdown 语义与代码高亮
+对齐 **VS Code 1.142.0**，页面外壳采用文档站风格。
 
 ```bash
 cargo build --release
@@ -28,15 +28,30 @@ cargo build --release
 决策记录：[ADR 0004](docs/adr/0004-rust-rewrite-and-dependencies.md)（Rust 重写）、
 [0005](docs/adr/0005-vscode-1.142-as-oracle.md)（VS Code 基准）、
 [0006](docs/adr/0006-html-trust-and-csp.md)（HTML/CSP）、
-[0007](docs/adr/0007-hard-edge-cases-use-comrak.md)（comrak 硬边角）。
+[0007](docs/adr/0007-hard-edge-cases-use-comrak.md)（comrak 硬边角）、
+[0008](docs/adr/0008-docs-shell-and-reading-typography.md)（文档站外壳与排版）、
+[0009](docs/adr/0009-search-scope-and-form-csp.md)（搜索与同源表单）、
+[0010](docs/adr/0010-three-column-layout-and-sticky-shell.md)（三列与 sticky 外壳）。
 
 ## 功能
+
+### 文档站外壳与搜索
+
+- 所有页面共用顶部栏 + 左侧目录栏 + 主内容区；Markdown 页在 ≥1360px 增加右侧 TOC，
+  形成 240 / 780 / 220 三列；顶栏与两侧栏 sticky；
+- 目录栏只列**当前目录**的目录与文本文件，sticky、桌面可完全收起、窄屏抽屉；
+- 顶部栏有产品名、根目录、面包屑、搜索、主题三态和侧栏开关；
+- 搜索：文件名覆盖所有文件，正文覆盖 Markdown/文本；结果按文件分组，
+  Markdown 正文命中可“打开文档”或“源码 Ln”，文本命中直接进源码行；
+- CSP 放行同源表单（`form-action 'self'`），搜索在无 JS 时也可提交；
+- 主题：跟随系统 / 浅色 / 深色，手动选择持久化；
+- 页内目录由浏览器从 h2/h3 生成（服务端不生成标题 id）；宽屏右侧 TOC 支持 scroll-spy、
+  自动滚动与独立收起；窄屏回正文顶部；代码块有语言条与复制按钮。
 
 ### Markdown 渲染
 
 - CommonMark + GFM 表格 / 删除线 / 自动链接；`~~x~~` 输出 `<s>`；
-- 视觉对齐 VS Code：vendored `markdown.css` / `highlight.css`，900px 正文宽、
-  14px/22px 行高、明暗主题跟随系统；
+- Markdown 语义与代码高亮对齐 VS Code；正文采用文档阅读排版：780px、16px、1.7 行高；
 - 客户端高亮：highlight.js 11.11.1 完整语言包；代码块复制按钮、图片放大遮罩、
   回到顶部按钮都由脚本注入（禁用 JS 时没有死按钮）；
 - 表格单元格输出 `style="text-align:…"`（与 VS Code 一致，不用 `align=`）；
@@ -49,7 +64,7 @@ cargo build --release
 
 | 请求 | 行为 |
 |------|------|
-| `GET /dir/` | 目录索引：目录优先、大小/时间、文件下载按钮、上级目录、面包屑 |
+| `GET /dir/` | 目录索引：目录/文件分组、大小/时间、下载按钮；上级导航在侧栏/面包屑 |
 | `GET /x.md` | 渲染为 HTML（未信任目录先出现一次确认页） |
 | `GET /x.md?raw=1` | 源码查看页：行号、`id="L<n>"` 行锚点、回渲染/下载入口 |
 | `GET /x.md?download=1` | 原始字节 + `Content-Disposition` |
@@ -57,7 +72,7 @@ cargo build --release
 | 无扩展名 | 前 512 字节无 NUL → 文本；有 NUL → 下载 |
 | 图片 / PDF | 按 MIME 内联 |
 | 其他 | `application/octet-stream` 下载 |
-| `GET /search?q=…` | 只搜 `.md`（文件名 + 正文，最多 100 条正文命中） |
+| `GET /search?q=…` | 文件名搜所有文件；正文搜 Markdown/文本；按文件分组 |
 | `HEAD` / `301` / `404` | 支持；目录缺尾斜杠返回 301 |
 
 超过 `--max-preview`（默认 20 MiB）的文件一律改为下载，`?raw=1` 也不例外。
@@ -89,7 +104,8 @@ cargo build --release
 
 CSP 四档：0 Strict（默认）、1 允许 HTTP、2 关闭（不推荐）、3 允许 localhost HTTP。
 所有响应带 `X-Content-Type-Options: nosniff`；`script-src` 只信任每个响应新生成的
-nonce，**没有 `'self'`**；`frame/form/base/object 'none'`。
+nonce，**没有 `'self'`**；`frame/base/object 'none'`；`form-action 'self'`
+（仅用于本站搜索表单）。
 
 ## 与 VS Code 的一致性
 
@@ -131,7 +147,7 @@ macOS / Linux / Windows 三平台跑 `cargo test` 与黑盒 HTTP 套件。
 cargo test                      # 45 单元 + 134 渲染兼容 + 27 golden
 cargo clippy --all-targets -- -D warnings
 bash tests/selftest-rust.sh     # 110 项真二进制 HTTP 断言
-node tests/browser-probe.mjs      # 34 项 headless Chrome 验收
+node tests/browser-probe.mjs      # 58 项 headless Chrome 验收
 bash tests/trust-tty.sh           # 9 项真实 pty 信任测试
 ```
 
@@ -168,7 +184,7 @@ md-preview/
 - 引用定义的尖括号目标（`[r]: <a b.md>`）在文件末尾没有换行时可能解析失败（EOF quirk）；正常以换行结尾的文件可解析。
 - front matter 被消费，不渲染成 VS Code 的表格。
 - 文件名里字面含 `%xx` 的文件不能通过相对 Markdown 目标到达（双重解码的代价）。
-- 搜索每次实时扫盘，只搜 `.md`；无索引、无编辑保存。
+- 搜索每次实时扫盘：文件名覆盖所有文件，正文覆盖 Markdown/文本；无索引、无编辑保存。
 - Trust 判定按根目录路径字符串保存；移动目录后需要重新确认。
 - 许可证为 MIT，见 [`LICENSE`](LICENSE)；第三方组件见 [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md)。
 

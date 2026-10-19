@@ -1,7 +1,9 @@
 # VS Code 1.142 作为 Markdown 语义与视觉基准
 
 **Status**: accepted；linkify / reference definition / front matter / URL normalization /
-image alt 的硬边角由 [ADR 0007](0007-hard-edge-cases-use-comrak.md) 改为 comrak 行为
+image alt 的硬边角由 [ADR 0007](0007-hard-edge-cases-use-comrak.md) 改为 comrak 行为；
+页面外壳与正文阅读排版由 [ADR 0008](0008-docs-shell-and-reading-typography.md)
+改为文档站风格，本 ADR 的“视觉基准”收窄为 Markdown 语义、代码高亮与渲染结构
 **Supersedes**: [ADR 0001](0001-markdown-target-encoding.md) 的百分号只解一次，
 [ADR 0003](0003-data-uri-images.md) 的 data URI 放行范围
 

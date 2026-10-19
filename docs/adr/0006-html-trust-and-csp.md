@@ -1,6 +1,7 @@
 # 裸 HTML、Trust 与 CSP：复刻 VS Code 预览的安全模型
 
-**Status**: accepted（2026-10-19）
+**Status**: accepted（2026-10-19）；`form-action` 由
+[ADR 0009](0009-search-scope-and-form-csp.md) 从 `'none'` 放宽为 `'self'`
 
 VS Code 核心语义要求裸 HTML 透传（markdown-it `html: true`）。这推翻了旧版
 “正文与代码块里的裸 HTML 一律转义”的核心防线，必须用另一套模型补上。

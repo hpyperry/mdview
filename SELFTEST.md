@@ -23,7 +23,7 @@
 | 静态检查 | `cargo clippy --all-targets -- -D warnings` | **通过** |
 | 格式 | `cargo fmt --all --check` | **通过** |
 | 黑盒 HTTP | `bash tests/selftest-rust.sh` | **PASS=110 FAIL=0** |
-| 浏览器验收 | `node tests/browser-probe.mjs` | **PASS=34 FAIL=0** |
+| 浏览器验收 | `node tests/browser-probe.mjs` | **PASS=58 FAIL=0** |
 | TTY 信任 | `bash tests/trust-tty.sh` | **PASS=9 FAIL=0** |
 | artifact 冒烟 | `bash tests/smoke-artifact.sh target/release/mdview` | **PASS=7 FAIL=0** |
 | 依赖漏洞 | `cargo audit` | **134 deps，无漏洞** |
@@ -33,16 +33,17 @@
 
 ## 黑盒覆盖
 
-- 目录索引：文件/目录列表、大小、下载按钮只给文件、上级目录、空目录、301 编码；
+- 目录索引：目录/文件分组、大小、下载按钮只给文件、侧栏上级目录、空目录、301 编码；
 - Markdown：标题/粗体/删除线/任务列表字面量/裸 HTML/表格 `style`/标题无 id；
-- 源码页：行锚点、第 5 行内容、`看渲染结果`、下载入口；
+- 源码页：行锚点、第 5 行内容、`查看渲染页`、下载入口；
 - 下载：Content-Disposition、原始字节、Markdown 类型；
-- 搜索：正文/文件名/大小写/中文/跳过隐藏目录与 `node_modules`；
+- 搜索：正文/文件名/大小写/中文/跳过隐藏目录与 `node_modules`；表单真实提交、
+  按文件分组、文本源码命中、文件名覆盖图片；
 - MIME 与嗅探：JSON/TS/Makefile/Dockerfile/.gitignore/无扩展名文本与二进制；
 - URL 现场往返：空格目录、中文文件名、`%23`、尖括号目标；
 - 安全：路径穿越、FIFO 404、symlink 逃逸 403、根内 symlink 200、`--safe`；
 - Trust：拦截面、一次性令牌、复用拒绝、raw/download 绕过；
-- CSP：nonce、`base-uri`、nosniff；
+- CSP：nonce、`form-action 'self'`、`base-uri`、nosniff；
 - 参数：`--no-search`、`--max-preview`（超限下载 + 搜索跳过）、端口占用回退。
 
 ## 渲染一致性
@@ -57,19 +58,23 @@ P0 差分报告：1035 条计分语料 **1015 条精确匹配（98.07%）**，0 
 
 ## 浏览器验证
 
-`tests/browser-probe.mjs` 在真实 headless Chrome 里跑 **34 项**断言：
+`tests/browser-probe.mjs` 在真实 headless Chrome 里跑 **58 项**断言：
 
-- highlight.js 实际着色、复制按钮注入与剪贴板反馈；
+- 文档站外壳：侧栏当前文件、代码语言条、移动端抽屉与遮罩；
+- 三列布局：≥1360 的 240/780/220、顶栏/侧栏/TOC sticky、滚动后底边贴视口、
+  TOC scroll-spy 与独立收起；
+- 搜索表单真实提交、结果分组、查询词高亮；
+- highlight.js 实际着色、复制按钮与剪贴板反馈；
 - 图片放大：`href === src`、`showModal()`、焦点落在 dialog、关闭后焦点归还、
   修饰键不拦截；
-- 明/暗主题类切换；
+- 主题三态切换（浅色/深色/系统）与侧栏收起；
 - 目录页/源码页的回到顶部按钮与平滑滚动；
-- 无 JS 基线：无 `<dialog>`/复制/回顶死按钮，保留 `data-totop` 标记，正文可读，
-  服务端不输出高亮 span；
+- 无 JS 基线：无 `<dialog>`/复制/语言条/回顶/目录死按钮，隐藏主题开关，
+  正文可读，服务端不输出高亮 span；
 - 页面请求全部是本机资源，无外部请求。
 
-另用 headless Chrome 截图核对过 VS Code `markdown.css` 排版、vs/vs2015 配色、
-源码页行号与深色模式。
+另用 headless Chrome 截图核对过文档站外壳、780/16/1.7 阅读排版、vs/vs2015 代码配色、
+源码页行号、深色/浅色与移动端布局。
 
 ## CI（GitHub Actions）
 
@@ -85,6 +90,7 @@ P0 差分报告：1035 条计分语料 **1015 条精确匹配（98.07%）**，0 
 
 ## 尚未验证 / 待办
 
+- 本次文档站 UI 与搜索改动尚未提交/推送，CI 需在提交后重跑。
 - `release.yml` 需要一次 tag 才能验证；当前只验证了 CI 打包。
 - 完整 P0 语料的 golden 生成器仍以 `tools/spike/` 为准（当前为 27 条 curated golden）。
 

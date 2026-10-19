@@ -146,6 +146,62 @@ https 与 data；脚本**只允许带本次响应随机 nonce 的标签**，不�
 禁止 frame、form、base、object。裸 HTML 里的脚本与内联事件处理器因此不执行。
 _Avoid_: 严格模式、默认 CSP
 
+## 文档站外壳与搜索
+
+**文档站外壳（docs shell）**：
+所有页面共用的结构：顶部栏、左侧目录栏、主内容区；Markdown 页在宽屏还有
+右侧页内目录列，窄屏回落到正文顶部。目录页、源码页、搜索结果页、错误页与
+Trust 拦截面使用同一外壳，但不显示 TOC 列。
+_Avoid_: 页面模板、layout
+
+**顶部栏**：
+外壳最上方的一行：产品名、当前根目录名、面包屑、搜索框、主题切换、侧栏开关
+与 Markdown 页的 TOC 开关。宽屏滚动时保持可见。
+_Avoid_: 导航栏、header（与页面内容标题混用）
+
+**目录栏**：
+左侧列出**当前目录**的子目录与文本文件；不是全站文件树。桌面端 sticky 且高度填满
+顶栏以下的视口、可完全收起，窄屏变成抽屉。上级导航由面包屑承担。
+_Avoid_: 文件树、资源管理器、sidebar
+
+**页内目录（TOC）**：
+标题列表，只收 h2–h3；由浏览器运行时生成，服务端 Markdown 输出不变。
+宽屏是右侧独立 sticky 列（随正文高亮并自动滚动），窄屏回到正文顶部可折叠块；
+可独立收起。禁用 JS 时不显示，也不改变“标题无 id”的渲染语义。
+_Avoid_: 大纲、大纲导航、锚点目录
+
+**三列布局**：
+Markdown 页在 ≥1360px 时使用“左侧目录栏 240 + 正文 780 + 右侧 TOC 220”。
+更窄时降级为两列，TOC 回正文顶部。正文宽度固定 780px，不随空余空间拉宽。
+_Avoid_: 三栏、三列网格
+
+**阅读排版**：
+文档正文的字体、字号、行宽与行高，目标是长时间阅读舒适；与“VS Code 预览排版”分离。
+Markdown 语义与代码高亮仍以 VS Code 为基准。
+_Avoid_: 主题、样式
+
+**主题三态**：
+跟随系统 / 浅色 / 深色三种选择；默认跟随系统，手动选择会在本机持久化。
+_Avoid_: 暗色模式、夜间模式
+
+**文件名命中**：
+搜索词出现在文件路径或文件名中。覆盖所有文件类型，包括图片与 PDF。
+_Avoid_: 路径命中、文件搜索
+
+**正文命中**：
+搜索词出现在文件内容的一行中。只覆盖 Markdown 与按文本处理的文件；二进制不扫描。
+_Avoid_: 内容命中、全文搜索
+
+**搜索结果组**：
+按文件聚合的搜索结果：文件路径、命中数、若干行片段。Markdown 正文命中提供
+“打开文档”主入口与“源码 Ln”次入口；文本/源码命中直接进入源码行。
+_Avoid_: 结果列表、hit list
+
+**同源表单**：
+提交目标只能是本站的搜索表单。它是 CSP 从 `form-action 'none'` 放宽到 `'self'`
+的唯一用途；不引入跨站提交或写操作。
+_Avoid_: 表单提交、search form
+
 ## 服务器
 
 **单文件可执行程序**：
@@ -160,9 +216,11 @@ _Avoid_: 源码模式、编辑器页
 
 **VS Code 基准**：
 本机 VS Code 1.142.0 的 Markdown 预览（markdown-it 14.3.2 + highlight.js +
-4 档安全级别）。**核心语义与视觉**冲突时以它为准；linkify、reference definition、
-front matter、URL normalization、图像 alt 的硬边角按
+4 档安全级别）。**Markdown 语义与代码高亮**冲突时以它为准；linkify、reference
+definition、front matter、URL normalization、图像 alt 的硬边角按
 [ADR 0007](docs/adr/0007-hard-edge-cases-use-comrak.md) 采用 comrak 行为。
+页面外壳与正文阅读排版自 [ADR 0008](docs/adr/0008-docs-shell-and-reading-typography.md)
+起改为文档站风格，不再逐像素对齐 VS Code 预览。
 _Avoid_: 参考实现、标准
 
 **golden 差分**：

@@ -9,7 +9,7 @@ Rust 实现的断言分多组：
 | `src/` 的 `#[cfg(test)]` | 模块内单元测试（45 项：render 10 / server 22 / trust 7 / cli 5 / assets 1） | `cargo test --lib` |
 | `selftest-rust.sh` | 真二进制的 black-box HTTP 断言（110 项：目录/渲染/源码/下载/搜索/Trust/CSP/安全/文件系统边界） | `bash tests/selftest-rust.sh` |
 | `trust-tty.sh` + `trust-tty.exp` | 真实 pty 下的信任询问、持久化、非 TTY 默认（9 项） | `bash tests/trust-tty.sh` |
-| `browser-probe.mjs` | headless Chrome 验收（34 项）：高亮/复制/放大/回顶/主题/无 JS 降级/无外部请求 | `node tests/browser-probe.mjs` |
+| `browser-probe.mjs` | headless Chrome 验收（58 项）：三列/sticky/TOC scroll-spy 与开关/侧栏/搜索提交/语言条/复制/放大/主题/无 JS/无外部请求 | `node tests/browser-probe.mjs` |
 | `smoke-artifact.sh` | 对已构建二进制做目录/渲染/资产/下载/CSP 冒烟（7 项） | `bash tests/smoke-artifact.sh <二进制>` |
 
 `selftest-rust.sh` 会自动 `cargo build --release`，起临时服务、跑完自清理；

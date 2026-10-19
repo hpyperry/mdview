@@ -16,7 +16,7 @@ mime_guess = "2"
 percent-encoding = "2"
 rand = "0.9"
 serde = { version = "1", features = ["derive"] }
-time = { version = "0.3", features = ["formatting"] }
+time = { version = "0.3", features = ["formatting", "local-offset"] }
 tokio = { version = "1", features = ["fs", "io-util", "macros", "net", "rt-multi-thread", "signal"] }
 tokio-util = { version = "0.7", features = ["io"] }
 toml = "0.8"

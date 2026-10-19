@@ -4,6 +4,9 @@
 **Branch**: `refactor/new-md-view-server`
 **Supersedes**: 旧 Python 单文件实现（`mdview.py` / `dist/mdview.min.py`）
 
+> 2026-10-19 补充：页面外壳与阅读排版由 [ADR 0008](../adr/0008-docs-shell-and-reading-typography.md)
+> 改为文档站风格；搜索范围与同源表单由 [ADR 0009](../adr/0009-search-scope-and-form-csp.md) 决定。
+
 这一页是本次重写的共同理解。实现以它为准；决策的理由与替代方案在
 [`docs/adr/`](../adr/)。
 
@@ -13,7 +16,8 @@
    前端 CSS/JS 全部嵌进二进制。
 2. **静态文件服务器**：非二进制文件有预览页，所有类型都能下载；保留旧版的
    目录索引、全文搜索、源码视图、`--safe`、`--max-preview`、端口回退与 URL 契约。
-3. **Markdown 渲染与 VS Code 一致**：以本机 VS Code 1.142.0 的预览为语义与视觉基准。
+3. **Markdown 语义与代码高亮与 VS Code 一致**：以本机 VS Code 1.142.0 的预览为基准；
+   页面外壳与正文阅读排版按 ADR 0008 采用文档站风格。
 
 ## 2. 已定决策
 
@@ -24,13 +28,14 @@
 | 平台 | macOS arm64、Linux x86_64/arm64（musl 静态）、Windows x86_64（静态 CRT） | ADR 0004 |
 | 服务器契约 | 保留旧 URL/CLI；新增 Trust 与安全级别参数 | ADR 0004 / 0006 |
 | Markdown 解析器 | comrak 0.56 + 必要的安全/视觉自定义层 | [ADR 0005](../adr/0005-vscode-1.142-as-oracle.md) / [ADR 0007](../adr/0007-hard-edge-cases-use-comrak.md) |
-| 语义基准 | **VS Code 核心语义与视觉**；linkify、reference definition、front matter、URL normalization、image alt 的硬边角采用 comrak 行为；`data:image/*` 按 VS Code、`vscode:` 链接拒绝（23 条 comrak + 2 条服务器偏差 = 25 条 accepted） | ADR 0005 / 0007 |
-| 视觉基准 | vendored VS Code `markdown.css` / `highlight.css` + Light+/Dark+ 变量，自动明暗 | ADR 0005 |
+| 语义基准 | **VS Code 核心语义与代码高亮**；linkify、reference definition、front matter、URL normalization、image alt 的硬边角采用 comrak 行为；`data:image/*` 按 VS Code、`vscode:` 链接拒绝（23 条 comrak + 2 条服务器偏差 = 25 条 accepted） | ADR 0005 / 0007 |
+| 视觉基准 | 文档站外壳 + 780/16/1.7 阅读排版；代码高亮继续用 VS Code CSS/配色，主题三态 | ADR 0008 |
 | 代码高亮 | 内嵌完整 highlight.js，浏览器端；与 VS Code 预览同一套 CSS | ADR 0005 |
 | 裸 HTML | 始终透传；靠 Trust + CSP 约束 | [ADR 0006](../adr/0006-html-trust-and-csp.md) |
 | Trust | 启动时按根目录询问；存用户配置目录；未信任时每次打开 `.md` 都拦 | ADR 0006 |
 | 安全级别 | 完整复刻 VS Code 4 档（0/3/1/2），默认 Strict | ADR 0006 |
 | 非二进制文本 | 统一源码查看页（行号、highlight.js、下载） | 本文 §8 |
+| 搜索 | 文件名覆盖所有文件；正文覆盖 Markdown/文本；分组结果；`form-action 'self'` | ADR 0009 |
 | 旧实现/测试 | 替换 Python；旧断言审阅后移植；新增 golden 差分 | 本文 §11 |
 
 ## 3. 运行形态
@@ -48,10 +53,10 @@ mdview --root docs --host 127.0.0.1
 
 | 层 | 选择 |
 |---|---|
-| HTTP | axum 0.8 + tokio 1 + tower-http 0.7 |
+| HTTP | axum 0.8 + tokio 1 |
 | CLI | clap 4 |
 | Markdown | comrak 0.56（关闭 syntect/tasklist 等不需要的扩展） |
-| YAML（front matter） | `serde_yml` 或 `yaml-rust2`，按 VS Code 的表格规则渲染 |
+| front matter | comrak 扩展消费/省略（ADR 0007），不渲染 YAML 表格 |
 | 配置/Trust | `directories` + serde + TOML |
 | 文件遍历/搜索 | `walkdir` + 标准库；搜索行为与旧版一致 |
 | 前端高亮 | 完整 highlight.js 浏览器 bundle（构建期生成并入库） |

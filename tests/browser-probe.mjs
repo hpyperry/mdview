@@ -184,7 +184,7 @@ async function writeFixture(root) {
   const filler = Array.from({ length: 120 }, (_, i) => `第 ${i + 1} 段，用来把页面撑到可滚动。`).join('\n\n');
   await writeFile(
     join(root, 'page.md'),
-    `# Probe\n\n中文 **粗体**。\n\n\`\`\`python\ndef f():\n    return 1\n\`\`\`\n\n![图](img.png)\n\n[目录](/)\n\n${filler}\n`,
+    `# Probe\n\n中文 **粗体**。\n\n## Section A\n\n\`\`\`python\ndef f():\n    return 1\n\`\`\`\n\n### Sub\n\n![图](img.png)\n\n[目录](/)\n\n${filler}\n`,
   );
   await writeFile(join(root, 'sub', 'page.md'), '# Sub\n\n[上级](/) · ![图](img.png)\n');
   for (let i = 0; i < 40; i += 1) {
@@ -235,7 +235,7 @@ async function main() {
     await page.send('Runtime.enable');
     await page.send('Network.enable');
     await page.send('Emulation.setDeviceMetricsOverride', {
-      width: 900, height: 320, deviceScaleFactor: 1, mobile: false,
+      width: 1200, height: 320, deviceScaleFactor: 1, mobile: false,
     });
     try {
       await browser.send('Browser.grantPermissions', {
@@ -283,7 +283,9 @@ async function main() {
     check('代码块数量', (await evaluate('document.querySelectorAll("pre code").length')) === 1);
     check('highlight.js 着色', (await evaluate('document.querySelectorAll("pre code.hljs span").length')) > 0);
     check('复制按钮已注入', (await evaluate('document.querySelectorAll(".copy-btn").length')) === 1);
-    check('复制按钮默认隐藏', (await evaluate('getComputedStyle(document.querySelector(".copy-btn")).opacity')) === '0');
+    check('代码块语言条', (await evaluate('document.querySelector(".code-block .code-bar .lang")?.textContent')) === 'python');
+    check('页内目录已生成', (await evaluate('document.querySelectorAll("#toc-slot .toc a").length')) === 2);
+    check('侧栏当前文件', (await evaluate('document.querySelector(".side-link.active")?.textContent')) === 'page.md');
     check('无外部资源请求', requests.every((url) => url.startsWith(base) || url.startsWith('data:')), requests.join(', '));
 
     await evaluate('document.querySelector(".copy-btn").click()');
@@ -329,21 +331,58 @@ async function main() {
     check('焦点归还图片链接', (await evaluate('document.activeElement === document.querySelector("a.zoom")')) === true);
 
     console.log('== theme ==');
-    await page.send('Emulation.setEmulatedMedia', {
-      features: [{ name: 'prefers-color-scheme', value: 'dark' }],
-    });
+    await evaluate('document.getElementById("theme-toggle").click()');
+    check('主题切到浅色', (await evaluate('document.documentElement.dataset.themeMode')) === 'light');
+    await evaluate('document.getElementById("theme-toggle").click()');
+    check('主题切到深色', (await evaluate('document.documentElement.dataset.themeMode')) === 'dark');
+    await evaluate('document.getElementById("theme-toggle").click()');
+    check('主题回到系统', (await evaluate('document.documentElement.dataset.themeMode')) === 'system');
+    check('侧栏可收起', await evaluate('(() => { document.getElementById("sidebar-toggle").click(); return document.documentElement.dataset.sidebar === "collapsed"; })()'));
+    await page.send('Emulation.setDeviceMetricsOverride', { width: 800, height: 600, deviceScaleFactor: 1, mobile: false });
     await goto('/page.md');
-    check('深色主题类', (await evaluate('document.body.classList.contains("vscode-dark")')) === true);
-    await page.send('Emulation.setEmulatedMedia', {
-      features: [{ name: 'prefers-color-scheme', value: 'light' }],
-    });
+    await evaluate('document.getElementById("sidebar-toggle").click()');
+    check('移动端打开抽屉', (await evaluate('document.documentElement.dataset.sidebarOpen')) === '1');
+    check('移动端遮罩可见', (await evaluate('!document.getElementById("scrim").hidden')) === true);
+    await evaluate('document.getElementById("scrim").click()');
+    check('移动端遮罩关闭抽屉', (await evaluate('document.documentElement.dataset.sidebarOpen')) === undefined);
+
+    console.log('== three columns ==');
+    await page.send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
     await goto('/page.md');
-    check('浅色主题类', (await evaluate('document.body.classList.contains("vscode-light")')) === true);
+    if ((await evaluate('document.documentElement.dataset.sidebar')) === 'collapsed') {
+      await evaluate('document.getElementById("sidebar-toggle").click()');
+    }
+    check('三列网格', (await evaluate('getComputedStyle(document.getElementById("shell")).gridTemplateColumns.split(" ").length')) === 3);
+    check('TOC 列可见', (await evaluate('getComputedStyle(document.querySelector(".toc-col")).display')) !== 'none');
+    check('侧栏填满视口', (await evaluate('Math.abs(document.querySelector(".sidebar").getBoundingClientRect().height - (innerHeight - 58)) <= 1')) === true);
+    check('TOC 填满视口', (await evaluate('Math.abs(document.querySelector(".toc-col").getBoundingClientRect().height - (innerHeight - 58)) <= 1')) === true);
+    check('TOC 当前项', (await evaluate('!!document.querySelector(".toc-col a.active")')) === true);
+    await evaluate('document.getElementById("toc-2").scrollIntoView()');
+    await sleep(300);
+    check('TOC 跟随滚动', (await evaluate('document.querySelector(".toc-col a.active")?.getAttribute("data-target")')) === 'toc-2');
+    await evaluate('document.getElementById("toc-toggle").click()');
+    check('TOC 可收起', (await evaluate('getComputedStyle(document.querySelector(".toc-col")).display')) === 'none');
+    check('TOC 收起后两列', (await evaluate('getComputedStyle(document.getElementById("shell")).gridTemplateColumns.split(" ").length')) === 2);
+    await evaluate('document.getElementById("toc-toggle").click()');
+    await evaluate('window.scrollTo(0, 500)');
+    await sleep(200);
+    check('顶栏 sticky', (await evaluate('Math.round(document.querySelector(".topbar").getBoundingClientRect().top)')) === 0);
+    check('滚动后侧栏贴底', (await evaluate('Math.round(document.querySelector(".sidebar").getBoundingClientRect().bottom)')) === (await evaluate('innerHeight')));
+    check('滚动后 TOC 贴底', (await evaluate('Math.round(document.querySelector(".toc-col").getBoundingClientRect().bottom)')) === (await evaluate('innerHeight')));
+    await page.send('Emulation.setDeviceMetricsOverride', { width: 1200, height: 320, deviceScaleFactor: 1, mobile: false });
+
+    console.log('== search ==');
+    await goto('/page.md');
+    await evaluate('(() => { const input = document.querySelector(".searchbox input"); input.value = "Probe"; document.querySelector(".searchbox").requestSubmit(); })()');
+    await sleep(800);
+    check('搜索表单可提交', (await evaluate('document.body.dataset.page')) === 'search');
+    check('搜索命中分组', (await evaluate('document.querySelectorAll(".result-group").length')) > 0);
+    check('搜索词高亮', (await evaluate('document.querySelectorAll(".hit-snippet mark").length')) > 0);
 
     console.log('== directory and raw pages ==');
     await goto('/sub/');
     check('目录页回到顶部按钮', (await evaluate('document.querySelectorAll(".totop").length')) === 1);
-    check('目录页上级链接', (await evaluate('document.querySelector(".parent")?.getAttribute("href")')) === '/');
+    check('目录页上级链接', (await evaluate('document.querySelector(".side-parent")?.getAttribute("href")')) === '/');
     check('目录页可滚动', (await evaluate('document.documentElement.scrollHeight > innerHeight')) === true);
     await evaluate('window.scrollTo(0, 500)');
     await sleep(100);
@@ -361,10 +400,13 @@ async function main() {
     await goto('/page.md');
     check('无 JS 无遮罩', (await evaluate('document.querySelectorAll("dialog").length')) === 0);
     check('无 JS 无复制按钮', (await evaluate('document.querySelectorAll(".copy-btn").length')) === 0);
+    check('无 JS 无语言条', (await evaluate('document.querySelectorAll(".code-block").length')) === 0);
     check('无 JS 无回顶按钮', (await evaluate('document.querySelectorAll(".totop").length')) === 0);
+    check('无 JS 无目录', (await evaluate('document.querySelector(".toc-inline")?.offsetParent === null')) === true);
     check('无 JS 保留回顶标记', (await evaluate('document.body.hasAttribute("data-totop")')) === true);
     check('无 JS 正文可读', (await evaluate('document.querySelector("article.markdown-body h1").textContent')) === 'Probe');
     check('无 JS 服务端不着色', (await evaluate('document.querySelectorAll("pre code span").length')) === 0);
+    check('无 JS 隐藏主题按钮', (await evaluate('getComputedStyle(document.getElementById("theme-toggle")).display')) === 'none');
     await page.send('Emulation.setScriptExecutionDisabled', { value: false });
   } finally {
     try { await browser?.send('Browser.close'); } catch { /* closing */ }

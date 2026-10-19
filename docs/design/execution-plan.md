@@ -42,7 +42,7 @@ markdown-it 的差异，再决定是否全速实现。P0 不通过时，停下�
 P2 的 URL/安全/表格对齐层；P1 可以先落骨架，P3 的资产准备可以在 P2 期间做。
 
 > **实现状态（2026-10-19）**：P1–P5 已完成；`cargo test` 45 + 134 + 27 golden、黑盒 110、pty 9、
-> 浏览器 34、artifact 冒烟 7，clippy/fmt 全绿，release 约 3.3 MB。P6 的 CI 矩阵、打包与依赖审计已实跑通过；
+> 浏览器 58、artifact 冒烟 7，clippy/fmt 全绿，release 约 3.3 MB。P6 的 CI 矩阵、打包与依赖审计已实跑通过；
 > 许可证 MIT，release tag 工作流待验证。
 
 ## 2. P0：解析器差分探针（决策门）
@@ -168,11 +168,13 @@ P2 的 URL/安全/表格对齐层；P1 可以先落骨架，P3 的资产准备�
       无 JS 降级为纯文本；下载/复制/回顶/面包屑；`--max-preview` 超限下载。
 - [x] **P3-5 `mdview.js`**：highlight 初始化、复制按钮、图片放大 `<dialog>`、
       回到顶部；无 JS 时不出现死按钮；修饰键不劫持、Esc/背景关闭、焦点归还。
-- [~] **P3-6 Markdown 页 chrome**：面包屑、下载、回顶、`.markdown-body` 已落；
-      复制按钮是自有 `.copy-btn` 样式，尚未逐像素对齐 VS Code。
+- [x] **P3-6 文档站 chrome**：顶部栏、可折叠 sticky 侧栏、面包屑、主题三态；
+      Markdown 页 ≥1360px 为 240/780/220 三列，右侧 TOC 支持 scroll-spy 与独立收起；
+      代码语言条、分组搜索页与错误/Trust 页统一（ADR 0008/0009/0010）。
 - [x] **P3-7 浏览器探针**：`tests/browser-probe.mjs` 在 headless Chrome 里跑
-      34 项：高亮、复制、放大/焦点、修饰键、明暗主题、目录/源码回顶、无 JS
-      基线、无外部请求。旧 `tools/zoom-probe.html` 已移除。
+      58 项：三列/sticky/侧栏底部贴底、TOC scroll-spy/开关、搜索提交、语言条、
+      高亮、复制、放大/焦点、修饰键、主题三态、移动抽屉、目录/源码回顶、
+      无 JS 基线、无外部请求。
 
 ### 验收
 
