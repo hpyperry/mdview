@@ -1,6 +1,10 @@
 # markdown 目标路径的编码语义：以 VS Code 预览为准
 
-**Status**: accepted
+**Status**: superseded by [ADR 0005](0005-vscode-1.142-as-oracle.md)
+
+> **新实现注意**：Rust 重写选择“严格 VS Code”语义，相对路径改为**解码两次**
+> （沿用本 ADR 第 24–28 行对 VS Code 的实测结论）。本文保留旧 Python 实现的
+> 决策记录；其中“只解一次”的偏离不再适用于新实现。
 
 渲染一个 markdown 目标要经过四步：**切分 `?`/`#` → 解码 → 相对解析 → 编码**。
 顺序放错就会产出指向不存在文件的 URL，而这一步恰恰是链接与图片一度分叉的地方。

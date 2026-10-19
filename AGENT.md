@@ -1,5 +1,16 @@
 # AGENT.md —— mdview 改动指南
 
+> **注意（分支 `refactor/new-md-view-server`）**
+>
+> 仓库正在从 Python 单文件重写为 **Rust 单文件可执行程序**。下方“硬约束”中的
+> 零第三方依赖、Python 3.6 语法、`tools/minify.py` 流程只适用于**旧实现**，
+> 不要套到新代码上。新实现允许成熟 crate，产物仍是单文件，Markdown 语义与视觉
+> 严格对齐 VS Code 1.142.0。新设计见
+> [`docs/design/new-md-view-server.md`](docs/design/new-md-view-server.md)，
+> 决策见 [`docs/adr/0004`](docs/adr/0004-rust-rewrite-and-dependencies.md)、
+> [`0005`](docs/adr/0005-vscode-1.142-as-oracle.md)、
+> [`0006`](docs/adr/0006-html-trust-and-csp.md)。新实现落地后本文件会整体重写。
+
 给在这个仓库里干活的 agent。`README.md` 是规格与用户文档，这一页是**改动者的路线图**：
 先读完它，再按指针去读细节。
 

@@ -1,5 +1,15 @@
 # mdview —— 零依赖离线 Markdown 预览服务器
 
+> **重写进行中（分支 `refactor/new-md-view-server`）**
+>
+> 目标是用 Rust 重写为**单文件可执行程序**，Markdown 语义与视觉严格对齐
+> VS Code 1.142.0，并保留静态文件服务器的 URL/CLI 契约。下方内容描述的是
+> **旧的 Python 实现**，保留作为历史与行为参考；新设计见
+> [`docs/design/new-md-view-server.md`](docs/design/new-md-view-server.md)，
+> 决策见 [`docs/adr/0004`](docs/adr/0004-rust-rewrite-and-dependencies.md)、
+> [`0005`](docs/adr/0005-vscode-1.142-as-oracle.md)、
+> [`0006`](docs/adr/0006-html-trust-and-csp.md)。新实现落地后本文件会整体重写。
+
 内网离线环境下，用一个文件把 Markdown 目录变成可浏览的文档站：**只用 Python 标准库**，
 不装任何包、不下载任何资源、页面不发一个额外请求。
 
