@@ -162,7 +162,7 @@ npm --prefix web run typecheck
 cargo test                      # 46 单元 + 134 渲染兼容 + 27 golden
 cargo clippy --all-targets -- -D warnings
 bash tests/selftest-rust.sh     # 125 项真二进制 HTTP 断言
-node tests/browser-probe.mjs      # 89 项 headless Chrome 验收
+node tests/browser-probe.mjs      # 90 项 headless Chrome 验收
 node tests/perf-source.mjs        # 4 项源码页性能预算
 bash tests/trust-tty.sh           # 9 项真实 pty 信任测试
 ```

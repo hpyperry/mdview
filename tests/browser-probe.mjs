@@ -359,6 +359,7 @@ async function main() {
     await evaluate('document.getElementById("theme-toggle").click()');
     check('主题回到系统', (await evaluate('document.documentElement.dataset.themeMode')) === 'system');
     check('侧栏可收起', await evaluate('(() => { document.getElementById("sidebar-toggle").click(); return document.documentElement.dataset.sidebar === "collapsed"; })()'));
+    check('收侧栏后正文仍在', (await evaluate('document.querySelector(".main").getBoundingClientRect().width')) > 500);
     await page.send('Emulation.setDeviceMetricsOverride', { width: 800, height: 600, deviceScaleFactor: 1, mobile: false });
     await goto('/page.md');
     await evaluate('document.getElementById("sidebar-toggle").click()');

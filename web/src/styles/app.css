@@ -492,7 +492,7 @@ html[data-sidebar="collapsed"] .sidebar { padding: 0; border: 0; overflow: hidde
   margin-top: 14px;
 }
 html[data-sidebar="collapsed"] .shell { grid-template-columns: 0 minmax(0, 1fr); }
-html[data-sidebar="collapsed"] .sidebar { display: none; }
+html[data-sidebar="collapsed"] .sidebar { visibility: hidden; padding: 0; border: 0; overflow: hidden; }
 
 .sidebar {
   position: sticky;
@@ -733,7 +733,7 @@ html[data-sidebar="collapsed"] .sidebar { display: none; }
     transition: transform .16s ease;
   }
   html[data-sidebar-open="1"] .sidebar { transform: none; }
-  html[data-sidebar="collapsed"] .sidebar { display: block; padding: 18px 12px 22px; }
+  html[data-sidebar="collapsed"] .sidebar { display: block; visibility: visible; padding: 18px 12px 22px; }
   .content-card { border-radius: 14px; }
   .content-inner { padding: 0 20px; }
   .doc-head { padding: 22px 0 17px; }
