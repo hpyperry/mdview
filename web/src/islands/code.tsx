@@ -23,7 +23,7 @@ function CodeBar({ code, lang, skipped }: { code: HTMLElement; lang: string; ski
       <span class="lang">
         <Icon name="code" />
         {lang}
-        {skipped ? ' · 未高亮' : ''}
+        {skipped ? ' · 高亮已关闭' : ''}
       </span>
       <button
         class="copy-btn"

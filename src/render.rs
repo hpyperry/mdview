@@ -47,6 +47,16 @@ impl RenderCtx {
 /// `doc_rel` is the document path relative to the server root, decoded and
 /// without a leading slash (for example `guide/install.md`).
 pub fn render_markdown(input: &str, doc_rel: &str) -> String {
+    render_markdown_inner(input, doc_rel, false)
+}
+
+/// Like [`render_markdown`], but adds `data-sourcepos` to rendered blocks so
+/// the browser can map a source line to the block that contains it.
+pub fn render_markdown_with_sourcepos(input: &str, doc_rel: &str) -> String {
+    render_markdown_inner(input, doc_rel, true)
+}
+
+fn render_markdown_inner(input: &str, doc_rel: &str, sourcepos: bool) -> String {
     let arena = Arena::new();
     let mut options = Options::default();
     options.extension.table = true;
@@ -54,7 +64,7 @@ pub fn render_markdown(input: &str, doc_rel: &str) -> String {
     options.extension.autolink = true;
     options.extension.front_matter_delimiter = Some("---".to_string());
     options.render.r#unsafe = true;
-    options.render.sourcepos = false;
+    options.render.sourcepos = sourcepos;
 
     let root = parse_document(&arena, input, &options);
     let mut output = String::new();
@@ -301,6 +311,16 @@ mod tests {
         assert!(html.contains("<strong>粗</strong>"));
         assert!(html.contains("<s>删</s>"));
         assert!(!html.contains("<del>"));
+    }
+
+    #[test]
+    fn sourcepos_is_opt_in_for_line_targets() {
+        let input = "# 标题\n\n正文\n";
+        let plain = render_markdown(input, "docs/a.md");
+        assert!(!plain.contains("data-sourcepos"));
+        let located = render_markdown_with_sourcepos(input, "docs/a.md");
+        assert!(located.contains("<h1 data-sourcepos=\"1:1-1:"), "{located}");
+        assert!(located.contains("<p data-sourcepos=\"3:1-3:"), "{located}");
     }
 
     #[test]

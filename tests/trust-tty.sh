@@ -97,7 +97,7 @@ PIDS+=("$!")
 wait_http "$PORT2" || { bad "第二次启动"; cat "$TMP/second.log"; exit 1; }
 chk "第二次不再询问" "$(cat "$TMP/second.log")" "trust:       trusted"
 nchk "第二次日志无询问" "$(cat "$TMP/second.log")" "是否信任"
-chk "第二次直接渲染" "$(curl -s "http://127.0.0.1:$PORT2/a.md")" "<h1>Hi</h1>"
+chk "第二次直接渲染" "$(curl -s "http://127.0.0.1:$PORT2/a.md")" ">Hi</h1>"
 
 # --- 3) fresh HOME + no TTY defaults to untrusted -------------------------
 HOME2="$TMP/home2"

@@ -13,6 +13,7 @@ interface Heading {
 interface TocProps {
   headings: Heading[];
   inlineNav: HTMLElement | null;
+  rail: HTMLElement;
 }
 
 function collectHeadings(): Heading[] {
@@ -76,14 +77,21 @@ function TocLinks({
   );
 }
 
-function Toc({ headings, inlineNav }: TocProps) {
+function Toc({ headings, inlineNav, rail }: TocProps) {
   const [active, setActive] = useState(headings[0]?.id || '');
-  const [open, setOpen] = useState(false);
+  const [pinned, setPinned] = useState(false);
+  const [hovered, setHovered] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
+  const expanded = pinned || hovered;
+
+  function close(): void {
+    setPinned(false);
+    setHovered(false);
+  }
 
   function select(id: string): void {
     setActive(id);
-    setOpen(false);
+    close();
     scrollToHeading(id);
   }
 
@@ -124,13 +132,47 @@ function Toc({ headings, inlineNav }: TocProps) {
   }, [headings]);
 
   useLayoutEffect(() => {
-    if (!open) return;
+    let closeTimer = 0;
+    function clearClose(): void {
+      if (closeTimer) {
+        window.clearTimeout(closeTimer);
+        closeTimer = 0;
+      }
+    }
+    function show(): void {
+      clearClose();
+      setHovered(true);
+    }
+    function scheduleClose(): void {
+      clearClose();
+      closeTimer = window.setTimeout(() => setHovered(false), 160);
+    }
+    function onFocusOut(event: FocusEvent): void {
+      const next = event.relatedTarget as Node | null;
+      if (next && rail.contains(next)) return;
+      scheduleClose();
+    }
+    rail.addEventListener('pointerenter', show);
+    rail.addEventListener('pointerleave', scheduleClose);
+    rail.addEventListener('focusin', show);
+    rail.addEventListener('focusout', onFocusOut);
+    return () => {
+      clearClose();
+      rail.removeEventListener('pointerenter', show);
+      rail.removeEventListener('pointerleave', scheduleClose);
+      rail.removeEventListener('focusin', show);
+      rail.removeEventListener('focusout', onFocusOut);
+    };
+  }, [rail]);
+
+  useLayoutEffect(() => {
+    if (!expanded) return;
     function onKey(event: KeyboardEvent): void {
-      if (event.key === 'Escape') setOpen(false);
+      if (event.key === 'Escape') close();
     }
     function onPointer(event: MouseEvent): void {
       const target = event.target as Element | null;
-      if (!target?.closest('.toc-rail')) setOpen(false);
+      if (!target?.closest('.toc-rail')) close();
     }
     document.addEventListener('keydown', onKey);
     document.addEventListener('click', onPointer);
@@ -138,10 +180,10 @@ function Toc({ headings, inlineNav }: TocProps) {
       document.removeEventListener('keydown', onKey);
       document.removeEventListener('click', onPointer);
     };
-  }, [open]);
+  }, [expanded]);
 
   useEffect(() => {
-    if (!open) return;
+    if (!expanded) return;
     const panel = panelRef.current;
     if (!panel) return;
     const link = panel.querySelector<HTMLElement>(`.toc-link[data-target="${CSS.escape(active)}"]`);
@@ -150,15 +192,18 @@ function Toc({ headings, inlineNav }: TocProps) {
     const linkRect = link.getBoundingClientRect();
     if (linkRect.top < panelRect.top + 8) panel.scrollTop += linkRect.top - panelRect.top - 8;
     else if (linkRect.bottom > panelRect.bottom - 8) panel.scrollTop += linkRect.bottom - panelRect.bottom + 8;
-  }, [active, open]);
+  }, [active, expanded]);
 
   useEffect(() => {
     const narrow = window.matchMedia('(max-width: 1359px)');
-    function close(): void {
-      if (narrow.matches) setOpen(false);
+    function onNarrow(): void {
+      if (narrow.matches) {
+        setPinned(false);
+        setHovered(false);
+      }
     }
-    narrow.addEventListener('change', close);
-    return () => narrow.removeEventListener('change', close);
+    narrow.addEventListener('change', onNarrow);
+    return () => narrow.removeEventListener('change', onNarrow);
   }, []);
 
   return (
@@ -167,9 +212,14 @@ function Toc({ headings, inlineNav }: TocProps) {
         class="toc-rail-btn"
         type="button"
         aria-label="本页目录"
-        aria-expanded={open}
-        title="本页目录"
-        onClick={() => setOpen((value) => !value)}
+        aria-expanded={expanded}
+        aria-pressed={pinned}
+        title={pinned ? '收起本页目录' : '固定本页目录'}
+        onClick={() => {
+          const next = !pinned;
+          setPinned(next);
+          if (!next) setHovered(false);
+        }}
       >
         <Icon name="list" />
       </button>
@@ -186,11 +236,11 @@ function Toc({ headings, inlineNav }: TocProps) {
           />
         ))}
       </div>
-      {open && (
+      {expanded && (
         <div class="toc-pop" ref={panelRef}>
           <div class="toc-pop-head">
             <span>本页目录</span>
-            <button class="toc-close" type="button" aria-label="收起本页目录" onClick={() => setOpen(false)}>
+            <button class="toc-close" type="button" aria-label="收起本页目录" onClick={close}>
               <Icon name="chevrons-right" />
             </button>
           </div>
@@ -219,7 +269,7 @@ export function mountToc(): void {
   }
   if (rail) {
     rail.hidden = false;
-    render(<Toc headings={headings} inlineNav={inlineNav} />, rail);
+    render(<Toc headings={headings} inlineNav={inlineNav} rail={rail} />, rail);
   }
   if (slot) {
     slot.hidden = false;

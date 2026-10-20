@@ -47,7 +47,7 @@ fi
 BASE="http://127.0.0.1:$PORT"
 
 chk "目录页" "$(curl -s "$BASE/")" "a.md"
-chk "Markdown 渲染" "$(curl -s "$BASE/a.md")" "<h1>Artifact</h1>"
+chk "Markdown 渲染" "$(curl -s "$BASE/a.md")" ">Artifact</h1>"
 chk "资产内嵌" "$(curl -s -o /dev/null -w '%{http_code}' "$BASE/_assets/highlight.js")" "200"
 chk "下载原始字节" "$(curl -s "$BASE/b.txt?download=1")" "hello"
 chk "下载头" "$(header "$BASE/b.txt?download=1" content-disposition)" "attachment"

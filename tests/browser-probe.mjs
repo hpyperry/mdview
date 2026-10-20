@@ -302,7 +302,17 @@ async function main() {
     await goto('/page.md');
     check('标题渲染', (await evaluate('document.querySelector("article.markdown-body h1").textContent')) === 'Probe');
     check('文档面包屑完整', await crumbsComplete('.doc-head .crumbs', 'page.md'));
-    check('文档岛已按需水合', await waitFor('["toc", "code", "zoom"].every((name) => window.__mdviewIslands?.mounted.includes(name))', 3000));
+    check('文档岛已按需水合', await waitFor('["toc", "linetarget", "code", "zoom"].every((name) => window.__mdviewIslands?.mounted.includes(name))', 3000));
+    check('渲染页带行定位数据', (await evaluate('document.querySelectorAll(".markdown-body [data-sourcepos]").length')) > 0);
+    check(
+      '文档页头铺满内容面',
+      (await evaluate(`(() => {
+        const card = document.querySelector('.content-card').getBoundingClientRect();
+        const crumbs = document.querySelector('.doc-head .crumbs').getBoundingClientRect();
+        const pad = getComputedStyle(document.querySelector('.doc-head .head-inner')).paddingLeft;
+        return pad === '30px' && Math.round(crumbs.x - card.x) <= 32;
+      })()`)) === true,
+    );
     check('代码块数量', (await evaluate('document.querySelectorAll("pre code").length')) === 2);
     check('highlight.js 着色', await waitFor('document.querySelectorAll("pre code.hljs span").length > 0', 3000));
     check('复制按钮已注入', (await evaluate('document.querySelectorAll(".copy-btn").length')) === 2);
@@ -310,7 +320,12 @@ async function main() {
     check('无语言围栏不高亮', (await evaluate('[...document.querySelectorAll(".code-block")].some(b => b.querySelector(".lang")?.textContent === "代码" && !b.querySelector("code.hljs"))')) === true);
     check('页内目录已生成', (await evaluate('document.querySelectorAll("#toc-slot .toc-link").length')) === 3);
     check('导航默认关闭', (await evaluate('document.documentElement.dataset.navOpen === undefined && getComputedStyle(document.getElementById("nav-panel")).display === "none"')) === true);
-    check('导航懒加载', requests.every((url) => !url.includes('/_nav')), requests.join(', '));
+    check('导航树未预渲染', (await evaluate('document.querySelectorAll("#nav-panel .nav-file").length')) === 0);
+    check(
+      '导航空闲预取完成',
+      await waitFor('performance.getEntriesByType("resource").some((entry) => entry.name.endsWith("/_nav") && entry.responseEnd > 0)', 3000),
+    );
+    check('导航预取后仍关闭', (await evaluate('getComputedStyle(document.getElementById("nav-panel")).display')) === 'none');
     check('无外部资源请求', requests.every((url) => url.startsWith(base) || url.startsWith('data:')), requests.join(', '));
 
     await evaluate('document.querySelector(".copy-btn").click()');
@@ -358,10 +373,36 @@ async function main() {
     console.log('== theme ==');
     await evaluate('document.getElementById("theme-toggle").click()');
     check('主题切到浅色', (await evaluate('document.documentElement.dataset.themeMode')) === 'light');
+    check('主题状态反馈', await waitFor('document.getElementById("theme-status")?.classList.contains("is-visible") && document.getElementById("theme-status").textContent === "主题：浅色"', 1000));
     await evaluate('document.getElementById("theme-toggle").click()');
     check('主题切到深色', (await evaluate('document.documentElement.dataset.themeMode')) === 'dark');
     await evaluate('document.getElementById("theme-toggle").click()');
     check('主题回到系统', (await evaluate('document.documentElement.dataset.themeMode')) === 'system');
+    const rapidModes = await evaluate(`(() => {
+      const button = document.getElementById('theme-toggle');
+      const out = [];
+      for (let i = 0; i < 6; i += 1) {
+        button.click();
+        out.push(document.documentElement.dataset.themeMode);
+      }
+      return out;
+    })()`);
+    check('主题快速连点循环', JSON.stringify(rapidModes) === JSON.stringify(['light', 'dark', 'system', 'light', 'dark', 'system']), JSON.stringify(rapidModes));
+    const resilientModes = await evaluate(`(() => {
+      const original = Storage.prototype.setItem;
+      Storage.prototype.setItem = () => { throw new Error('blocked'); };
+      const button = document.getElementById('theme-toggle');
+      const out = [];
+      button.click();
+      out.push(document.documentElement.dataset.themeMode);
+      button.click();
+      out.push(document.documentElement.dataset.themeMode);
+      Storage.prototype.setItem = original;
+      return out;
+    })()`);
+    check('主题写入失败仍前进', JSON.stringify(resilientModes) === JSON.stringify(['light', 'dark']), JSON.stringify(resilientModes));
+    await evaluate('document.getElementById("theme-toggle").click()');
+    check('主题恢复系统', (await evaluate('document.documentElement.dataset.themeMode')) === 'system');
     const beforeNavWidth = await evaluate('document.querySelector(".doc-card").getBoundingClientRect().width');
     await evaluate('document.getElementById("nav-toggle").click()');
     check('导航打开', await waitFor('document.documentElement.dataset.navOpen === "1" && getComputedStyle(document.getElementById("nav-panel")).display !== "none"', 2000));
@@ -388,6 +429,18 @@ async function main() {
     check('正文面使用宽布局', (await evaluate('Math.round(document.querySelector(".doc-card").getBoundingClientRect().width)')) >= 1000);
     check('TOC 当前项', await waitFor('!!document.querySelector(".toc-tick.is-active")', 3000));
     check('TOC 面板初始关闭', (await evaluate('document.querySelector(".toc-pop") === null')) === true);
+    await evaluate('document.getElementById("toc-rail").dispatchEvent(new PointerEvent("pointerenter"))');
+    check('TOC 悬停展开文字大纲', await waitFor('document.querySelectorAll(".toc-pop .toc-link").length === 3', 2000));
+    check('TOC 大纲标题可读', (await evaluate('document.querySelector(".toc-pop .toc-link")?.textContent')) === 'Section A');
+    await evaluate('document.getElementById("toc-rail").dispatchEvent(new PointerEvent("pointerleave"))');
+    check('TOC 移出收起', await waitFor('document.querySelector(".toc-pop") === null', 2000));
+    await evaluate('document.querySelector(".toc-rail-btn").click()');
+    check('TOC 可固定', await waitFor('document.querySelector(".toc-pop") !== null', 2000));
+    await evaluate('document.getElementById("toc-rail").dispatchEvent(new PointerEvent("pointerleave"))');
+    await sleep(250);
+    check('TOC 固定后移出不收起', (await evaluate('document.querySelector(".toc-pop") !== null')) === true);
+    await evaluate('document.querySelector(".toc-close").click()');
+    check('TOC 固定可关闭', await waitFor('document.querySelector(".toc-pop") === null', 2000));
     await evaluate('document.getElementById("toc-rail").querySelector(".toc-rail-btn").click()');
     check('TOC 面板可展开', await waitFor('document.querySelectorAll(".toc-pop .toc-link").length === 3', 2000));
     await evaluate('document.getElementById("toc-3").scrollIntoView({ block: "start" })');
@@ -438,7 +491,9 @@ async function main() {
     await evaluate(`Array.from(document.querySelectorAll('#nav-panel a.nav-file')).find((a) => a.getAttribute('href') === '/sub/page.md').click()`);
     check('点击文件导航', await waitFor('document.body.dataset.currentPath === "sub/page.md"', 5000));
     check('文件导航后导航收起', (await evaluate('document.documentElement.dataset.navOpen !== "1"')) === true);
+    check('新页面导航空闲预取', await waitFor('performance.getEntriesByType("resource").some((entry) => entry.name.endsWith("/_nav") && entry.responseEnd > 0)', 3000));
     await evaluate('document.getElementById("nav-toggle").click()');
+    check('新页面打开无加载中', (await evaluate('document.querySelector("#nav-panel .nav-status") === null')) === true);
     await waitFor('document.querySelectorAll("#nav-panel .nav-file").length > 0', 3000);
     check('当前路径自动展开', await waitFor('(() => { const row = [...document.querySelectorAll("#nav-panel .nav-dir > .nav-row")].find((b) => b.textContent.includes("sub")); return row?.getAttribute("aria-expanded") === "true" && document.querySelector("#nav-panel .nav-file.is-active")?.textContent === "page.md"; })()', 2000));
     await goto('/single.md');
@@ -466,7 +521,8 @@ async function main() {
     check('源码全文分块容器', (await evaluate('document.querySelectorAll(".source-chunked .source-chunk").length')) === 31);
     check('源码页只挂 source 岛', await waitFor('window.__mdviewIslands?.mounted.includes("source") && !window.__mdviewIslands.mounted.includes("toc")', 3000));
     check('源码末行在页面内', (await evaluate('document.querySelector(".source-chunked")?.textContent.includes("line 15000")')) === true);
-    check('源码全文提示', (await evaluate('document.querySelector(".source-note")?.textContent.includes("15001 行") && document.querySelector(".source-note")?.textContent.includes("全文已载入")')) === true);
+    check('源码全文提示', (await evaluate('document.querySelector(".source-note")?.textContent.includes("15001 行") && document.querySelector(".source-note")?.textContent.includes("已加载完整内容")')) === true);
+    check('源码提示无实现说明', (await evaluate('!document.querySelector(".source-note")?.textContent.includes("浏览器按可视区域")')) === true);
     check('源码分块按需绘制', (await evaluate('getComputedStyle(document.querySelector(".source-chunk")).contentVisibility')) === 'auto');
     check('源码分块加载 < 3000ms', Date.now() - chunkedStarted < 3000);
     await evaluate('window.scrollTo(0, document.body.scrollHeight)');
@@ -481,7 +537,7 @@ async function main() {
     check('大源码按块着色', await waitFor('document.querySelectorAll(".source-chunk code.hljs").length > 0', 3000));
     check('大源码着色有界', (await evaluate('document.querySelectorAll(".source-chunk code.hljs").length')) < 10);
     await goto('/huge-code.md');
-    check('超大代码块标记未高亮', await waitFor('document.querySelector(".code-block .lang")?.textContent.includes("未高亮")', 3000));
+    check('超大代码块标记未高亮', await waitFor('document.querySelector(".code-block .lang")?.textContent.includes("高亮已关闭")', 3000));
     check('超大代码块不着色', (await evaluate('document.querySelectorAll(".code-block code.hljs").length')) === 0);
     await goto('/page.md');
 
@@ -494,22 +550,84 @@ async function main() {
     check('搜索 Esc 关闭', await waitFor('document.getElementById("search-pop")?.hidden === true', 2000));
     await evaluate('document.getElementById("search-open").click()');
     check('搜索弹层打开', await waitFor('document.getElementById("search-pop")?.hidden === false', 2000));
-    await evaluate('(() => { document.getElementById("search-input").value = "Probe"; document.getElementById("search-form").requestSubmit(); })()');
-    check('搜索表单可提交', await waitFor('document.body.dataset.page === "search"', 5000));
+    const searchHints = await evaluate('Array.from(document.querySelectorAll(".search-hint .kbd")).map((node) => node.textContent)');
+    check('搜索键帽统一', searchHints.length === 2 && searchHints[0] === 'Enter' && searchHints[1] === 'Esc', JSON.stringify(searchHints));
+    await evaluate('document.getElementById("search-input").focus()');
+    await page.send('Input.insertText', { text: 'Probe' });
+    await page.send('Input.dispatchKeyEvent', {
+      type: 'keyDown', key: 'Enter', code: 'Enter', text: '\r', unmodifiedText: '\r',
+      windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13,
+    });
+    await page.send('Input.dispatchKeyEvent', {
+      type: 'keyUp', key: 'Enter', code: 'Enter',
+      windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13,
+    });
+    check('搜索 Enter 提交', await waitFor('document.body.dataset.page === "search"', 5000));
     check('搜索命中分组', (await evaluate('document.querySelectorAll(".result-group").length')) > 0);
     check('搜索词高亮', await waitFor('document.querySelectorAll(".hit-snippet mark").length > 0', 3000));
     check('搜索页有独立表单', (await evaluate('!!document.querySelector(".search-page-form input")')) === true);
     check('搜索页面包屑完整', await crumbsComplete('.search-head .crumbs', '搜索'));
+    check('搜索摘要用结果计数', (await evaluate(`(() => {
+      const text = document.querySelector('.search-head p')?.textContent || '';
+      return text.includes('条结果') && !text.includes('命中') && !text.includes('实时扫描');
+    })()`)) === true);
+    check('搜索无命中字样', (await evaluate('!document.body.innerText.includes("命中")')) === true);
+    check('搜索无文件名命中行', (await evaluate('!document.body.innerText.includes("文件名命中")')) === true);
+    const groupHref = await evaluate(`document.querySelector('.result-group .result-head')?.getAttribute('href')`);
+    check('文件标题整行链接', groupHref === '/page.md', groupHref);
+    check('搜索结果无源码行入口', (await evaluate('!document.body.innerText.includes("源码 Ln")')) === true);
+    check('搜索结果无打开文档', (await evaluate('!document.body.innerText.includes("打开文档")')) === true);
+    check('搜索页 H1 无下划线', (await evaluate('getComputedStyle(document.querySelector(".search-head h1")).borderBottomWidth')) === '0px');
+    const searchGeom = await evaluate(`(() => {
+      const card = document.querySelector('.content-card').getBoundingClientRect();
+      const title = document.querySelector('.search-head h1').getBoundingClientRect();
+      const form = document.querySelector('.search-page-form').getBoundingClientRect();
+      return { cardX: card.x, cardRight: card.right, titleX: title.x, formX: form.x, formRight: form.right };
+    })()`);
+    check('搜索页头铺满内容面', Math.round(searchGeom.titleX - searchGeom.cardX) <= 32, JSON.stringify(searchGeom));
+    check('搜索页头表单在右侧', searchGeom.formX > searchGeom.titleX && searchGeom.formRight >= searchGeom.cardRight - 40, JSON.stringify(searchGeom));
+    const docHit = await evaluate(`(() => {
+      const link = document.querySelector('.result-group .hit[href*="#L"]');
+      return link ? link.getAttribute('href') : null;
+    })()`);
+    check('Markdown 命中行是链接', /^\/page\.md#L\d+$/.test(docHit || ''), docHit);
+    await goto(`/search?q=${encodeURIComponent('末尾段落')}`);
+    const lateHit = await evaluate(`(() => {
+      const link = document.querySelector('.result-group .hit[href*="#L"]');
+      return link ? link.getAttribute('href') : null;
+    })()`);
+    check('Markdown 后段行链接', /^\/page\.md#L\d+$/.test(lateHit || ''), lateHit);
+    await goto(lateHit || '/page.md');
+    check('渲染页行定位高亮', await waitFor('!!document.querySelector(".line-target")', 2000));
+    check('渲染页滚动到命中行', (await evaluate('window.scrollY')) > 0);
+    await goto('/search?q=plain');
+    const textHit = await evaluate(`(() => {
+      const group = Array.from(document.querySelectorAll('.result-group')).find((node) => node.textContent.includes('plain.txt'));
+      const link = group?.querySelector('.hit[href*="#L"]');
+      return link ? { text: link.textContent, href: link.getAttribute('href') } : null;
+    })()`);
+    check('文本命中行可点击', /^\/plain\.txt#L\d+$/.test(textHit?.href || '') && !textHit?.text.includes('打开'), JSON.stringify(textHit));
     await page.send('Emulation.setDeviceMetricsOverride', { width: 800, height: 600, deviceScaleFactor: 1, mobile: false });
     await goto('/page.md');
     await evaluate('document.getElementById("search-open").click()');
     check('窄屏搜索直达搜索页', await waitFor('document.body.dataset.page === "search"', 5000));
+    check('窄屏搜索页头紧凑', (await evaluate(`(() => {
+      const title = document.querySelector('.search-head h1').getBoundingClientRect();
+      const form = document.querySelector('.search-page-form').getBoundingClientRect();
+      return form.top - title.bottom < 80;
+    })()`)) === true);
     await page.send('Emulation.setDeviceMetricsOverride', { width: 1200, height: 320, deviceScaleFactor: 1, mobile: false });
 
     console.log('== directory and raw pages ==');
     await goto('/sub/');
     check('目录页回到顶部按钮', (await evaluate('document.querySelectorAll(".totop").length')) === 1);
     check('目录页无分组标题', (await evaluate('!document.querySelector(".dir-section h2") && !!document.querySelector(".dir-list")')) === true);
+    check('目录页 H1 无下划线', (await evaluate('getComputedStyle(document.querySelector(".dir-head h1")).borderBottomWidth')) === '0px');
+    check('目录页头铺满内容面', (await evaluate(`(() => {
+      const card = document.querySelector('.content-card').getBoundingClientRect();
+      const title = document.querySelector('.dir-head h1').getBoundingClientRect();
+      return Math.round(title.x - card.x) <= 32 && getComputedStyle(document.querySelector('.dir-head .head-inner')).paddingLeft === '30px';
+    })()`)) === true);
     check('目录页面包屑完整', await crumbsComplete('.dir-head .crumbs', 'sub'));
     check('目录页可滚动', (await evaluate('document.documentElement.scrollHeight > innerHeight')) === true);
     await evaluate('window.scrollTo(0, 500)');
@@ -520,6 +638,17 @@ async function main() {
 
     await goto('/page.md?raw=1');
     check('源码页回到顶部按钮', (await evaluate('document.querySelectorAll(".totop").length')) === 1);
+    check('源码页标题文件名', (await evaluate('document.querySelector(".page-head h1")?.textContent')) === 'page.md');
+    check('源码页浏览器标题', (await evaluate('document.title')) === 'page.md · 源码 · mdview');
+    check('源码页类型标签', (await evaluate('document.querySelector(".source-kind")?.textContent.trim()')) === 'Markdown');
+    check('源码页信息标签', (await evaluate('(() => { const text = document.querySelector(".source-tags")?.textContent || ""; return text.includes("KB") && text.includes("行") && text.includes("更新于"); })()')) === true);
+    check('源码页预览按钮', (await evaluate('document.querySelector(".page-actions .action.primary")?.textContent.trim()')) === '预览');
+    check('源码页 H1 无下划线', (await evaluate('getComputedStyle(document.querySelector(".page-head h1")).borderBottomWidth')) === '0px');
+    check('源码页头铺满内容面', (await evaluate(`(() => {
+      const card = document.querySelector('.content-card').getBoundingClientRect();
+      const title = document.querySelector('.page-head h1').getBoundingClientRect();
+      return Math.round(title.x - card.x) <= 32 && getComputedStyle(document.querySelector('.page-head .head-inner')).paddingLeft === '30px';
+    })()`)) === true);
     check('源码页行锚点', (await evaluate('document.querySelector("#L1")?.textContent')) === '1');
     check('源码页原始内容', (await evaluate('document.querySelector(".source code").textContent')).startsWith('# Probe'));
     check('源码页面包屑完整', await crumbsComplete('.page-head .crumbs', 'page.md'));

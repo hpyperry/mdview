@@ -26,11 +26,32 @@ function apply(mode: ThemeMode, button: HTMLElement): void {
 export function mountTheme(): void {
   const button = document.getElementById('theme-toggle');
   if (!button) return;
-  apply(readMode(), button);
+  let status: HTMLElement | null = null;
+  let statusTimer = 0;
+  const host = button.parentElement;
+  if (host) {
+    status = document.createElement('span');
+    status.className = 'theme-status';
+    status.id = 'theme-status';
+    status.setAttribute('role', 'status');
+    status.setAttribute('aria-live', 'polite');
+    host.appendChild(status);
+  }
+
+  function announce(mode: ThemeMode): void {
+    if (!status) return;
+    status.textContent = `主题：${labels[mode]}`;
+    status.classList.add('is-visible');
+    window.clearTimeout(statusTimer);
+    statusTimer = window.setTimeout(() => status.classList.remove('is-visible'), 1200);
+  }
+
+  let mode = readMode();
+  apply(mode, button);
   button.addEventListener('click', () => {
-    const current = readMode();
-    const next = modes[(modes.indexOf(current) + 1) % modes.length];
-    savePref('mdview-theme', next);
-    apply(next, button);
+    mode = modes[(modes.indexOf(mode) + 1) % modes.length];
+    savePref('mdview-theme', mode);
+    apply(mode, button);
+    announce(mode);
   });
 }

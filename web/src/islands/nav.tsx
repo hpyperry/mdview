@@ -26,6 +26,11 @@ interface NavProps {
 
 const EXPANDED_KEY = 'mdview-nav-expanded';
 
+type IdleWindow = Window & {
+  requestIdleCallback?: (callback: () => void, options?: { timeout?: number }) => number;
+  cancelIdleCallback?: (id: number) => void;
+};
+
 function readExpanded(currentPath: string, currentIsDir: boolean): Set<string> {
   const expanded = new Set<string>();
   try {
@@ -154,11 +159,32 @@ function NavApp({ panel, toggle, rootName, currentPath, currentIsDir }: NavProps
       setExpanded(readExpanded(currentPath, currentIsDir));
       loadedRef.current = true;
     } catch {
-      setError('无法加载导航');
+      setError('导航加载失败');
     } finally {
       setLoading(false);
     }
   }
+
+  useEffect(() => {
+    // 整页导航会重建岛，所以每次页面加载都空闲预取一次。
+    let cancelled = false;
+    const idle = window as IdleWindow;
+    const run = (): void => {
+      if (!cancelled) void load();
+    };
+    if (idle.requestIdleCallback) {
+      const id = idle.requestIdleCallback(run, { timeout: 1500 });
+      return () => {
+        cancelled = true;
+        idle.cancelIdleCallback?.(id);
+      };
+    }
+    const id = window.setTimeout(run, 200);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(id);
+    };
+  }, []);
 
   useEffect(() => {
     function onToggle(event: Event): void {
@@ -242,7 +268,7 @@ function NavApp({ panel, toggle, rootName, currentPath, currentIsDir }: NavProps
           <button class="nav-retry" type="button" onClick={retry}>重试</button>
         </div>
       ) : null}
-      {payload ? (
+      {payload && open ? (
         <div class="nav-tree" role="tree">
           {payload.tree.map((node) => (
             <TreeNode

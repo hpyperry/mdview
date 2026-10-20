@@ -141,7 +141,10 @@ HOME_HTML="$(curl -s "$BASE/")"
 chk "目录索引 200" "$(code "$BASE/")" "200"
 chk "目录列出 a.md" "$HOME_HTML" "a.md"
 chk "目录有搜索入口" "$HOME_HTML" 'class="search-wrap"'
-chk "目录显示文件大小" "$HOME_HTML" ' B · '
+chk "目录显示文件大小" "$HOME_HTML" '<1 KB · '
+nchk "目录不显示字节单位" "$HOME_HTML" ' B · '
+chk "目录统计用项目" "$HOME_HTML" '个项目'
+nchk "目录无只读文档库" "$HOME_HTML" '只读文档库'
 chk "文件带下载入口" "$HOME_HTML" 'a.md?download=1'
 nchk "目录不带下载入口" "$HOME_HTML" 'sub/?download=1'
 ROOT_FILES="$(find "$ROOT" -maxdepth 1 -mindepth 1 -type f | wc -l | tr -d ' ')"
@@ -170,6 +173,11 @@ chk "中文目录 301" "$(code "$BASE$CJK_DIR")" "301"
 chk "中文目录跟随后 200" "$(curl -sL -o /dev/null -w '%{http_code}' "$BASE$CJK_DIR")" "200"
 
 SRC="$(curl -s "$BASE/b.txt")"
+chk "源码页标题文件名" "$SRC" '<h1>b.txt</h1>'
+chk "源码页类型标签" "$SRC" '>文本<'
+chk "源码页大小标签" "$SRC" '<1 KB'
+chk "源码页行数标签" "$SRC" '3 行'
+chk "源码页修改时间标签" "$SRC" '更新于 '
 chk "源码页行锚点" "$SRC" 'id="L1"'
 chk "源码页内容" "$SRC" "hello"
 chk "源码页下载入口" "$SRC" "?download=1"
@@ -178,7 +186,8 @@ nchk "源码页不挂 TOC 岛" "$SRC" ' totop toc'
 
 BIG="$(curl -s "$BASE/big.txt")"
 chk "大源码分块" "$BIG" 'class="source-wrap source-chunked"'
-chk "大源码全文提示" "$BIG" '全文已载入'
+chk "大源码全文提示" "$BIG" '已加载完整内容'
+nchk "大源码无实现说明" "$BIG" '浏览器按可视区域'
 chk "大源码末行" "$BIG" "last line marker"
 chk "大源码总行数" "$BIG" 'data-source-lines="12000"'
 chk_num "大源码分块数" "$(count "$BIG" 'class="source-chunk"')" "24"
@@ -186,10 +195,11 @@ nchk "大源码不截断" "$BIG" '前 1000 行'
 nchk "大源码无 text 通道" "$BIG" '?text=1'
 
 RENDER="$(curl -s "$BASE/a.md")"
-chk "文档岛清单" "$RENDER" 'data-islands="theme nav search totop toc code zoom"'
+chk "文档岛清单" "$RENDER" 'data-islands="theme nav search totop toc linetarget code zoom"'
 nchk "文档不挂 source 岛" "$RENDER" ' source"'
-chk "Markdown 标题" "$RENDER" "<h1>Hello</h1>"
-chk "Markdown 粗体" "$RENDER" "<strong>bold</strong>"
+chk "渲染页行定位数据" "$RENDER" 'data-sourcepos='
+chk "Markdown 标题" "$RENDER" ">Hello</h1>"
+chk "Markdown 粗体" "$RENDER" ">bold</strong>"
 chk "Markdown 删除线" "$RENDER" "<s>del</s>"
 chk "任务列表字面量" "$RENDER" "[x] task"
 chk "裸 HTML 透传" "$RENDER" '<div id="raw">raw</div>'
@@ -201,7 +211,7 @@ RAW="$(curl -s "$BASE/a.md?raw=1")"
 chk "raw 原文" "$RAW" "# Hello"
 nchk "raw 不渲染" "$RAW" "<strong>bold</strong>"
 chk "raw 行锚点" "$RAW" 'id="L1"'
-chk "raw 回渲染链接" "$RAW" '查看渲染页'
+chk "raw 回渲染链接" "$RAW" '预览'
 chk "raw 下载入口" "$RAW" "?download=1"
 LINE5_SRC="$(sed -n '5p' "$ROOT/a.md")"
 chk "raw 第 5 行内容一致" "$RAW" "$LINE5_SRC"
@@ -224,10 +234,18 @@ chk "导航 JSON" "$NAVJSON" '"type":"dir"'
 chk "导航含文件" "$NAVJSON" '"name":"a.md"'
 nchk "导航跳过隐藏目录" "$NAVJSON" '".hidden"'
 chk "CSP connect-src" "$(header "$BASE/a.md" content-security-policy)" "connect-src 'self'"
-chk "搜索正文命中" "$SEARCH" "result-group"
+chk "搜索正文结果" "$SEARCH" "result-group"
+chk "搜索摘要用结果" "$SEARCH" '条结果'
+nchk "搜索无命中字样" "$SEARCH" '命中'
+nchk "搜索无扫描耗时" "$SEARCH" '实时扫描'
+chk "搜索结果条目可点击" "$SEARCH" 'class="hit" href='
+chk "Markdown 命中跳渲染行" "$SEARCH" 'href="/search.md#L1"'
+chk "搜索文本命中跳行" "$(curl -s "$BASE/search?q=hello")" 'href="/b.txt#L1"'
+nchk "搜索不再出现源码 Ln" "$SEARCH" "源码 Ln"
+nchk "搜索不再出现打开文档" "$SEARCH" '打开文档'
 chk "搜索文件名命中" "$SEARCH" "search.md"
 chk "搜索大小写不敏感" "$(curl -s "$BASE/search?q=CASENEEDLE")" "CaseNeedle.md"
-chk "搜索文件名命中标记" "$(curl -s "$BASE/search?q=CaseNeedle")" "文件名命中"
+chk "搜索文件标题可点击" "$(curl -s "$BASE/search?q=CaseNeedle")" 'class="result-head" href="/CaseNeedle.md"'
 chk "搜索中文查询" "$(curl -s "$BASE/search?q=%E5%85%B3%E9%94%AE%E8%AF%8D")" "关键词.md"
 HIDDEN_SEARCH="$(curl -s "$BASE/search?q=HIDDENNEEDLE")"
 nchk "搜索跳过隐藏目录" "$HIDDEN_SEARCH" ".hidden/h.md"
@@ -261,6 +279,10 @@ chk "含 # 文件可取" "$(code "$BASE/a%23b.md")" "200"
 chk "尖括号目录链接可取" "$(code "$BASE/my%20dir/a.md")" "200"
 
 chk "404" "$(code "$BASE/nope")" "404"
+ERR="$(curl -s "$BASE/nope")"
+chk "404 页面文案" "$ERR" "页面不存在"
+chk "404 文件文案" "$ERR" "这个文件不存在，或已被移动"
+chk "404 返回首页" "$ERR" "返回首页"
 TRAVERSAL_CODE="$(code "$BASE/..%2F..%2Fetc%2Fpasswd")"
 if [ "$TRAVERSAL_CODE" = "403" ] || [ "$TRAVERSAL_CODE" = "404" ]; then ok "路径穿越拒绝"; else bad "路径穿越拒绝 ($TRAVERSAL_CODE)"; fi
 
@@ -337,13 +359,14 @@ wait_http "$UNTRUST_PORT" || { echo "untrusted server failed"; exit 2; }
 UNTRUST="http://127.0.0.1:$UNTRUST_PORT"
 PAGE="$(curl -s "$UNTRUST/a.md")"
 chk "未信任拦截面" "$PAGE" "仍要打开"
+chk "Trust 页面文案" "$PAGE" "此目录尚未受信任"
 TOKEN="$(printf '%s' "$PAGE" | grep -oE 'open=[a-f0-9]+' | head -1 | cut -d= -f2)"
 [ -n "$TOKEN" ] || { echo "no token"; exit 2; }
 OPENED="$(curl -s "$UNTRUST/a.md?open=$TOKEN")"
-chk "一次性令牌打开" "$OPENED" "<h1>Hello</h1>"
+chk "一次性令牌打开" "$OPENED" ">Hello</h1>"
 REUSED="$(curl -s "$UNTRUST/a.md?open=$TOKEN")"
 chk "令牌复用再次拦截" "$REUSED" "仍要打开"
-chk "raw 绕过拦截" "$(curl -s "$UNTRUST/a.md?raw=1")" "<h1>源码</h1>"
+chk "raw 绕过拦截" "$(curl -s "$UNTRUST/a.md?raw=1")" "<h1>a.md</h1>"
 chk "download 绕过拦截" "$(curl -s "$UNTRUST/a.md?download=1")" "# Hello"
 
 echo "== filesystem edge cases =="

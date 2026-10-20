@@ -4,6 +4,7 @@ import { mountNav } from './islands/nav';
 import { mountSearch } from './islands/search';
 import { mountBackToTop } from './islands/totop';
 import { mountToc } from './islands/toc';
+import { mountLineTarget } from './islands/linetarget';
 import { mountMarkdownCode } from './islands/code';
 import { mountZoom } from './islands/zoom';
 import { mountSource } from './islands/source';
@@ -38,6 +39,12 @@ export const islands: Record<string, IslandDefinition> = {
     when: 'immediate',
     root: () => document.getElementById('toc-rail'),
     mount: mountToc,
+  },
+  linetarget: {
+    name: 'linetarget',
+    when: 'immediate',
+    root: () => document.querySelector('.markdown-body'),
+    mount: mountLineTarget,
   },
   code: {
     name: 'code',
