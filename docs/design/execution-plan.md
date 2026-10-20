@@ -159,15 +159,15 @@ P2 的 URL/安全/表格对齐层；P1 可以先落骨架，P3 的资产准备�
 
 - [x] **P3-1 VS Code CSS**：`markdown.css` / `highlight.css` 已 vendored；
       `--vscode-*` 变量映射到明暗变量；正文排版由 VS Code CSS 接管；
-      `prefers-color-scheme` 由 `mdview.js` 切换。
+      `prefers-color-scheme` 由主题岛切换。
 - [x] **P3-2 highlight.js**：完整语言集浏览器 bundle（1.0 MB）；构建脚本
       `tools/build-assets/`；语言映射常用项已接；产物入库。
 - [x] **P3-3 资产嵌入**：`include_bytes!`/`include_str!`；`/_assets/…?v=<内容哈希>`
       + `immutable` 缓存；CSP nonce 集成；无外部请求。
 - [x] **P3-4 源码查看页**：服务端行号 gutter + `id="L<n>"`；语言映射；highlight.js；
       无 JS 降级为纯文本；下载/复制/回顶/面包屑；`--max-preview` 超限下载。
-- [x] **P3-5 `mdview.js`**：highlight 初始化、复制按钮、图片放大 `<dialog>`、
-      回到顶部；无 JS 时不出现死按钮；修饰键不劫持、Esc/背景关闭、焦点归还。
+- [x] **P3-5 岛屿交互**：`web/src/islands/` 负责 highlight、复制、图片放大、回顶；
+      无 JS 时不出现死按钮；修饰键不劫持、Esc/背景关闭、焦点归还。
 - [x] **P3-6 文档站 chrome**：顶部栏、可折叠 sticky 侧栏、面包屑、主题三态；
       Markdown 页 ≥1360px 为 232/1fr/24 TOC 细轨，内容面最大 1240、阅读行 1000；
       代码语言条、分组搜索页与错误/Trust 页统一（ADR 0008/0009/0010）。

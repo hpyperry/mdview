@@ -11,7 +11,7 @@ cargo build --release
 # 打开 http://127.0.0.1:8000/
 ```
 
-产物是单个二进制（macOS arm64 约 **3.3 MB**，内嵌 CSS、highlight.js 与客户端脚本）。
+产物是单个二进制（macOS arm64 约 **3.4 MB**，内嵌 CSS、highlight.js 与岛屿前端）。
 **运行时**不需要 Python、Node 或任何动态资源；**从源码构建**需要 Node 22 +
 `web/` 的 npm 依赖，`build.rs` 会在编译时生成并嵌入 `app.js`/`app.css`。
 跨平台 musl 构建可先执行 `npm --prefix web run build:web`，再用

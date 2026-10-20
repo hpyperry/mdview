@@ -7,7 +7,10 @@ mdview 的源码是自有代码；交付二进制嵌入了以下第三方资产/
 - **highlight.js 11.11.1** — BSD-3-Clause
   - 文件：`assets/highlight.min.js`（完整语言集，经 esbuild 打包压缩）
   - 上游：https://github.com/highlightjs/highlight.js
-  - 构建工具 esbuild 0.25 — MIT（仅构建期，不嵌入产物）
+- **Preact 10.29.8** — MIT
+  - 文件：`web/src/islands/*` 经 esbuild 打包进 `app.js`
+  - 上游：https://github.com/preactjs/preact
+- 构建期依赖：esbuild 0.25 — MIT；TypeScript 5.9 — Apache-2.0（均不嵌入产物）
 - **VS Code 1.142.0 `markdown-language-features/media/highlight.css`** — MIT
   - 文件：`assets/highlight.css`
   - 其中 vs / vs2015 配色来自 highlight.js（BSD-3-Clause）

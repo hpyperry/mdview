@@ -38,7 +38,8 @@ hydration。无 JS 时正文、行号、搜索页仍可读，TOC/工具条/放�
   并 `include_bytes!`/`include_str!` 进二进制；
 - `npm ci` 是开发/CI 的一次性准备步骤，不在 build.rs 里联网安装；
 - musl cross 构建先在 host 执行 `npm run build:web`，再用
-  `MDVIEW_WEB_PREBUILT=web/dist` 复用产物，避免容器内没有 Node。
+  `MDVIEW_WEB_PREBUILT=web/dist` 复用产物，避免容器内没有 Node；
+  `Cross.toml` 负责把这个环境变量透传进 cross 容器。
 
 ### 4. CSS 归属
 

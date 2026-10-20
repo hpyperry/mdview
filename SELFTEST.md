@@ -11,7 +11,7 @@
 | 分支 | `refactor/new-md-view-server` |
 | 平台 | macOS 27.0.0 arm64 |
 | Rust | 1.96（edition 2024，`rust-version = 1.89`） |
-| 产物 | `target/release/mdview`，约 **3.3 MB**（LTO + strip，内嵌 highlight.js） |
+| 产物 | `target/release/mdview`，约 **3.4 MB**（LTO + strip，内嵌 highlight.js 与岛屿前端） |
 
 ## 自动化结果
 
@@ -87,21 +87,20 @@ P0 差分报告：1035 条计分语料 **1015 条精确匹配（98.07%）**，0 
 
 ## CI（GitHub Actions）
 
-- 最近一次完整绿色：`CI · 39412377387`（2026-10-20，`ece9137`），8/8 job
-  成功；macOS/Ubuntu/Windows 测试与 4 目标构建全绿。
-- 上一跑 `39411626690`（`cabc680`）macOS 浏览器验收失败 5 项：headless 页面
-  被视为后台后 rAF/滚动回调被节流，scroll-spy、懒锚点、懒高亮没有更新，
-  焦点也未落到页面。修复为：源码懒增强改由 `scroll` + `setTimeout` 驱动；
-  探针加 `Page.bringToFront`、焦点模拟、禁用后台节流；TOC 测试用
-  `scrollIntoView` + 显式 `resize` 触发同步 spy。
+- 最近一次完整绿色：`CI · 39423447824`（2026-10-20，`0fd5478`），8/8 job
+  成功；macOS/Ubuntu/Windows 测试、Node 类型检查、4 目标构建全绿。
+- 岛屿架构首跑 `39421064321` 暴露两个 CI 问题：Linux Chrome 因新增的
+  headless 启动参数没有在 15s 内暴露 DevTools；musl 的 cross 容器默认不传递
+  `MDVIEW_WEB_PREBUILT`，导致 build.rs 在容器内找 npm。修复为移除多余启动
+  参数、DevTools 超时 30s，并加 `Cross.toml` 透传预构建路径。
 - 更早的 `39285530389` 曾受 GitHub Actions `degraded_performance` 影响，
   8 个 job 长时间 queued；那是平台事件，不是代码失败。
-- 测试矩阵覆盖：`cargo test`、黑盒 117、TTY 9、浏览器 76、源码页性能 4；
+- 测试矩阵覆盖：`cargo test`、黑盒 125、TTY 9、浏览器 85、源码页性能 4；
   Windows 跳过 pty/浏览器/性能，其余全跑。
 - artifact 冒烟：macOS arm64、Linux x86_64 musl、Windows x86_64 通过；
   Linux arm64 musl 只构建（x86 runner 无法执行 arm64）。
-- 4 个 artifact 大小：macOS 2.85 MB、Windows 3.31 MB、Linux x64 3.34 MB、
-  Linux arm64 3.05 MB。
+- 4 个 artifact 大小：macOS 2.8 MB、Windows 3.3 MB、Linux x64 3.3 MB、
+  Linux arm64 3.0 MB。
 - tag `v*` 触发的 `release.yml`（SHA256SUMS + GitHub Release）尚未实跑。
 
 ## 尚未验证 / 待办
