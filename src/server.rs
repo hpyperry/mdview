@@ -591,9 +591,11 @@ async fn list_dir(state: &AppState, path: &Path, rel: &str, is_head: bool) -> Re
     } else {
         rel.rsplit('/').next().unwrap_or(rel).to_string()
     };
+    let crumbs = page_crumbs(state, rel, PageKind::Dir);
     let body = format!(
-        "<div class=\"content-card\"><div class=\"dir-head\"><h1>{}</h1>\
-         <p>{} 个条目 · 只读文档库</p></div>{}</div>",
+        "<div class=\"content-card\"><div class=\"dir-head\"><div class=\"content-inner\">\
+         <nav class=\"crumbs\" aria-label=\"面包屑\">{crumbs}</nav>\
+         <h1>{}</h1><p>{} 个条目 · 只读文档库</p></div></div>{}</div>",
         escape_html(&dir_name),
         entries.len(),
         sections
@@ -644,7 +646,8 @@ async fn search(
             .unwrap_or_default()
     };
     let elapsed = started.elapsed();
-    let body = render_search(&q, &results, elapsed);
+    let crumbs = page_crumbs(&state, "", PageKind::Search);
+    let body = render_search(&q, &results, elapsed, &crumbs);
     html_page(
         &state,
         StatusCode::OK,
@@ -729,23 +732,28 @@ fn search_page_form(q: &str) -> String {
     )
 }
 
-fn render_search(q: &str, results: &SearchResults, elapsed: Duration) -> String {
+fn render_search(q: &str, results: &SearchResults, elapsed: Duration, crumbs: &str) -> String {
     if q.is_empty() {
         return format!(
-            "<div class=\"content-card\"><div class=\"search-head\"><h1>搜索</h1>\
-             <p>搜索文件名与正文，覆盖 Markdown 与文本源码；大小写不敏感。</p>{form}</div>\
-             <div class=\"page-body\"><div class=\"empty-state\">{}<div>在上方输入关键词开始搜索。</div></div></div></div>",
+            "<div class=\"content-card\"><div class=\"search-head\"><div class=\"content-inner\">\
+             <nav class=\"crumbs\" aria-label=\"面包屑\">{crumbs}</nav>\
+             <h1>搜索</h1><p>搜索文件名与正文，覆盖 Markdown 与文本源码；大小写不敏感。</p>{form}\
+             </div></div><div class=\"page-body\"><div class=\"empty-state\">{}<div>在上方输入关键词开始搜索。</div></div></div></div>",
             icon("search"),
+            crumbs = crumbs,
             form = search_page_form("")
         );
     }
     let mut body = format!(
-        "<div class=\"content-card\"><div class=\"search-head\"><h1>搜索 “{}”</h1>\
-         <p>{} 个文件 · {} 条命中 · 实时扫描 {} ms</p>{form}</div><div class=\"page-body\">",
+        "<div class=\"content-card\"><div class=\"search-head\"><div class=\"content-inner\">\
+         <nav class=\"crumbs\" aria-label=\"面包屑\">{crumbs}</nav>\
+         <h1>搜索 “{}”</h1><p>{} 个文件 · {} 条命中 · 实时扫描 {} ms</p>{form}\
+         </div></div><div class=\"page-body\">",
         escape_html(q),
         results.files,
         results.hits,
         elapsed.as_millis(),
+        crumbs = crumbs,
         form = search_page_form(q)
     );
     if results.groups.is_empty() {
@@ -1053,12 +1061,15 @@ async fn source_page(
             code = code
         )
     };
+    let crumbs = page_crumbs(state, rel, PageKind::Source);
     let body = format!(
         "<div class=\"content-card\"><div class=\"page-head\"><div class=\"grow\">\
+         <nav class=\"crumbs\" aria-label=\"面包屑\">{crumbs}</nav>\
          <h1>源码</h1><p>{rel} · {kind} · {size}</p></div>\
          <div class=\"page-actions\">{render_link}\
          <a class=\"action\" href=\"{download}\" aria-label=\"下载\">{download_icon}<span>下载</span></a>\
          </div></div>{source_markup}</div>",
+        crumbs = crumbs,
         rel = escape_html(rel),
         kind = escape_html(&source_type_label(info)),
         size = format_size(size as u64),
@@ -1125,12 +1136,7 @@ async fn render_page(state: &AppState, path: &Path, rel: &str, is_head: bool) ->
         .unwrap_or("Markdown");
     let encoded = encode_path(rel);
     let meta = format!("Markdown · {} · {}", format_size(size), format_mtime(mtime));
-    let crumbs = crumbs_html(rel, PageKind::Doc);
-    let crumbs = if crumbs.is_empty() {
-        String::new()
-    } else {
-        format!("{}{crumbs}", icon("folder"))
-    };
+    let crumbs = page_crumbs(state, rel, PageKind::Doc);
     let body = format!(
         "<article class=\"content-card doc-card\"><header class=\"doc-head\"><div class=\"content-inner\">\
          <nav class=\"crumbs\" aria-label=\"面包屑\">{crumbs}</nav>\
@@ -1403,6 +1409,16 @@ fn crumbs_html(rel: &str, kind: PageKind) -> String {
         }
     }
     html
+}
+
+fn page_crumbs(state: &AppState, rel: &str, kind: PageKind) -> String {
+    let root = format!("<a href=\"/\">{}</a>", escape_html(&root_name(state)));
+    let tail = crumbs_html(rel, kind);
+    if tail.is_empty() {
+        format!("{}{root}", icon("folder"))
+    } else {
+        format!("{}{root}{}{tail}", icon("folder"), icon("chevron"))
+    }
 }
 
 fn topbar_search(query: &str) -> String {

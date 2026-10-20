@@ -270,6 +270,12 @@ async function main() {
       }
       return result.result.value;
     };
+    const crumbsComplete = (selector, needle) => evaluate(`(() => {
+      const crumbs = document.querySelector(${JSON.stringify(selector)});
+      if (!crumbs) return false;
+      const root = Array.from(crumbs.querySelectorAll('a')).find((a) => a.getAttribute('href') === '/');
+      return Boolean(root) && crumbs.textContent.includes(${JSON.stringify(needle)});
+    })()`);
     const goto = async (path) => {
       requests.length = 0;
       await page.send('Page.navigate', { url: `${base}${path}` });
@@ -292,6 +298,7 @@ async function main() {
     console.log('== preview page ==');
     await goto('/page.md');
     check('标题渲染', (await evaluate('document.querySelector("article.markdown-body h1").textContent')) === 'Probe');
+    check('文档面包屑完整', await crumbsComplete('.doc-head .crumbs', 'page.md'));
     check('文档岛已按需水合', await waitFor('["toc", "code", "zoom"].every((name) => window.__mdviewIslands?.mounted.includes(name))', 3000));
     check('代码块数量', (await evaluate('document.querySelectorAll("pre code").length')) === 2);
     check('highlight.js 着色', await waitFor('document.querySelectorAll("pre code.hljs span").length > 0', 3000));
@@ -429,11 +436,13 @@ async function main() {
     check('搜索命中分组', (await evaluate('document.querySelectorAll(".result-group").length')) > 0);
     check('搜索词高亮', await waitFor('document.querySelectorAll(".hit-snippet mark").length > 0', 3000));
     check('搜索页有独立表单', (await evaluate('!!document.querySelector(".search-page-form input")')) === true);
+    check('搜索页面包屑完整', await crumbsComplete('.search-head .crumbs', '搜索'));
 
     console.log('== directory and raw pages ==');
     await goto('/sub/');
     check('目录页回到顶部按钮', (await evaluate('document.querySelectorAll(".totop").length')) === 1);
     check('目录页上级链接', (await evaluate('document.querySelector(".side-parent")?.getAttribute("href")')) === '/');
+    check('目录页面包屑完整', await crumbsComplete('.dir-head .crumbs', 'sub'));
     check('目录页可滚动', (await evaluate('document.documentElement.scrollHeight > innerHeight')) === true);
     await evaluate('window.scrollTo(0, 500)');
     await sleep(100);
@@ -445,6 +454,7 @@ async function main() {
     check('源码页回到顶部按钮', (await evaluate('document.querySelectorAll(".totop").length')) === 1);
     check('源码页行锚点', (await evaluate('document.querySelector("#L1")?.textContent')) === '1');
     check('源码页原始内容', (await evaluate('document.querySelector(".source code").textContent')).startsWith('# Probe'));
+    check('源码页面包屑完整', await crumbsComplete('.page-head .crumbs', 'page.md'));
 
     console.log('== no-JS baseline ==');
     await page.send('Emulation.setScriptExecutionDisabled', { value: true });

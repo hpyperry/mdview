@@ -534,15 +534,25 @@ html[data-sidebar="collapsed"] .sidebar { display: none; }
   background: linear-gradient(180deg, color-mix(in srgb, var(--accent-soft) 38%, transparent), transparent);
 }
 .doc-head .content-inner { padding-top: 0; padding-bottom: 0; }
-.doc-head .crumbs {
+.crumbs {
   display: flex;
+  align-items: center;
   flex-wrap: wrap;
-  margin-bottom: 12px;
+  gap: 5px;
+  margin: 0 0 10px;
   color: var(--muted);
   font-size: 12px;
+  line-height: 1.4;
+  white-space: normal;
+  overflow: visible;
 }
-.doc-head .crumbs a { color: var(--muted); }
-.doc-head .crumbs .current { color: var(--fg); font-weight: 550; }
+.crumbs a { color: var(--muted); }
+.crumbs a:hover { color: var(--accent); }
+.crumbs .current { color: var(--fg); font-weight: 550; }
+.crumbs .icon { width: 13px; height: 13px; opacity: .68; }
+.doc-head .crumbs { margin-bottom: 12px; }
+.dir-head .content-inner, .search-head .content-inner { padding: 0; }
+.dir-head .crumbs, .search-head .crumbs, .page-head .crumbs { margin-bottom: 10px; }
 .article-toolbar {
   display: flex;
   align-items: center;

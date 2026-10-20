@@ -22,7 +22,7 @@ bash tests/selftest-rust.sh
 `npm --prefix web run build:web` + `MDVIEW_WEB_PREBUILT=web/dist`。
 
 必须全绿：`cargo test`（46 单元 + 134 渲染兼容 + 27 golden）、125 项黑盒 HTTP、
-9 项 pty 信任测试、85 项 headless Chrome 验收、4 项源码页性能预算。
+9 项 pty 信任测试、89 项 headless Chrome 验收、4 项源码页性能预算。
 
 ## 规格来源
 
