@@ -83,13 +83,15 @@ P0 差分报告：1035 条计分语料 **1015 条精确匹配（98.07%）**，0 
 
 ## CI（GitHub Actions）
 
-- 最近一次完整绿色：`CI · 39274836191`（2026-10-19，UI 三列改造前）。
-- `39287448345`（`4abb2fe`）macOS 的浏览器验收仍有两项失败：TOC
-  scroll-spy 在固定滚动偏移下偶发选不中 Section B；虚拟源码滚动到末行依赖
-  300ms 固定等待。现已改为 `scrollIntoView` + `waitFor` 的确定性定位，并把
-  源码页改为服务端全文分块（末行不再依赖客户端窗口渲染），本地连跑 3 次 76/76。
-- `b9f5766` 的 run `39285530389` 受 GitHub Actions `degraded_performance`
-  影响，8 个 job 长时间 queued；这是平台事件，不是代码失败。
+- 最近一次完整绿色：`CI · 39412377387`（2026-10-20，`ece9137`），8/8 job
+  成功；macOS/Ubuntu/Windows 测试与 4 目标构建全绿。
+- 上一跑 `39411626690`（`cabc680`）macOS 浏览器验收失败 5 项：headless 页面
+  被视为后台后 rAF/滚动回调被节流，scroll-spy、懒锚点、懒高亮没有更新，
+  焦点也未落到页面。修复为：源码懒增强改由 `scroll` + `setTimeout` 驱动；
+  探针加 `Page.bringToFront`、焦点模拟、禁用后台节流；TOC 测试用
+  `scrollIntoView` + 显式 `resize` 触发同步 spy。
+- 更早的 `39285530389` 曾受 GitHub Actions `degraded_performance` 影响，
+  8 个 job 长时间 queued；那是平台事件，不是代码失败。
 - 测试矩阵覆盖：`cargo test`、黑盒 117、TTY 9、浏览器 76、源码页性能 4；
   Windows 跳过 pty/浏览器/性能，其余全跑。
 - artifact 冒烟：macOS arm64、Linux x86_64 musl、Windows x86_64 通过；
