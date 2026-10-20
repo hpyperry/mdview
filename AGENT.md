@@ -15,8 +15,8 @@ cargo clippy --all-targets -- -D warnings
 bash tests/selftest-rust.sh
 ```
 
-必须全绿：`cargo test`（46 单元 + 134 渲染兼容 + 27 golden）、110 项黑盒 HTTP、
-9 项 pty 信任测试、67 项 headless Chrome 验收、4 项源码页性能预算。
+必须全绿：`cargo test`（46 单元 + 134 渲染兼容 + 27 golden）、117 项黑盒 HTTP、
+9 项 pty 信任测试、76 项 headless Chrome 验收、4 项源码页性能预算。
 
 ## 规格来源
 
@@ -41,7 +41,7 @@ bash tests/selftest-rust.sh
 | `src/main.rs` / `src/lib.rs` | 二进制入口；`lib.rs` 暴露模块给集成测试 |
 | `src/cli.rs` | clap 参数与大小解析 |
 | `src/trust.rs` | Trust 配置读写、flag/存储/询问优先级 |
-| `src/server.rs` | axum 路由、目录索引、源码页/虚拟源码、搜索、下载、CSP、token、缓存 |
+| `src/server.rs` | axum 路由、目录索引、源码页/大源码分块、搜索、下载、CSP、token、缓存 |
 | `src/render.rs` | comrak 配置 + 自定义 formatter（链接/图片/表格/删除线）+ URL 重写 |
 | `src/assets.rs` | 内嵌 CSS/JS 常量与页面骨架 |
 | `assets/` | VS Code CSS、highlight.js bundle、客户端 JS |
@@ -74,9 +74,10 @@ bash tests/selftest-rust.sh
    注意不要拼出 `//` 或把 `/sub/` 的上级算成 `/sub/`。
 7. **搜索范围**：文件名覆盖所有文件；正文只扫 Markdown/文本，跳过隐藏目录、
    `SKIP_DIRS` 与超 `--max-preview` 的文件；结果按文件分组。
-8. **大文本源码页虚拟化**：>256 KB 时服务端只渲染前 1000 行，浏览器通过
-   `?text=1` 取全文、按 21px 行高只渲染可见窗口；不要恢复 highlightAuto；
-   `?text=1` 只对 Markdown/文本生效，CSP 需保留 `connect-src 'self'`。
+8. **大文本源码页全文分块**：>256 KB 仍由服务端输出全文，按 500 行分块，
+   用 CSS `content-visibility: auto` 跳过离屏布局与绘制；行锚点与语法高亮由
+   `assets/mdview.js` 按可见块懒加载。不要恢复服务端截断、`?text=1` 文本通道、
+   `connect-src` 或 highlightAuto；无 JS 必须仍能读全文。
 9. 文档与提交信息用中文，提交前缀 `feat:` / `fix:` / `docs:` / `refactor:` /
    `style:` / `test:`。
 
@@ -90,7 +91,7 @@ bash tests/selftest-rust.sh
 | 新路由/页面 | `src/server.rs` 的 `app`/`handle` 与 `Page` 外壳 |
 | 搜索范围/结果 | `search_files` / `render_search`；正文只扫文本文件 |
 | 顶部栏/侧栏/页面 chrome/三列 | `html_page`、`sidebar_html`、`crumbs_html` |
-| TOC/代码条/主题/侧栏/虚拟源码交互 | `assets/mdview.js` |
+| TOC/代码条/主题/侧栏/大源码分块交互 | `assets/mdview.js` |
 | CSP/安全级别 | `csp_header` + `csp_levels` 测试 |
 | Trust 配置 | `src/trust.rs` + 配置往返测试 |
 | 页面样式 | `src/assets.rs` 的 `SERVER_CSS`，VS Code 样式在 `assets/*.css` |

@@ -250,7 +250,7 @@ html[data-sidebar="collapsed"] .sidebar { padding: 0; border: 0; overflow: hidde
 .toc-toggle { display: none; }
 .toc-toggle[hidden] { display: none; }
 .markdown-body h2, .markdown-body h3 { scroll-margin-top: 74px; }
-.source .gutter a[id] { scroll-margin-top: 74px; }
+.source .gutter a[id], .source-chunk .gutter a[id] { scroll-margin-top: 74px; }
 @media (min-width: 1360px) {
   .shell.has-toc { grid-template-columns: var(--nav-width) minmax(0,1fr) var(--toc-width); }
   html[data-sidebar="collapsed"] .shell.has-toc { grid-template-columns: 0 minmax(0,1fr) var(--toc-width); }
@@ -291,40 +291,44 @@ html[data-sidebar="collapsed"] .sidebar { padding: 0; border: 0; overflow: hidde
 .source .code { margin: 0; padding: 14px 16px; overflow-x: auto; background: transparent; border: 0; border-radius: 0; }
 .source .code code { display: block; background: none; border: 0; padding: 0; color: var(--fg); font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; font-size: 13px; line-height: 1.65; white-space: pre; }
 .source-line:target, .source .gutter a:target { background: var(--mark); }
-.source-virtual { margin: 0; }
-.source-virtual .vs-scroll {
-  height: calc(100vh - 250px); min-height: 320px; overflow: auto;
-  background: var(--code-bg); position: relative;
+.source-chunked { overflow-x: auto; }
+.source-chunk {
+  position: relative; display: grid; grid-template-columns: max-content minmax(0, 1fr);
+  width: max-content; min-width: 100%;
+  background: var(--code-bg);
+  content-visibility: auto;
+  contain-intrinsic-width: none;
+  contain-intrinsic-height: calc(var(--rows) * 21px + 28px);
+}
+.source-chunk .gutter {
+  margin: 0; padding: 14px 10px 14px 14px; text-align: right;
+  color: var(--muted); background: var(--code-bg);
+  border-right: 1px solid var(--border); user-select: none;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 13px; line-height: 21px; white-space: pre;
+  position: relative; z-index: 1;
+}
+.source-chunk .gutter a { color: inherit; text-decoration: none; display: block; }
+.source-chunk .gutter a:hover { color: var(--accent); }
+.source-chunk .gutter a.target { background: var(--mark); color: var(--fg); }
+.source-chunk .code {
+  margin: 0; padding: 14px 16px; overflow: visible; background: transparent;
+  border: 0; border-radius: 0; position: relative; z-index: 1;
+}
+.source-chunk .code code {
+  display: block; background: none; border: 0; padding: 0; color: var(--fg);
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 13px; line-height: 21px; white-space: pre;
+}
+.source-target-line {
+  position: absolute; left: 0; right: 0; height: 21px;
+  background: var(--mark); pointer-events: none; z-index: 0;
 }
 .source-note {
   margin: 0; padding: 9px 16px; border-top: 1px solid var(--border);
+  border-radius: 0 0 10px 10px;
   background: var(--surface-2); color: var(--muted); font-size: 12px;
 }
-.vs-meta {
-  padding: 8px 16px; border-bottom: 1px solid var(--border);
-  background: var(--surface-2); color: var(--muted); font-size: 12px;
-}
-.vs-body { position: relative; min-width: max-content; }
-.vs-spacer { width: 1px; }
-.vs-window { position: absolute; top: 0; left: 0; min-width: 100%; }
-.vs-row {
-  display: flex; height: 21px; line-height: 21px; white-space: pre;
-  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
-  font-size: 13px; min-width: max-content;
-}
-.vs-row .ln {
-  position: sticky; left: 0; z-index: 1; flex: 0 0 52px; width: 52px;
-  padding-right: 12px; text-align: right; color: var(--muted);
-  background: var(--code-bg); border-right: 1px solid var(--border);
-  text-decoration: none; user-select: none;
-}
-.vs-row .ln:hover { color: var(--accent); }
-.vs-row code {
-  padding: 0 16px; white-space: pre; color: var(--fg); background: none;
-  border: 0; font: inherit;
-}
-.vs-row.target { background: var(--mark); }
-.vs-row.target .ln { color: var(--fg); }
 
 /* search */
 .page-body { padding: 22px 30px 46px; }
@@ -395,6 +399,7 @@ html[data-sidebar="collapsed"] .sidebar { padding: 0; border: 0; overflow: hidde
   .shell { display: block; }
   .main { padding: 0; }
   .content-card { border: 0; box-shadow: none; }
+  .source-chunk { content-visibility: visible; }
 }
 "#;
 

@@ -28,11 +28,11 @@ ok() { PASS=$((PASS + 1)); printf '  \033[32mok\033[0m   %s\n' "$1"; }
 bad() { FAIL=$((FAIL + 1)); printf '  \033[31mFAIL\033[0m %s\n' "$1"; }
 chk() {
   local name="$1" haystack="$2" needle="$3"
-  if printf '%s' "$haystack" | grep -Fq -- "$needle"; then ok "$name"; else bad "$name (missing: $needle)"; fi
+  if [[ "$haystack" == *"$needle"* ]]; then ok "$name"; else bad "$name (missing: $needle)"; fi
 }
 nchk() {
   local name="$1" haystack="$2" needle="$3"
-  if printf '%s' "$haystack" | grep -Fq -- "$needle"; then bad "$name (unexpected: $needle)"; else ok "$name"; fi
+  if [[ "$haystack" == *"$needle"* ]]; then bad "$name (unexpected: $needle)"; else ok "$name"; fi
 }
 chk_num() {
   local name="$1" actual="$2" expected="$3"
@@ -87,6 +87,7 @@ cat >"$ROOT/a.md" <<'MD'
 MD
 printf '# Child\n\nneedle in child\n' >"$ROOT/sub/c.md"
 printf 'hello\nworld\n' >"$ROOT/b.txt"
+awk 'BEGIN { for (i = 1; i <= 11999; i++) print "line with some text 0123456789"; printf "last line marker" }' >"$ROOT/big.txt"
 printf 'needle in text\n' >"$ROOT/search.md"
 printf '\211PNG\r\n\032\n' >"$ROOT/img.png"
 printf 'abc\0def' >"$ROOT/bin.dat"
@@ -172,6 +173,15 @@ SRC="$(curl -s "$BASE/b.txt")"
 chk "源码页行锚点" "$SRC" 'id="L1"'
 chk "源码页内容" "$SRC" "hello"
 chk "源码页下载入口" "$SRC" "?download=1"
+
+BIG="$(curl -s "$BASE/big.txt")"
+chk "大源码分块" "$BIG" 'class="source-wrap source-chunked"'
+chk "大源码全文提示" "$BIG" '全文已载入'
+chk "大源码末行" "$BIG" "last line marker"
+chk "大源码总行数" "$BIG" 'data-source-lines="12000"'
+chk_num "大源码分块数" "$(count "$BIG" 'class="source-chunk"')" "24"
+nchk "大源码不截断" "$BIG" '前 1000 行'
+nchk "大源码无 text 通道" "$BIG" '?text=1'
 
 RENDER="$(curl -s "$BASE/a.md")"
 chk "Markdown 标题" "$RENDER" "<h1>Hello</h1>"

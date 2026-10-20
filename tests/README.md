@@ -7,10 +7,10 @@ Rust 实现的断言分多组：
 | `tests/render_compat.rs` | 渲染器回归（134 项）：内联/块/URL 重写/目标编码/引用式/data URI/裸 URL/放大包裹/属性转义/协议安全/性能 | `cargo test --test render_compat` |
 | `tests/golden.rs` + `tests/golden/` | 27 条 curated golden 的逐字节输出（accepted deviation 带 `note`） | `cargo test --test golden` |
 | `src/` 的 `#[cfg(test)]` | 模块内单元测试（46 项：render 10 / server 23 / trust 7 / cli 5 / assets 1） | `cargo test --lib` |
-| `selftest-rust.sh` | 真二进制的 black-box HTTP 断言（110 项：目录/渲染/源码/下载/搜索/Trust/CSP/安全/文件系统边界） | `bash tests/selftest-rust.sh` |
+| `selftest-rust.sh` | 真二进制的 black-box HTTP 断言（117 项：目录/渲染/源码/大源码全文分块/下载/搜索/Trust/CSP/安全/文件系统边界） | `bash tests/selftest-rust.sh` |
 | `trust-tty.sh` + `trust-tty.exp` | 真实 pty 下的信任询问、持久化、非 TTY 默认（9 项） | `bash tests/trust-tty.sh` |
-| `browser-probe.mjs` | headless Chrome 验收（67 项）：三列/sticky/TOC scroll-spy 与开关/侧栏/搜索提交/语言条/复制/放大/主题/无 JS/无外部请求 | `node tests/browser-probe.mjs` |
-| `perf-source.mjs` | 源码页性能预算：100 KB / 1 MB / 10 MB / 1 MB Rust（真实 Chrome） | `node tests/perf-source.mjs` |
+| `browser-probe.mjs` | headless Chrome 验收（76 项）：三列/sticky/TOC scroll-spy 与开关/侧栏/搜索提交/语言条/复制/放大/主题/大源码分块与懒高亮/无 JS 全文 | `node tests/browser-probe.mjs` |
+| `perf-source.mjs` | 源码页性能预算：100 KB / 1 MB / 10 MB / 1 MB Rust（真实 Chrome，含末行完整性检查） | `node tests/perf-source.mjs` |
 | `smoke-artifact.sh` | 对已构建二进制做目录/渲染/资产/下载/CSP 冒烟（7 项） | `bash tests/smoke-artifact.sh <二进制>` |
 
 `selftest-rust.sh` 会自动 `cargo build --release`，起临时服务、跑完自清理；
@@ -68,7 +68,8 @@ bash tests/smoke-artifact.sh target/release/mdview
   accepted deviation。P0 的 markdown-it 差分 oracle 仍在 `tools/spike/`。
 - **browser-probe**：真实 headless Chrome 里验证 highlight.js 运行、复制按钮反馈、
   放大遮罩的打开/关闭/焦点归还、修饰键不拦截、明暗主题、目录/源码页回顶、
-  无 JS 基线无死按钮且不着色、页面无外部资源请求。
+  大源码全文分块/末行可达/行锚点/懒高亮/长行横向滚动、无 JS 基线无死按钮、
+  大源码仍可读全文且页面无外部资源请求。
 - **trust-tty**：用 `expect` 在真实 pty 里回答 `y`，验证配置落盘、第二次不再询问、
   新 HOME + 非 TTY 默认 untrusted。
 - **smoke-artifact**：只依赖 curl 与已构建二进制，用于 CI 里检查发布产物。

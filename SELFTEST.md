@@ -7,7 +7,7 @@
 
 | 项 | 值 |
 |---|---|
-| 日期 | 2026-10-19 |
+| 日期 | 2026-10-20 |
 | 分支 | `refactor/new-md-view-server` |
 | 平台 | macOS 27.0.0 arm64 |
 | Rust | 1.96（edition 2024，`rust-version = 1.89`） |
@@ -22,8 +22,8 @@
 | 渲染兼容 | `cargo test --test render_compat` | **134 passed** |
 | 静态检查 | `cargo clippy --all-targets -- -D warnings` | **通过** |
 | 格式 | `cargo fmt --all --check` | **通过** |
-| 黑盒 HTTP | `bash tests/selftest-rust.sh` | **PASS=110 FAIL=0** |
-| 浏览器验收 | `node tests/browser-probe.mjs` | **PASS=67 FAIL=0** |
+| 黑盒 HTTP | `bash tests/selftest-rust.sh` | **PASS=117 FAIL=0** |
+| 浏览器验收 | `node tests/browser-probe.mjs` | **PASS=76 FAIL=0** |
 | 源码页性能 | `node tests/perf-source.mjs` | **4 项预算通过** |
 | TTY 信任 | `bash tests/trust-tty.sh` | **PASS=9 FAIL=0** |
 | artifact 冒烟 | `bash tests/smoke-artifact.sh target/release/mdview` | **PASS=7 FAIL=0** |
@@ -36,7 +36,8 @@
 
 - 目录索引：目录/文件分组、大小、下载按钮只给文件、侧栏上级目录、空目录、301 编码；
 - Markdown：标题/粗体/删除线/任务列表字面量/裸 HTML/表格 `style`/标题无 id；
-- 源码页：行锚点、第 5 行内容、`查看渲染页`、下载入口；
+- 源码页：行锚点、第 5 行内容、`查看渲染页`、下载入口；大于 256 KB 的文件
+  全文输出为 24 个分块、服务端保留末行、无 `?text=1` 文本通道；
 - 下载：Content-Disposition、原始字节、Markdown 类型；
 - 搜索：正文/文件名/大小写/中文/跳过隐藏目录与 `node_modules`；表单真实提交、
   按文件分组、文本源码命中、文件名覆盖图片；
@@ -59,12 +60,13 @@ P0 差分报告：1035 条计分语料 **1015 条精确匹配（98.07%）**，0 
 
 ## 浏览器验证
 
-`tests/browser-probe.mjs` 在真实 headless Chrome 里跑 **67 项**断言：
+`tests/browser-probe.mjs` 在真实 headless Chrome 里跑 **76 项**断言：
 
 - 文档站外壳：侧栏当前文件、代码语言条、移动端抽屉与遮罩；
 - 三列布局：≥1360 的 240/780/220、顶栏/侧栏/TOC sticky、滚动后底边贴视口、
   TOC scroll-spy 与独立收起；
-- 虚拟化源码页：大文本首屏有限行、滚动加载、`#L` 深链、无自动语言探测；
+- 分块源码页：全文 31 块、末行可达、`#L` 深链与目标行高亮、无自动语言探测、
+  可见块懒高亮、长行横向滚动；
 - 性能预算：100 KB/1 MB/10 MB/1 MB Rust 源码页。
 - 搜索表单真实提交、结果分组、查询词高亮；
 - highlight.js 实际着色、复制按钮与剪贴板反馈；
@@ -73,7 +75,7 @@ P0 差分报告：1035 条计分语料 **1015 条精确匹配（98.07%）**，0 
 - 主题三态切换（浅色/深色/系统）与侧栏收起；
 - 目录页/源码页的回到顶部按钮与平滑滚动；
 - 无 JS 基线：无 `<dialog>`/复制/语言条/回顶/目录死按钮，隐藏主题开关，
-  正文可读，服务端不输出高亮 span；
+  正文可读，服务端不输出高亮 span；大源码仍读得到末行与总行数；
 - 页面请求全部是本机资源，无外部请求。
 
 另用 headless Chrome 截图核对过文档站外壳、780/16/1.7 阅读排版、vs/vs2015 代码配色、
@@ -82,12 +84,13 @@ P0 差分报告：1035 条计分语料 **1015 条精确匹配（98.07%）**，0 
 ## CI（GitHub Actions）
 
 - 最近一次完整绿色：`CI · 39274836191`（2026-10-19，UI 三列改造前）。
-- `008d01b`（三列/搜索 UI）首跑 macOS 的浏览器验收在“TOC 跟随滚动”失败：
-  测试把 Section B 放在页尾，`scrollTo` 被最大滚动位置夹住，active 仍是上一节；
-  已把 Section B 移到 filler 之前并推送 `b9f5766`。
-- `b9f5766` 的新 run `39285530389` 受 GitHub Actions `degraded_performance`
+- `39287448345`（`4abb2fe`）macOS 的浏览器验收仍有两项失败：TOC
+  scroll-spy 在固定滚动偏移下偶发选不中 Section B；虚拟源码滚动到末行依赖
+  300ms 固定等待。现已改为 `scrollIntoView` + `waitFor` 的确定性定位，并把
+  源码页改为服务端全文分块（末行不再依赖客户端窗口渲染），本地连跑 3 次 76/76。
+- `b9f5766` 的 run `39285530389` 受 GitHub Actions `degraded_performance`
   影响，8 个 job 长时间 queued；这是平台事件，不是代码失败。
-- 测试矩阵覆盖：`cargo test`、黑盒 110、TTY 9、浏览器 67、源码页性能 4；
+- 测试矩阵覆盖：`cargo test`、黑盒 117、TTY 9、浏览器 76、源码页性能 4；
   Windows 跳过 pty/浏览器/性能，其余全跑。
 - artifact 冒烟：macOS arm64、Linux x86_64 musl、Windows x86_64 通过；
   Linux arm64 musl 只构建（x86 runner 无法执行 arm64）。

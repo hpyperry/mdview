@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::ffi::OsStr;
+use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
@@ -145,10 +146,11 @@ const PATH_SEGMENT_SET: &AsciiSet = &CONTROLS
     .add(b'/')
     .add(b'\\');
 
-/// Source pages above this size render only a fallback window on the server;
-/// the browser fetches the full text and virtualizes it.
-const VIRTUAL_SOURCE_THRESHOLD: u64 = 256 * 1024;
-const SOURCE_FALLBACK_LINES: usize = 1000;
+/// Source pages above this size are still rendered in full, but split into
+/// fixed-height chunks so `content-visibility: auto` can skip offscreen layout
+/// and paint. Line anchors and syntax highlighting are added lazily per chunk.
+const CHUNKED_SOURCE_THRESHOLD: u64 = 256 * 1024;
+const SOURCE_CHUNK_LINES: usize = 500;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -436,12 +438,6 @@ async fn handle(
     let info = classify(&target).await;
     if force_download {
         return serve_file(&state, &target, &info, size, true, is_head).await;
-    }
-
-    if query.get("text").map(|value| value == "1").unwrap_or(false)
-        && matches!(info.kind, Kind::Text | Kind::Markdown)
-    {
-        return serve_raw_text(&state, &target, is_head).await;
     }
 
     match info.kind {
@@ -939,14 +935,53 @@ fn source_lines(text: &str, limit: usize) -> (String, String, usize) {
             break;
         }
         let number = index + 1;
-        gutter.push_str(&format!(
+        let _ = write!(
+            gutter,
             "<a id=\"L{number}\" href=\"#L{number}\">{number}</a>"
-        ));
-        code.push_str(&escape_html(line));
+        );
+        escape_html_into(&mut code, line);
         code.push('\n');
         shown = number;
     }
     (gutter, code, shown)
+}
+
+/// Render the whole source as fixed-height chunks. The server never truncates:
+/// offscreen chunks are skipped by the browser through `content-visibility`.
+fn source_chunked(text: &str, chunk_lines: usize, code_class: &str) -> (String, usize) {
+    let mut out = String::with_capacity(text.len() + text.len() / 8 + 4096);
+    let mut lines = text.split('\n');
+    let mut number = 0usize;
+    loop {
+        let start = number + 1;
+        let mut gutter = String::with_capacity(chunk_lines * 8);
+        let mut code = String::with_capacity(chunk_lines * 48);
+        let mut rows = 0usize;
+        while rows < chunk_lines {
+            let Some(line) = lines.next() else {
+                break;
+            };
+            number += 1;
+            rows += 1;
+            if rows > 1 {
+                gutter.push('\n');
+            }
+            let _ = write!(gutter, "{number}");
+            escape_html_into(&mut code, line);
+            code.push('\n');
+        }
+        if rows == 0 {
+            break;
+        }
+        let _ = write!(
+            out,
+            "<section class=\"source-chunk\" data-start=\"{start}\" data-rows=\"{rows}\" \
+             style=\"--rows:{rows}\">\
+             <pre class=\"gutter\">{gutter}</pre>\
+             <pre class=\"code\"><code{code_class}>{code}</code></pre></section>"
+        );
+    }
+    (out, number)
 }
 
 async fn source_page(
@@ -962,13 +997,7 @@ async fn source_page(
     };
     let size = bytes.len();
     let text = String::from_utf8_lossy(&bytes);
-    let total_lines = text.split('\n').count();
-    let virtual_mode = size as u64 > VIRTUAL_SOURCE_THRESHOLD;
-    let (gutter, code, shown) = if virtual_mode {
-        source_lines(&text, SOURCE_FALLBACK_LINES)
-    } else {
-        source_lines(&text, usize::MAX)
-    };
+    let chunked_mode = size as u64 > CHUNKED_SOURCE_THRESHOLD;
     let name = path.file_name().and_then(OsStr::to_str).unwrap_or("文件");
     let download = format!("{}?download=1", join_href(parent_rel(rel), name, false));
     let render_link = if info.kind == Kind::Markdown {
@@ -983,24 +1012,20 @@ async fn source_page(
     let code_class = highlight_language(path)
         .map(|lang| format!(" class=\"language-{lang}\""))
         .unwrap_or_default();
-    let source_markup = if virtual_mode {
+    let source_markup = if chunked_mode {
+        let (chunks, total) = source_chunked(&text, SOURCE_CHUNK_LINES, &code_class);
         format!(
-            "<div class=\"source-virtual\" id=\"source-virtual\" data-src=\"/{}?text=1\" \
-             data-lines=\"{total}\" data-fallback-lines=\"{shown}\">\
-             <div class=\"vs-scroll source-fallback\"><div class=\"source\">\
-             <pre class=\"gutter\">{gutter}</pre>\
-             <pre class=\"code\"><code{code_class}>{code}</code></pre></div></div>\
-             <p class=\"source-note\">文件较大（{size}），已启用按需渲染：当前显示前 {shown} / {total} 行，\
-             滚动时加载完整内容。</p></div>",
-            encode_path(rel),
-            total = total_lines,
-            shown = shown,
-            size = format_size(size as u64),
-            gutter = gutter,
-            code_class = code_class,
-            code = code
+            "<div class=\"source-wrap source-chunked\" data-source-lines=\"{total}\" \
+             data-chunk-lines=\"{chunk_lines}\">{chunks}</div>\
+             <p class=\"source-note\">文件较大（{size} · {total} 行），全文已载入；\
+             浏览器按可视区域渐进绘制以保持滚动流畅。</p>",
+            total = total,
+            chunk_lines = SOURCE_CHUNK_LINES,
+            chunks = chunks,
+            size = format_size(size as u64)
         )
     } else {
+        let (gutter, code, _) = source_lines(&text, usize::MAX);
         format!(
             "<div class=\"source-wrap\"><div class=\"source\">\
              <pre class=\"gutter\">{gutter}</pre>\
@@ -1197,29 +1222,6 @@ fn highlight_language(path: &Path) -> Option<&'static str> {
         "graphql" | "gql" => "graphql",
         _ => return None,
     })
-}
-
-async fn serve_raw_text(state: &AppState, path: &Path, is_head: bool) -> Response {
-    let bytes = match tokio::fs::read(path).await {
-        Ok(bytes) => bytes,
-        Err(_) => {
-            return error_page(state, StatusCode::NOT_FOUND, "文件不存在", is_head).await;
-        }
-    };
-    let length = bytes.len();
-    let body = if is_head {
-        Body::empty()
-    } else {
-        Body::from(bytes)
-    };
-    Response::builder()
-        .status(StatusCode::OK)
-        .header(header::CONTENT_TYPE, "text/plain; charset=utf-8")
-        .header(header::CONTENT_LENGTH, length.to_string())
-        .header(header::CACHE_CONTROL, "no-store")
-        .header("X-Content-Type-Options", "nosniff")
-        .body(body)
-        .unwrap()
 }
 
 async fn serve_file(
@@ -1797,6 +1799,11 @@ fn encode_path(value: &str) -> String {
 
 fn escape_html(value: &str) -> String {
     let mut out = String::with_capacity(value.len());
+    escape_html_into(&mut out, value);
+    out
+}
+
+fn escape_html_into(out: &mut String, value: &str) {
     for ch in value.chars() {
         match ch {
             '&' => out.push_str("&amp;"),
@@ -1807,7 +1814,6 @@ fn escape_html(value: &str) -> String {
             _ => out.push(ch),
         }
     }
-    out
 }
 
 fn csp_header(level: u8, nonce: &str) -> Option<String> {
@@ -1828,7 +1834,7 @@ fn csp_header(level: u8, nonce: &str) -> Option<String> {
          media-src 'self' https: data:{img_extra}; script-src 'nonce-{nonce}'; \
          style-src 'self' 'unsafe-inline' https: data:{style_extra}; \
          font-src 'self' https: data:{font_extra}; frame-src 'none'; \
-         form-action 'self'; connect-src 'self'; base-uri 'none'; object-src 'none'"
+         form-action 'self'; base-uri 'none'; object-src 'none'"
     ))
 }
 
@@ -1987,28 +1993,28 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn large_source_page_uses_virtualized_fallback_and_text_channel() {
+    async fn large_source_page_renders_full_content_in_chunks() {
         let dir = fixture();
-        let content = "line with some text 0123456789\n".repeat(12_000);
+        let mut content = "line with some text 0123456789\n".repeat(11_999);
+        content.push_str("last line marker");
         std::fs::write(dir.path().join("big.txt"), &content).unwrap();
         let app = app(state(dir.path(), false, 0, 0));
 
-        let (status, _, body) = call(app.clone(), Method::GET, "/big.txt").await;
+        let (status, _, body) = call(app, Method::GET, "/big.txt").await;
         assert_eq!(status, StatusCode::OK);
         let html = String::from_utf8(body).unwrap();
-        assert!(html.contains("id=\"source-virtual\""), "{html}");
-        assert!(html.contains("data-src=\"/big.txt?text=1\""), "{html}");
-        assert!(html.contains("source-note"), "{html}");
-        assert!(html.contains("id=\"L1000\""), "{html}");
-        assert!(!html.contains("id=\"L1001\""), "{html}");
-
-        let (status, headers, body) = call(app, Method::GET, "/big.txt?text=1").await;
-        assert_eq!(status, StatusCode::OK);
-        assert_eq!(
-            headers.get(header::CONTENT_TYPE).unwrap(),
-            "text/plain; charset=utf-8"
+        assert!(
+            html.contains("class=\"source-wrap source-chunked\""),
+            "{html}"
         );
-        assert_eq!(body, content.as_bytes());
+        assert!(html.contains("data-source-lines=\"12000\""), "{html}");
+        assert!(html.contains("data-chunk-lines=\"500\""), "{html}");
+        assert_eq!(html.matches("class=\"source-chunk\"").count(), 24);
+        assert!(html.contains("last line marker"), "last line missing");
+        assert!(html.contains("全文已载入"), "{html}");
+        assert!(!html.contains("source-virtual"), "{html}");
+        assert!(!html.contains("?text=1"), "{html}");
+        assert!(!html.contains("前 1000 行"), "{html}");
     }
 
     #[tokio::test]
@@ -2301,7 +2307,7 @@ mod tests {
             .unwrap();
         assert!(csp.contains("script-src 'nonce-"));
         assert!(csp.contains("form-action 'self'"));
-        assert!(csp.contains("connect-src 'self'"));
+        assert!(!csp.contains("connect-src"));
         assert!(!csp.contains("'self' 'nonce"));
 
         let (_, headers, _) = call(strict, Method::GET, "/").await;

@@ -190,6 +190,10 @@ async function writeFixture(root) {
   await writeFile(join(root, 'plain.txt'), 'plain text without a language\nsecond line\n');
   const bigLines = Array.from({ length: 15000 }, (_, i) => `line ${i + 1} the quick brown fox jumps over the lazy dog`).join('\n') + '\n';
   await writeFile(join(root, 'big.txt'), bigLines);
+  const bigRust = Array.from({ length: 12000 }, (_, i) => `fn f${i + 1}() { let x = ${i + 1}; println!("hello"); }`).join('\n') + '\n';
+  await writeFile(join(root, 'big.rs'), bigRust);
+  const wideText = `${'wide-line-'.repeat(450)}\n${Array.from({ length: 12000 }, (_, i) => `row ${i + 1} ${'x'.repeat(30)}`).join('\n')}\n`;
+  await writeFile(join(root, 'wide.txt'), wideText);
   for (let i = 0; i < 40; i += 1) {
     await writeFile(join(root, 'sub', `f${String(i).padStart(2, '0')}.md`), `# ${i}\n`);
   }
@@ -361,8 +365,15 @@ async function main() {
     check('侧栏填满视口', (await evaluate('Math.abs(document.querySelector(".sidebar").getBoundingClientRect().height - (innerHeight - 58)) <= 1')) === true);
     check('TOC 填满视口', (await evaluate('Math.abs(document.querySelector(".toc-col").getBoundingClientRect().height - (innerHeight - 58)) <= 1')) === true);
     check('TOC 当前项', (await evaluate('!!document.querySelector(".toc-col a.active")')) === true);
-    await evaluate('window.scrollTo(0, document.getElementById("toc-3").getBoundingClientRect().top + window.scrollY - 70); window.dispatchEvent(new Event("scroll"))');
-    check('TOC 跟随滚动', await waitFor('document.querySelector(".toc-col a.active")?.getAttribute("data-target") === "toc-3"', 3000));
+    await evaluate('document.getElementById("toc-3").scrollIntoView({ block: "start" })');
+    check('TOC 定位到 Section B', await waitFor('document.getElementById("toc-3").getBoundingClientRect().top < 120', 3000));
+    await evaluate('window.dispatchEvent(new Event("scroll"))');
+    const tocActive = await waitFor('document.querySelector(".toc-col a.active")?.getAttribute("data-target") === "toc-3"', 3000);
+    check(
+      'TOC 跟随滚动',
+      tocActive,
+      await evaluate('JSON.stringify({ y: window.scrollY, active: document.querySelector(".toc-col a.active")?.getAttribute("data-target"), top: document.getElementById("toc-3").getBoundingClientRect().top })'),
+    );
     await evaluate('document.getElementById("toc-toggle").click()');
     check('TOC 可收起', (await evaluate('getComputedStyle(document.querySelector(".toc-col")).display')) === 'none');
     check('TOC 收起后两列', (await evaluate('getComputedStyle(document.getElementById("shell")).gridTemplateColumns.split(" ").length')) === 2);
@@ -374,21 +385,27 @@ async function main() {
     check('滚动后 TOC 贴底', (await evaluate('Math.round(document.querySelector(".toc-col").getBoundingClientRect().bottom)')) === (await evaluate('innerHeight')));
     await page.send('Emulation.setDeviceMetricsOverride', { width: 1200, height: 320, deviceScaleFactor: 1, mobile: false });
 
-    console.log('== virtual source ==');
+    console.log('== chunked source ==');
     await goto('/plain.txt');
     check('无语言源码不自动高亮', (await evaluate('document.querySelectorAll("pre code.hljs").length')) === 0);
-    const virtualStarted = Date.now();
+    const chunkedStarted = Date.now();
     await goto('/big.txt');
-    check('虚拟源码容器', (await evaluate('!!document.querySelector(".vs-scroll .vs-row")')) === true);
-    check('虚拟源码行数', (await evaluate('document.querySelector(".vs-meta")?.textContent')) === '共 15001 行 · 大文件按需渲染（纯文本）');
-    check('虚拟源码不整页高亮', (await evaluate('document.querySelectorAll("pre code.hljs").length')) === 0);
-    check('虚拟源码首屏行数有限', (await evaluate('document.querySelectorAll(".vs-scroll .vs-row").length')) < 200);
-    check('虚拟源码加载 < 3000ms', Date.now() - virtualStarted < 3000);
-    await evaluate('(() => { const s = document.querySelector(".vs-scroll"); s.scrollTop = s.scrollHeight; s.dispatchEvent(new Event("scroll")); })()');
-    await sleep(300);
-    check('虚拟源码滚动到末行', (await evaluate('!!document.getElementById("L15001")')) === true);
+    check('源码全文分块容器', (await evaluate('document.querySelectorAll(".source-chunked .source-chunk").length')) === 31);
+    check('源码末行在页面内', (await evaluate('document.querySelector(".source-chunked")?.textContent.includes("line 15000")')) === true);
+    check('源码全文提示', (await evaluate('document.querySelector(".source-note")?.textContent.includes("15001 行") && document.querySelector(".source-note")?.textContent.includes("全文已载入")')) === true);
+    check('源码分块按需绘制', (await evaluate('getComputedStyle(document.querySelector(".source-chunk")).contentVisibility')) === 'auto');
+    check('源码分块加载 < 3000ms', Date.now() - chunkedStarted < 3000);
+    await evaluate('window.scrollTo(0, document.body.scrollHeight)');
+    check('源码滚动到末行', await waitFor('!!document.getElementById("L15001")', 3000));
     await goto('/big.txt#L12000');
-    check('虚拟源码行锚点', (await evaluate('!!document.querySelector(".vs-row.target")')) === true);
+    check('源码行锚点', await waitFor('!!document.querySelector(".source-chunk .gutter a.target")', 3000));
+    check('源码行高亮', (await evaluate('!!document.querySelector(".source-target-line")')) === true);
+    check('源码锚点滚动', (await evaluate('window.scrollY')) > 0);
+    await goto('/wide.txt');
+    check('源码长行横向滚动', (await evaluate('document.querySelector(".source-wrap").scrollWidth > document.querySelector(".source-wrap").clientWidth + 100')) === true);
+    await goto('/big.rs');
+    check('大源码按块着色', await waitFor('document.querySelectorAll(".source-chunk code.hljs").length > 0', 3000));
+    check('大源码着色有界', (await evaluate('document.querySelectorAll(".source-chunk code.hljs").length')) < 10);
     await goto('/page.md');
 
     console.log('== search ==');
@@ -427,6 +444,10 @@ async function main() {
     check('无 JS 正文可读', (await evaluate('document.querySelector("article.markdown-body h1").textContent')) === 'Probe');
     check('无 JS 服务端不着色', (await evaluate('document.querySelectorAll("pre code span").length')) === 0);
     check('无 JS 隐藏主题按钮', (await evaluate('getComputedStyle(document.getElementById("theme-toggle")).display')) === 'none');
+    await goto('/big.txt');
+    check('无 JS 大源码全文', (await evaluate('document.querySelector(".source-chunked")?.textContent.includes("line 15000")')) === true);
+    check('无 JS 大源码总行数', (await evaluate('document.querySelector(".source-note")?.textContent.includes("15001 行")')) === true);
+    check('无 JS 大源码未截断', (await evaluate('document.querySelectorAll(".source-chunked .source-chunk").length')) === 31);
     await page.send('Emulation.setScriptExecutionDisabled', { value: false });
   } finally {
     try { await browser?.send('Browser.close'); } catch { /* closing */ }

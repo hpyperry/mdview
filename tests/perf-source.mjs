@@ -3,7 +3,8 @@
 //
 // The regression this guards against: a 1 MB .txt source page used to take
 // ~42 s because highlight.js auto-detected the language for the whole file.
-// Large source pages are now virtualized (server fallback + client windowing).
+// Large source pages are still rendered in full, but split into fixed-height
+// chunks that use `content-visibility: auto` for offscreen layout and paint.
 //
 // Usage: node tests/perf-source.mjs
 
@@ -153,7 +154,7 @@ async function main() {
   await mkdir(root, { recursive: true });
   const line = 'the quick brown fox jumps over the lazy dog 0123456789\n';
   const oneMb = line.repeat(Math.ceil(1048576 / line.length)).slice(0, 1048576);
-  const tenMb = line.repeat(Math.ceil(10485760 / line.length)).slice(0, 10485760);
+  const tenMb = `${line.repeat(Math.ceil(10485760 / line.length)).slice(0, 10485760)}\nlast-line-marker\n`;
   const rsLine = 'fn main() { let x = 1; println!("hello"); }\n';
   const rsMb = rsLine.repeat(Math.ceil(1048576 / rsLine.length)).slice(0, 1048576);
   await writeFile(join(root, 'small.txt'), line.repeat(2000));
@@ -192,9 +193,15 @@ async function main() {
 
     const cases = [
       { path: '/small.txt', selector: 'pre code', budget: 1500, label: '100 KB text' },
-      { path: '/big-1m.txt', selector: '.vs-scroll .vs-row', budget: 1500, label: '1 MB text' },
-      { path: '/big-10m.txt', selector: '.vs-scroll .vs-row', budget: 3000, label: '10 MB text' },
-      { path: '/big-1m.rs', selector: '.vs-scroll .vs-row', budget: 1500, label: '1 MB Rust' },
+      { path: '/big-1m.txt', selector: '.source-chunk', budget: 1500, label: '1 MB text' },
+      {
+        path: '/big-10m.txt',
+        selector: '.source-chunk',
+        budget: 3000,
+        label: '10 MB text',
+        complete: 'document.querySelector(".source-chunk:last-child .code")?.textContent.includes("last-line-marker")',
+      },
+      { path: '/big-1m.rs', selector: '.source-chunk', budget: 1500, label: '1 MB Rust' },
     ];
     for (const item of cases) {
       const started = Date.now();
@@ -210,10 +217,11 @@ async function main() {
         await sleep(50);
       }
       const elapsed = Date.now() - started;
-      const ok = ready && elapsed <= item.budget;
+      const complete = item.complete ? await evaluate(item.complete).catch(() => false) : true;
+      const ok = ready && complete && elapsed <= item.budget;
       if (!ok) failed += 1;
       console.log(
-        `  ${ok ? '\x1b[32mok\x1b[0m  ' : '\x1b[31mFAIL\x1b[0m'} ${item.label}: ${elapsed} ms (budget ${item.budget} ms)`,
+        `  ${ok ? '\x1b[32mok\x1b[0m  ' : '\x1b[31mFAIL\x1b[0m'} ${item.label}: ${elapsed} ms (budget ${item.budget} ms)${complete ? '' : ' [content incomplete]'}`,
       );
     }
   } finally {

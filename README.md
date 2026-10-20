@@ -52,9 +52,9 @@ cargo build --release
 
 - CommonMark + GFM 表格 / 删除线 / 自动链接；`~~x~~` 输出 `<s>`；
 - Markdown 语义与代码高亮对齐 VS Code；正文采用文档阅读排版：780px、16px、1.7 行高；
-- 客户端高亮：highlight.js 11.11.1 完整语言包，仅对明确 `language-*` 且 ≤256 KB
-  的代码块高亮（不做自动语言探测）；代码块复制按钮、图片放大遮罩、回到顶部按钮
-  都由脚本注入（禁用 JS 时没有死按钮）；
+- 客户端高亮：highlight.js 11.11.1 完整语言包，仅对明确 `language-*` 的代码块
+  高亮（不做自动语言探测）；大源码按可见分块懒高亮，单块仍有大小上限；代码块
+  复制按钮、图片放大遮罩、回到顶部按钮都由脚本注入（禁用 JS 时没有死按钮）；
 - 表格单元格输出 `style="text-align:…"`（与 VS Code 一致，不用 `align=`）；
 - 协议校验：拒绝 `javascript:` / `vbscript:` / `file:` / 非法 `data:` /
   `vscode:` / `vscode-insiders:`；`data:image/*;…` 在链接与图片位置都放行
@@ -69,8 +69,7 @@ cargo build --release
 | `GET /x.md` | 渲染为 HTML（未信任目录先出现一次确认页） |
 | `GET /x.md?raw=1` | 源码查看页：行号、`id="L<n>"` 行锚点、回渲染/下载入口 |
 | `GET /x.md?download=1` | 原始字节 + `Content-Disposition` |
-| `GET /x?text=1` | 文本/Markdown 的纯文本通道（虚拟化源码页使用） |
-| 已知文本扩展名/文件名 | 源码查看页（行号 + 客户端高亮）；> 256 KB 自动虚拟化 |
+| 已知文本扩展名/文件名 | 源码查看页（行号 + 客户端高亮）；> 256 KB 全文分块 |
 | 无扩展名 | 前 512 字节无 NUL → 文本；有 NUL → 下载 |
 | 图片 / PDF | 按 MIME 内联 |
 | 其他 | `application/octet-stream` 下载 |
@@ -78,8 +77,9 @@ cargo build --release
 | `HEAD` / `301` / `404` | 支持；目录缺尾斜杠返回 301 |
 
 超过 `--max-preview`（默认 20 MiB）的文件一律改为下载，`?raw=1` 也不例外。
-超过 **256 KB** 的文本源码页使用虚拟化窗口：服务端先给前 1000 行，浏览器通过
-`/x?text=1` 取全文并按需渲染；无 JS 时只显示前 1000 行，可下载原文。
+超过 **256 KB** 的文本源码页仍由服务端输出**全文**，按 500 行分块并用
+`content-visibility: auto` 跳过离屏布局与绘制；无 JS 时同样能读到全文。
+行锚点与语法高亮由脚本按可见分块懒加载。
 渲染结果按 `(path, mtime, size)` 缓存，上限 128 条。
 
 ## 命令行
@@ -109,7 +109,7 @@ cargo build --release
 CSP 四档：0 Strict（默认）、1 允许 HTTP、2 关闭（不推荐）、3 允许 localhost HTTP。
 所有响应带 `X-Content-Type-Options: nosniff`；`script-src` 只信任每个响应新生成的
 nonce，**没有 `'self'`**；`frame/base/object 'none'`；`form-action 'self'`
-（仅用于本站搜索表单）；`connect-src 'self'`（仅用于虚拟化源码页取文本）。
+（仅用于本站搜索表单）。
 
 ## 与 VS Code 的一致性
 
@@ -150,8 +150,8 @@ macOS / Linux / Windows 三平台跑 `cargo test` 与黑盒 HTTP 套件。
 ```bash
 cargo test                      # 46 单元 + 134 渲染兼容 + 27 golden
 cargo clippy --all-targets -- -D warnings
-bash tests/selftest-rust.sh     # 110 项真二进制 HTTP 断言
-node tests/browser-probe.mjs      # 67 项 headless Chrome 验收
+bash tests/selftest-rust.sh     # 117 项真二进制 HTTP 断言
+node tests/browser-probe.mjs      # 76 项 headless Chrome 验收
 node tests/perf-source.mjs        # 4 项源码页性能预算
 bash tests/trust-tty.sh           # 9 项真实 pty 信任测试
 ```
@@ -190,7 +190,8 @@ md-preview/
 - front matter 被消费，不渲染成 VS Code 的表格。
 - 文件名里字面含 `%xx` 的文件不能通过相对 Markdown 目标到达（双重解码的代价）。
 - 搜索每次实时扫盘：文件名覆盖所有文件，正文覆盖 Markdown/文本；无索引、无编辑保存。
-- 超过 256 KB 的文本源码页使用虚拟化纯文本窗口；无 JS 时只显示前 1000 行。
+- 超过 256 KB 的源码页全文输出并按 500 行分块渐进绘制；无 JS 可读全文，但精确
+  行号深链与懒高亮需要 JS。首次响应会携带完整源码，网络传输量随文件增大。
 - Trust 判定按根目录路径字符串保存；移动目录后需要重新确认。
 - 许可证为 MIT，见 [`LICENSE`](LICENSE)；第三方组件见 [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md)。
 

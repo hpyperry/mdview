@@ -64,7 +64,8 @@
   }
 
   var MAX_HIGHLIGHT_CHARS = 256 * 1024;
-  var VIRTUAL_LINE_HEIGHT = 21;
+  var SOURCE_LINE_HEIGHT = 21;
+  var SOURCE_CHUNK_MARGIN = '1500px 0px';
 
   function hasExplicitLanguage(code) {
     return /(?:^|\s)language-[\w-]+/.test(code.className || '');
@@ -110,104 +111,111 @@
     });
   }
 
-  function addVirtualSource() {
-    var host = document.getElementById('source-virtual');
-    if (!host) return;
-    var source = host.getAttribute('data-src');
-    if (!source) return;
-    fetch(source, { credentials: 'same-origin' }).then(function (response) {
-      if (!response.ok) throw new Error('HTTP ' + response.status);
-      return response.text();
-    }).then(function (text) {
-      var lines = text.split('\n');
-      var total = lines.length;
-      host.innerHTML = '';
-      host.classList.add('is-virtual');
-      var meta = document.createElement('div');
-      meta.className = 'vs-meta';
-      meta.textContent = '共 ' + total + ' 行 · 大文件按需渲染（纯文本）';
-      var scroller = document.createElement('div');
-      scroller.className = 'vs-scroll';
-      scroller.tabIndex = 0;
-      var body = document.createElement('div');
-      body.className = 'vs-body';
-      var spacer = document.createElement('div');
-      spacer.className = 'vs-spacer';
-      spacer.style.height = (total * VIRTUAL_LINE_HEIGHT) + 'px';
-      var windowEl = document.createElement('div');
-      windowEl.className = 'vs-window';
-      body.appendChild(spacer);
-      body.appendChild(windowEl);
-      scroller.appendChild(body);
-      host.appendChild(meta);
-      host.appendChild(scroller);
+  function addSourceChunks() {
+    var wrap = document.querySelector('.source-chunked');
+    if (!wrap) return;
+    var chunks = Array.prototype.slice.call(wrap.querySelectorAll('.source-chunk'));
+    if (!chunks.length) return;
+    var chunkSize = Number.parseInt(wrap.getAttribute('data-chunk-lines'), 10) || 500;
+    var total = Number.parseInt(wrap.getAttribute('data-source-lines'), 10) || 0;
 
-      var first = -1;
-      var last = -1;
-      var targetLine = 0;
-      function markTarget() {
-        if (!targetLine) return;
-        var row = windowEl.querySelector('[data-line="' + targetLine + '"]');
-        if (row) row.classList.add('target');
+    function startOf(chunk) {
+      return Number.parseInt(chunk.getAttribute('data-start'), 10) || 1;
+    }
+
+    function ensureGutter(chunk) {
+      if (chunk.dataset.gutterReady === '1') return;
+      var start = startOf(chunk);
+      var rows = Number.parseInt(chunk.getAttribute('data-rows'), 10) || 0;
+      var gutter = chunk.querySelector('.gutter');
+      if (!gutter || !rows) return;
+      var fragment = document.createDocumentFragment();
+      for (var i = 0; i < rows; i += 1) {
+        var line = start + i;
+        var anchor = document.createElement('a');
+        anchor.id = 'L' + line;
+        anchor.href = '#L' + line;
+        anchor.textContent = String(line);
+        fragment.appendChild(anchor);
       }
-      function render() {
-        var viewport = scroller.clientHeight || 600;
-        var start = Math.max(0, Math.floor(scroller.scrollTop / VIRTUAL_LINE_HEIGHT) - 30);
-        var count = Math.ceil(viewport / VIRTUAL_LINE_HEIGHT) + 60;
-        var end = Math.min(total, start + count);
-        if (start === first && end === last) {
-          markTarget();
-          return;
-        }
-        first = start;
-        last = end;
-        windowEl.style.transform = 'translateY(' + (start * VIRTUAL_LINE_HEIGHT) + 'px)';
-        var fragment = document.createDocumentFragment();
-        for (var i = start; i < end; i += 1) {
-          var row = document.createElement('div');
-          row.className = 'vs-row';
-          row.setAttribute('data-line', String(i + 1));
-          var number = document.createElement('a');
-          number.className = 'ln';
-          number.id = 'L' + (i + 1);
-          number.href = '#L' + (i + 1);
-          number.textContent = String(i + 1);
-          var code = document.createElement('code');
-          code.textContent = lines[i];
-          row.appendChild(number);
-          row.appendChild(code);
-          fragment.appendChild(row);
-        }
-        windowEl.replaceChildren(fragment);
-        markTarget();
+      gutter.replaceChildren(fragment);
+      chunk.dataset.gutterReady = '1';
+    }
+
+    function ensureHighlight(chunk) {
+      if (chunk.dataset.highlightReady === '1') return;
+      chunk.dataset.highlightReady = '1';
+      var code = chunk.querySelector('.code code');
+      if (!window.hljs || !code || !hasExplicitLanguage(code)) return;
+      if (code.textContent.length > MAX_HIGHLIGHT_CHARS) {
+        code.dataset.highlightSkipped = '1';
+        return;
       }
-      function goHash() {
-        var match = window.location.hash.match(/^#L(\d+)$/);
-        if (!match) return;
-        targetLine = Number.parseInt(match[1], 10);
-        if (!targetLine) return;
-        scroller.scrollTop = Math.max(0, (targetLine - 1) * VIRTUAL_LINE_HEIGHT - 60);
-        render();
+      try { window.hljs.highlightElement(code); } catch (err) { /* keep plain text */ }
+    }
+
+    var targetAnchor = null;
+    var targetOverlay = null;
+
+    function clearTarget() {
+      if (targetAnchor) targetAnchor.classList.remove('target');
+      targetAnchor = null;
+      if (targetOverlay && targetOverlay.parentNode) {
+        targetOverlay.parentNode.removeChild(targetOverlay);
       }
-      var scheduled = false;
-      scroller.addEventListener('scroll', function () {
-        if (scheduled) return;
-        scheduled = true;
-        window.requestAnimationFrame(function () {
-          scheduled = false;
-          render();
+      targetOverlay = null;
+    }
+
+    function goHash() {
+      var match = window.location.hash.match(/^#L(\d+)$/);
+      if (!match) {
+        clearTarget();
+        return;
+      }
+      var line = Number.parseInt(match[1], 10);
+      var chunk = line > 0 ? chunks[Math.floor((line - 1) / chunkSize)] : null;
+      if (!line || (total && line > total) || !chunk) {
+        clearTarget();
+        return;
+      }
+      clearTarget();
+      ensureGutter(chunk);
+      var anchor = document.getElementById('L' + line);
+      if (!anchor) return;
+      var rows = Number.parseInt(chunk.getAttribute('data-rows'), 10) || 0;
+      var offset = line - startOf(chunk);
+      if (offset >= 0 && offset < rows) {
+        var overlay = document.createElement('div');
+        overlay.className = 'source-target-line';
+        overlay.style.top = (14 + offset * SOURCE_LINE_HEIGHT) + 'px';
+        chunk.appendChild(overlay);
+        targetOverlay = overlay;
+      }
+      anchor.classList.add('target');
+      targetAnchor = anchor;
+      window.requestAnimationFrame(function () {
+        anchor.scrollIntoView({ block: 'center' });
+      });
+    }
+
+    if (window.IntersectionObserver) {
+      var observer = new IntersectionObserver(function (entries) {
+        entries.forEach(function (entry) {
+          if (!entry.isIntersecting) return;
+          ensureGutter(entry.target);
+          ensureHighlight(entry.target);
         });
-      }, { passive: true });
-      window.addEventListener('resize', render);
-      window.addEventListener('hashchange', goHash);
-      render();
-      goHash();
-    }).catch(function () {
-      var note = host.querySelector('.source-note');
-      if (note) {
-        note.textContent = '完整内容加载失败，当前显示服务端返回的前几行；可下载原文查看全部内容。';
-      }
-    });
+      }, { rootMargin: SOURCE_CHUNK_MARGIN });
+      chunks.forEach(function (chunk) { observer.observe(chunk); });
+    } else {
+      chunks.slice(0, 3).forEach(function (chunk) {
+        ensureGutter(chunk);
+        ensureHighlight(chunk);
+      });
+    }
+
+    window.addEventListener('hashchange', goHash);
+    if (window.location.hash) goHash();
   }
 
   function addToc() {
@@ -515,6 +523,7 @@
 
     if (window.hljs) {
       document.querySelectorAll('pre code').forEach(function (code) {
+        if (code.closest('.source-chunk')) return;
         if (!hasExplicitLanguage(code)) return;
         if (code.textContent.length > MAX_HIGHLIGHT_CHARS) {
           code.dataset.highlightSkipped = '1';
@@ -524,7 +533,7 @@
       });
     }
     addCodeBlocks();
-    addVirtualSource();
+    addSourceChunks();
     addToc();
     addZoom();
     addBackToTop();
