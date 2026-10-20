@@ -1,7 +1,9 @@
 # 文档站外壳与阅读排版优先
 
 **Status**: accepted（2026-10-19）；TOC 列与 sticky 外壳细节由
-[ADR 0010](0010-three-column-layout-and-sticky-shell.md) 更新
+[ADR 0010](0010-three-column-layout-and-sticky-shell.md) 更新；
+外壳、搜索入口、780px 阅读列由 [ADR 0012](0012-island-frontend-architecture.md)
+更新（全宽内容面 / 1000px 阅读行），16px、1.7 行高保留
 
 现有页面的 Markdown 内容已经对齐 VS Code，但页面外壳只有面包屑 + 标题 + 工具栏，
 目录页和搜索页缺少统一导航，阅读页也重复显示文件名标题。用户要求把 UI 从“服务端

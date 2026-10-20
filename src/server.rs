@@ -20,7 +20,7 @@ use tokio::io::AsyncReadExt;
 use tokio_util::io::ReaderStream;
 use walkdir::WalkDir;
 
-use crate::assets::{HIGHLIGHT_CSS, HIGHLIGHT_JS, MARKDOWN_CSS, MDVIEW_JS, SERVER_CSS};
+use crate::assets::{APP_CSS, APP_JS, HIGHLIGHT_CSS, HIGHLIGHT_JS, MARKDOWN_CSS};
 use crate::cli::Cli;
 use crate::render::render_markdown;
 use crate::trust::TrustState;
@@ -238,7 +238,8 @@ pub fn app(state: AppState) -> Router {
         .route("/_assets/highlight.js", get(asset_highlight_js))
         .route("/_assets/highlight.css", get(asset_highlight_css))
         .route("/_assets/markdown.css", get(asset_markdown_css))
-        .route("/_assets/mdview.js", get(asset_mdview_js))
+        .route("/_assets/app.css", get(asset_app_css))
+        .route("/_assets/app.js", get(asset_app_js))
         .fallback(handle)
         .with_state(state)
 }
@@ -255,8 +256,12 @@ async fn asset_markdown_css() -> Response {
     asset_response(MARKDOWN_CSS.as_bytes(), "text/css; charset=utf-8")
 }
 
-async fn asset_mdview_js() -> Response {
-    asset_response(MDVIEW_JS.as_bytes(), "text/javascript; charset=utf-8")
+async fn asset_app_css() -> Response {
+    asset_response(APP_CSS.as_bytes(), "text/css; charset=utf-8")
+}
+
+async fn asset_app_js() -> Response {
+    asset_response(APP_JS, "text/javascript; charset=utf-8")
 }
 
 fn asset_response(bytes: &'static [u8], content_type: &'static str) -> Response {
@@ -713,22 +718,35 @@ impl SearchKind {
     }
 }
 
+fn search_page_form(q: &str) -> String {
+    format!(
+        "<form class=\"search-page-form\" action=\"/search\" method=\"get\" role=\"search\">\
+         <input type=\"search\" name=\"q\" value=\"{}\" placeholder=\"搜索文档与源码\" \
+         aria-label=\"搜索文档与源码\" autocomplete=\"off\">\
+         <button class=\"action primary\" type=\"submit\">{}<span>搜索</span></button></form>",
+        escape_html(q),
+        icon("search")
+    )
+}
+
 fn render_search(q: &str, results: &SearchResults, elapsed: Duration) -> String {
     if q.is_empty() {
         return format!(
             "<div class=\"content-card\"><div class=\"search-head\"><h1>搜索</h1>\
-             <p>搜索文件名与正文，覆盖 Markdown 与文本源码；大小写不敏感。</p></div>\
+             <p>搜索文件名与正文，覆盖 Markdown 与文本源码；大小写不敏感。</p>{form}</div>\
              <div class=\"page-body\"><div class=\"empty-state\">{}<div>在上方输入关键词开始搜索。</div></div></div></div>",
-            icon("search")
+            icon("search"),
+            form = search_page_form("")
         );
     }
     let mut body = format!(
         "<div class=\"content-card\"><div class=\"search-head\"><h1>搜索 “{}”</h1>\
-         <p>{} 个文件 · {} 条命中 · 实时扫描 {} ms</p></div><div class=\"page-body\">",
+         <p>{} 个文件 · {} 条命中 · 实时扫描 {} ms</p>{form}</div><div class=\"page-body\">",
         escape_html(q),
         results.files,
         results.hits,
-        elapsed.as_millis()
+        elapsed.as_millis(),
+        form = search_page_form(q)
     );
     if results.groups.is_empty() {
         body.push_str(&format!(
@@ -1107,14 +1125,24 @@ async fn render_page(state: &AppState, path: &Path, rel: &str, is_head: bool) ->
         .unwrap_or("Markdown");
     let encoded = encode_path(rel);
     let meta = format!("Markdown · {} · {}", format_size(size), format_mtime(mtime));
+    let crumbs = crumbs_html(rel, PageKind::Doc);
+    let crumbs = if crumbs.is_empty() {
+        String::new()
+    } else {
+        format!("{}{crumbs}", icon("folder"))
+    };
     let body = format!(
-        "<div class=\"content-card\"><h1 class=\"sr-only\">{name}</h1>\
+        "<article class=\"content-card doc-card\"><header class=\"doc-head\"><div class=\"content-inner\">\
+         <nav class=\"crumbs\" aria-label=\"面包屑\">{crumbs}</nav>\
          <div class=\"article-toolbar\"><span class=\"doc-meta\">{meta}</span>\
          <div class=\"page-actions\"><a class=\"action\" href=\"/{encoded}?raw=1\">{code_icon}<span>源码</span></a>\
          <a class=\"action\" href=\"/{encoded}?download=1\">{download_icon}<span>下载</span></a></div></div>\
-         <div class=\"toc-inline\" id=\"toc-slot\"><details class=\"toc\">         <summary>本页目录</summary><nav class=\"toc-list\" aria-label=\"本页目录\"></nav></details></div>         <article class=\"markdown-body\">{rendered}</article></div>",
+         </div></header>\
+         <div class=\"toc-inline\" id=\"toc-slot\"><details class=\"toc\"><summary>本页目录</summary><nav class=\"toc-list\" aria-label=\"本页目录\"></nav></details></div>\
+         <div class=\"doc-prose\"><h1 class=\"sr-only\">{name}</h1><article class=\"markdown-body\">{rendered}</article></div></article>",
         name = escape_html(name),
         meta = escape_html(&meta),
+        crumbs = crumbs,
         code_icon = icon("code"),
         download_icon = icon("download")
     );
@@ -1379,10 +1407,16 @@ fn crumbs_html(rel: &str, kind: PageKind) -> String {
 
 fn topbar_search(query: &str) -> String {
     format!(
-        "<form class=\"searchbox\" action=\"/search\" method=\"get\" role=\"search\">\
-         {search}<input type=\"search\" name=\"q\" value=\"{query}\" \
-         placeholder=\"搜索文档与源码…\" aria-label=\"搜索文档与源码\" autocomplete=\"off\">\
-         <kbd>/</kbd><button type=\"submit\">搜索</button></form>",
+        "<div class=\"search-wrap\">\
+         <a class=\"icon-btn search-open\" id=\"search-open\" href=\"/search\" \
+         aria-label=\"搜索\" title=\"搜索（/）\" aria-expanded=\"false\">{search}</a>\
+         <div class=\"search-pop\" id=\"search-pop\" hidden>\
+         <form class=\"search-form\" id=\"search-form\" action=\"/search\" method=\"get\" role=\"search\">\
+         {search}<input id=\"search-input\" type=\"search\" name=\"q\" value=\"{query}\" \
+         placeholder=\"搜索文档与源码\" aria-label=\"搜索文档与源码\" autocomplete=\"off\">\
+         <button class=\"search-submit\" type=\"submit\">搜索</button></form>\
+         <div class=\"search-hint\"><span>Enter 打开搜索页</span>\
+         <span><kbd class=\"kbd\">Esc</kbd> 关闭</span></div></div></div>",
         search = icon("search"),
         query = escape_html(query)
     )
@@ -1506,26 +1540,10 @@ async fn html_page(state: &AppState, status: StatusCode, page: Page, is_head: bo
     } else {
         topbar_search(&page.query)
     };
-    let root = escape_html(&root_name(state));
-    let crumbs = crumbs_html(&page.rel, page.kind);
-    let crumbs = if crumbs.is_empty() {
-        String::new()
-    } else {
-        format!("{}{crumbs}", icon("chevron"))
-    };
     let is_doc = page.kind == PageKind::Doc;
     let shell_class = if is_doc { "shell has-toc" } else { "shell" };
-    let toc_button = if is_doc {
-        format!(
-            "<button class=\"icon-btn toc-toggle\" id=\"toc-toggle\" type=\"button\"              aria-label=\"切换本页目录\" aria-pressed=\"true\" title=\"隐藏本页目录\">{}</button>",
-            icon("list")
-        )
-    } else {
-        String::new()
-    };
-    let toc_column = if is_doc {
-        "<aside class=\"toc-col\" id=\"toc-col\" aria-label=\"本页目录\">         <div class=\"toc-head\">本页目录</div>         <nav class=\"toc-list\" id=\"toc-nav\" aria-label=\"本页目录\"></nav></aside>"
-            .to_string()
+    let toc_rail = if is_doc {
+        "<aside class=\"toc-rail\" id=\"toc-rail\" aria-label=\"本页目录\"></aside>".to_string()
     } else {
         String::new()
     };
@@ -1536,6 +1554,18 @@ async fn html_page(state: &AppState, status: StatusCode, page: Page, is_head: bo
         PageKind::Search => "search",
         PageKind::Other => "other",
     };
+    let mut islands = vec!["theme", "sidebar"];
+    if !state.no_search {
+        islands.push("search");
+    }
+    islands.push("totop");
+    if is_doc {
+        islands.extend(["toc", "code", "zoom"]);
+    }
+    if page.kind == PageKind::Source {
+        islands.push("source");
+    }
+    let islands = islands.join(" ");
     let html = format!(
         "<!doctype html><html lang=\"zh-CN\" class=\"no-js\"><head><meta charset=\"utf-8\">\
          <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\
@@ -1544,38 +1574,31 @@ async fn html_page(state: &AppState, status: StatusCode, page: Page, is_head: bo
          if(t==='light'||t==='dark'){{document.documentElement.dataset.theme=t;document.documentElement.dataset.themeMode=t;}}\
          else if(t==='system'){{document.documentElement.dataset.themeMode='system';}}\
          var s=localStorage.getItem('mdview-sidebar');if(s==='collapsed'){{document.documentElement.dataset.sidebar='collapsed';}}\
-         var c=localStorage.getItem('mdview-toc');if(c==='hidden'){{document.documentElement.dataset.toc='hidden';}}\
          }}catch(e){{}}}})();</script>\
          <link rel=\"stylesheet\" href=\"/_assets/markdown.css?v={version}\">\
          <link rel=\"stylesheet\" href=\"/_assets/highlight.css?v={version}\">\
-         <style>{SERVER_CSS}</style>\
+         <link rel=\"stylesheet\" href=\"/_assets/app.css?v={version}\">\
          <script nonce=\"{nonce}\" src=\"/_assets/highlight.js?v={version}\" defer></script>\
-         <script nonce=\"{nonce}\" src=\"/_assets/mdview.js?v={version}\" defer></script>\
-         </head><body data-totop=\"1\" data-page=\"{page_class}\">\
+         <script nonce=\"{nonce}\" src=\"/_assets/app.js?v={version}\" defer></script>\
+         </head><body data-totop=\"1\" data-page=\"{page_class}\" data-islands=\"{islands}\">\
          <div class=\"app\"><header class=\"topbar\">\
          <button class=\"icon-btn sidebar-toggle\" id=\"sidebar-toggle\" type=\"button\" aria-label=\"切换目录栏\">{panel}</button>\
          <a class=\"brand\" href=\"/\"><span class=\"brand-mark\">m</span><span>mdview</span></a>\
-         <a class=\"root-name\" href=\"/\">{root}</a>\
-         <nav class=\"crumbs\" aria-label=\"面包屑\">{crumbs}</nav>\
-         {search}\
-         {toc_button}<button class=\"icon-btn theme-toggle\" id=\"theme-toggle\" type=\"button\" aria-label=\"切换主题\" title=\"主题：跟随系统\">\
+         <div class=\"topbar-actions\">{search}<button class=\"icon-btn theme-toggle\" id=\"theme-toggle\" type=\"button\" aria-label=\"切换主题\" title=\"主题：跟随系统\">\
          <span class=\"theme-icon theme-system\">{monitor}</span>\
          <span class=\"theme-icon theme-light\">{sun}</span>\
-         <span class=\"theme-icon theme-dark\">{moon}</span></button>\
-         </header><div class=\"{shell_class}\" id=\"shell\">{sidebar}<main class=\"main\">{body}</main>{toc_column}</div></div>\
+         <span class=\"theme-icon theme-dark\">{moon}</span></button></div>\
+         </header><div class=\"{shell_class}\" id=\"shell\">{sidebar}<main class=\"main\">{body}</main>{toc_rail}</div></div>\
          <div class=\"scrim\" id=\"scrim\" hidden></div></body></html>",
         title = escape_html(&page.title),
         nonce = nonce,
         version = version,
-        SERVER_CSS = SERVER_CSS,
         page_class = page_class,
+        islands = islands,
         panel = icon("panel"),
-        root = root,
-        crumbs = crumbs,
         search = search,
-        toc_button = toc_button,
         shell_class = shell_class,
-        toc_column = toc_column,
+        toc_rail = toc_rail,
         monitor = icon("monitor"),
         sun = icon("sun"),
         moon = icon("moon"),
@@ -2027,8 +2050,11 @@ mod tests {
         assert!(html.contains("<h1>hi</h1>"));
         assert!(html.contains("class=\"markdown-body\""));
         assert!(html.contains("class=\"shell has-toc\""));
-        assert!(html.contains("id=\"toc-nav\""));
-        assert!(html.contains("id=\"toc-toggle\""));
+        assert!(html.contains("class=\"toc-rail\" id=\"toc-rail\""));
+        assert!(html.contains("id=\"toc-slot\""));
+        assert!(html.contains("data-islands=\"theme sidebar search totop toc code zoom\""));
+        assert!(html.contains("class=\"search-wrap\""));
+        assert!(!html.contains("id=\"toc-toggle\""));
         assert!(!html.contains("<h1>源码</h1>"));
 
         let (status, _, body) = call(app, Method::GET, "/a.md?raw=1").await;
@@ -2435,14 +2461,26 @@ mod tests {
         assert_eq!(status, StatusCode::OK);
         let (status, _, _) = call(app.clone(), Method::GET, "/_assets/markdown.css").await;
         assert_eq!(status, StatusCode::OK);
-        let (status, _, _) = call(app.clone(), Method::GET, "/_assets/mdview.js").await;
+        let (status, _, _) = call(app.clone(), Method::GET, "/_assets/app.css").await;
         assert_eq!(status, StatusCode::OK);
+        let (status, headers, body) = call(app.clone(), Method::GET, "/_assets/app.js").await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            headers
+                .get(header::CONTENT_TYPE)
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .starts_with("text/javascript")
+        );
+        assert!(body.len() > 10_000);
 
         let (_, _, body) = call(app.clone(), Method::GET, "/a.md").await;
         let html = String::from_utf8(body).unwrap();
         assert!(html.contains("/_assets/markdown.css"));
         assert!(html.contains("/_assets/highlight.js"));
-        assert!(html.contains("/_assets/mdview.js"));
+        assert!(html.contains("/_assets/app.css"));
+        assert!(html.contains("/_assets/app.js"));
         assert!(html.contains(&format!("?v={}", crate::assets::asset_version())));
         assert!(html.contains("nonce="));
 

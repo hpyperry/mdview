@@ -6,9 +6,14 @@
 ## 构建
 
 ```bash
+npm --prefix web ci
 cargo build --release
 # 产物：target/release/mdview（macOS/Linux）或 mdview.exe（Windows）
 ```
+
+从源码构建需要 Node 22；`build.rs` 会运行 `web/` 的 esbuild 构建并把
+`app.js`/`app.css` 嵌入二进制。跨平台 musl 构建可先在 host 运行
+`npm --prefix web run build:web`，再用 `MDVIEW_WEB_PREBUILT=web/dist` 构建。
 
 CI 为四个目标平台构建单文件二进制：
 

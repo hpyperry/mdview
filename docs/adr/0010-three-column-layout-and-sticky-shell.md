@@ -1,6 +1,7 @@
 # 宽屏三列布局与 sticky 外壳
 
-**Status**: accepted（2026-10-19）
+**Status**: superseded by [ADR 0012](0012-island-frontend-architecture.md)
+（2026-10-20：全宽外壳、232/1fr/24 细轨、内容面 1240 / 阅读行 1000）
 
 用户报告左侧文件导航“没有填充完全”。实测：滚动后侧栏高度是
 `视口 - 顶栏`（1013 - 58 = 955px），但 sticky 到 `top: 0`，底部空出 58px。

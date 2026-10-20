@@ -9,6 +9,10 @@ __pycache__/
 # Rust 构建产物
 /target/
 
+# 前端依赖与本地构建产物（正式产物进入 Cargo OUT_DIR）
+/web/node_modules/
+/web/dist/
+
 # 虚拟环境（本项目零依赖，出现即代表本地临时试验）
 .venv/
 venv/

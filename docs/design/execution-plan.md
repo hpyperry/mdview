@@ -41,8 +41,8 @@ markdown-it 的差异，再决定是否全速实现。P0 不通过时，停下�
 **总量级**：单人全职约 **4–5 周**（含测试；按 ADR 0007 第二次下调）。最大变量仍是
 P2 的 URL/安全/表格对齐层；P1 可以先落骨架，P3 的资产准备可以在 P2 期间做。
 
-> **实现状态（2026-10-20）**：P1–P5 已完成；`cargo test` 46 + 134 + 27 golden、黑盒 117、pty 9、
-> 浏览器 76、artifact 冒烟 7，clippy/fmt 全绿，release 约 3.3 MB。P6 的 CI 矩阵、打包与依赖审计已实跑通过；
+> **实现状态（2026-10-20）**：P1–P5 已完成；`cargo test` 46 + 134 + 27 golden、黑盒 125、pty 9、
+> 浏览器 85、artifact 冒烟 7，clippy/fmt 全绿，release 约 3.3 MB。P6 的 CI 矩阵、打包与依赖审计已实跑通过；
 > 许可证 MIT，release tag 工作流待验证。
 
 ## 2. P0：解析器差分探针（决策门）
@@ -97,7 +97,7 @@ P2 的 URL/安全/表格对齐层；P1 可以先落骨架，P3 的资产准备�
 - [x] **P1-5 静态服务**：目录索引（面包屑、大小、mtime、下载按钮、搜索框）、
       二进制原样发送、`?download=1`（RFC 6266/5987）、`HEAD`、缓存头、流式文件、
       `/search?q=` 全文搜索。
-- [x] **P1-7 测试骨架**：Rust 单元/集成 + `tests/selftest-rust.sh`（后续扩到 117 项）
+- [x] **P1-7 测试骨架**：Rust 单元/集成 + `tests/selftest-rust.sh`（后续扩到 125 项）
       black-box；CI 骨架留到 P6。
 - [x] **P1-6 Trust/CSP**：用户配置目录、TOML、启动询问、非 TTY 默认未信任、
       `--trust/--untrusted`、4 档 CSP、nonce；未信任 `.md` 拦截面与一次性令牌
@@ -169,10 +169,10 @@ P2 的 URL/安全/表格对齐层；P1 可以先落骨架，P3 的资产准备�
 - [x] **P3-5 `mdview.js`**：highlight 初始化、复制按钮、图片放大 `<dialog>`、
       回到顶部；无 JS 时不出现死按钮；修饰键不劫持、Esc/背景关闭、焦点归还。
 - [x] **P3-6 文档站 chrome**：顶部栏、可折叠 sticky 侧栏、面包屑、主题三态；
-      Markdown 页 ≥1360px 为 240/780/220 三列，右侧 TOC 支持 scroll-spy 与独立收起；
+      Markdown 页 ≥1360px 为 232/1fr/24 TOC 细轨，内容面最大 1240、阅读行 1000；
       代码语言条、分组搜索页与错误/Trust 页统一（ADR 0008/0009/0010）。
 - [x] **P3-7 浏览器探针**：`tests/browser-probe.mjs` 在 headless Chrome 里跑
-      76 项：三列/sticky/侧栏底部贴底、TOC scroll-spy/开关、搜索提交、语言条、
+      85 项：全宽内容面/岛水合/TOC 细轨与浮层/搜索弹层、sticky、语言条、
       高亮、复制、放大/焦点、修饰键、主题三态、移动抽屉、目录/源码回顶、
       大源码分块/懒高亮、无 JS 全文、无外部请求。
 
@@ -194,7 +194,7 @@ P2 的 URL/安全/表格对齐层；P1 可以先落骨架，P3 的资产准备�
 - [x] **P4-1 移植 217 项渲染测试**：`tests/render_compat.rs` 134 项，按
       ADR 0005/0007 更新期望；纯 JS/CSS 旧断言（复制按钮、遮罩动画）属于
       被重写的客户端资产，不再逐条迁移。
-- [x] **P4-2 重写 345 项 HTTP 断言**：`tests/selftest-rust.sh` 117 项黑盒 +
+- [x] **P4-2 重写 345 项 HTTP 断言**：`tests/selftest-rust.sh` 125 项黑盒 +
       `src/` 46 项单元测试（server 23）覆盖目录/源码/下载/搜索/301/404/HEAD/
       MIME/嗅探/上限/端口回退/Trust/CSP/文件系统边界。旧 Python 特有断言
       （标题 id、任务列表 checkbox、服务端高亮、raw HTML 转义、Python 压缩器）

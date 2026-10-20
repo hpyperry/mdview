@@ -8,7 +8,9 @@ Rust 重写。旧 Python 单文件实现已删除，历史台账见
 ### 新增
 
 - 单文件原生二进制（macOS arm64 / Linux x86_64+arm64 musl / Windows x86_64 static CRT）；
-  内嵌 VS Code `markdown.css`、`highlight.css`、highlight.js 11.11.1 与客户端脚本。
+  内嵌 VS Code `markdown.css`、`highlight.css`、highlight.js 11.11.1 与岛屿前端。
+- 源码构建引入 `web/`（TypeScript + esbuild + Preact）与 Node 22；运行时仍不需要
+  Node。CI 的 musl 构建使用 `MDVIEW_WEB_PREBUILT` 复用 host 产物。
 - Markdown 语义与代码高亮对齐 VS Code 1.142.0；页面外壳改为文档站风格；
   P0 差分 98.07%（1015/1035），25 条 accepted deviations 有记录。
 - Trust 模型：目录级信任、未信任 `.md` 的一次性令牌拦截面、用户配置持久化。
@@ -16,11 +18,15 @@ Rust 重写。旧 Python 单文件实现已删除，历史台账见
   `form-action 'self'`（仅搜索表单）、nosniff。
 - 非 Markdown 文本统一源码查看页（行号、行锚点、客户端高亮）。
 - `data:image/*;…` 在链接与图片位置放行（VS Code 1.142 行为）；拒绝 `vscode:` 链接。
-- 文档站外壳：顶部栏、可折叠 sticky 侧栏、面包屑、主题三态、移动端抽屉；
-  Markdown 页 ≥1360px 为 240/780/220 三列，右侧 TOC 支持 scroll-spy 与独立收起。
+- 岛屿前端：TypeScript + esbuild 单入口，Preact 只用于 TOC/代码工具条/图片放大；
+  `body[data-islands]` 控制 8 个岛，外壳立即水合、重岛空闲/可见时启动。
+- 内容主导的全宽外壳：内容面最大 1240px、阅读行最大 1000px；≥1360px 为
+  232/1fr/24 TOC 细轨，901–1359px 两列，≤900px 单列；侧栏改为平面导航；
+  搜索改成顶栏图标 + 弹层，路径移入正文头部。
 - 搜索覆盖 Markdown/文本正文与所有文件名，结果按文件分组；Markdown 正文命中
   可打开文档或源码行。
-- 页内目录（运行时 h2/h3）、代码块语言条、目录分组列表、源码页“查看渲染页”回链。
+- 页内目录（运行时 h2/h3、细轨 + 浮层 + scroll-spy）、代码块语言条、
+  目录分组列表、源码页“查看渲染页”回链。
 - 大文本源码页全文分块：>256 KB 仍输出全文，按 500 行分块并用
   `content-visibility: auto` 跳过离屏绘制；1 MB 文本从约 42 s 降到约 0.08 s，
   10 MB 约 0.11 s（本机基准）。行锚点与高亮由 JS 按可见块懒加载。
@@ -42,8 +48,8 @@ Rust 重写。旧 Python 单文件实现已删除，历史台账见
 ### 测试
 
 - `cargo test`：46 项单元/集成 + 134 项渲染兼容 + 27 条 golden。
-- `bash tests/selftest-rust.sh`：117 项黑盒 HTTP 断言；`trust-tty.sh` 9 项；
-  `browser-probe.mjs` 76 项；性能预算 4 项；artifact 冒烟 7 项。
+- `bash tests/selftest-rust.sh`：125 项黑盒 HTTP 断言；`trust-tty.sh` 9 项；
+  `browser-probe.mjs` 85 项；性能预算 4 项；artifact 冒烟 7 项。
 - CI：macOS / Linux / Windows 测试矩阵、4 目标构建、`cargo audit`。
 
 ### 已知后果

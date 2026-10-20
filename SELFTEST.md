@@ -22,8 +22,9 @@
 | 渲染兼容 | `cargo test --test render_compat` | **134 passed** |
 | 静态检查 | `cargo clippy --all-targets -- -D warnings` | **通过** |
 | 格式 | `cargo fmt --all --check` | **通过** |
-| 黑盒 HTTP | `bash tests/selftest-rust.sh` | **PASS=117 FAIL=0** |
-| 浏览器验收 | `node tests/browser-probe.mjs` | **PASS=76 FAIL=0** |
+| Web 类型 | `npm --prefix web run typecheck` | **通过** |
+| 黑盒 HTTP | `bash tests/selftest-rust.sh` | **PASS=125 FAIL=0** |
+| 浏览器验收 | `node tests/browser-probe.mjs` | **PASS=85 FAIL=0** |
 | 源码页性能 | `node tests/perf-source.mjs` | **4 项预算通过** |
 | TTY 信任 | `bash tests/trust-tty.sh` | **PASS=9 FAIL=0** |
 | artifact 冒烟 | `bash tests/smoke-artifact.sh target/release/mdview` | **PASS=7 FAIL=0** |
@@ -38,6 +39,8 @@
 - Markdown：标题/粗体/删除线/任务列表字面量/裸 HTML/表格 `style`/标题无 id；
 - 源码页：行锚点、第 5 行内容、`查看渲染页`、下载入口；大于 256 KB 的文件
   全文输出为 24 个分块、服务端保留末行、无 `?text=1` 文本通道；
+- 岛屿清单：文档页 `theme sidebar search totop toc code zoom`，源码页
+  `theme sidebar search totop source`，搜索页与 `--no-search` 各自收敛；
 - 下载：Content-Disposition、原始字节、Markdown 类型；
 - 搜索：正文/文件名/大小写/中文/跳过隐藏目录与 `node_modules`；表单真实提交、
   按文件分组、文本源码命中、文件名覆盖图片；
@@ -60,15 +63,16 @@ P0 差分报告：1035 条计分语料 **1015 条精确匹配（98.07%）**，0 
 
 ## 浏览器验证
 
-`tests/browser-probe.mjs` 在真实 headless Chrome 里跑 **76 项**断言：
+`tests/browser-probe.mjs` 在真实 headless Chrome 里跑 **85 项**断言：
 
-- 文档站外壳：侧栏当前文件、代码语言条、移动端抽屉与遮罩；
-- 三列布局：≥1360 的 240/780/220、顶栏/侧栏/TOC sticky、滚动后底边贴视口、
-  TOC scroll-spy 与独立收起；
+- 岛屿：文档页按需水合 toc/code/zoom，源码页只挂 source；
+- 文档站外壳：全宽内容面、平面侧栏、代码语言条、移动端抽屉与遮罩；
+- 三列布局：≥1360 的 232/1fr/24、顶栏/侧栏/TOC sticky、TOC 浮层与 scroll-spy；
+  1200 两列并回到内联目录；
 - 分块源码页：全文 31 块、末行可达、`#L` 深链与目标行高亮、无自动语言探测、
   可见块懒高亮、长行横向滚动；
 - 性能预算：100 KB/1 MB/10 MB/1 MB Rust 源码页。
-- 搜索表单真实提交、结果分组、查询词高亮；
+- 搜索图标弹层、真实提交、搜索页独立表单、结果分组与查询词高亮；
 - highlight.js 实际着色、复制按钮与剪贴板反馈；
 - 图片放大：`href === src`、`showModal()`、焦点落在 dialog、关闭后焦点归还、
   修饰键不拦截；

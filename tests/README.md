@@ -7,9 +7,10 @@ Rust 实现的断言分多组：
 | `tests/render_compat.rs` | 渲染器回归（134 项）：内联/块/URL 重写/目标编码/引用式/data URI/裸 URL/放大包裹/属性转义/协议安全/性能 | `cargo test --test render_compat` |
 | `tests/golden.rs` + `tests/golden/` | 27 条 curated golden 的逐字节输出（accepted deviation 带 `note`） | `cargo test --test golden` |
 | `src/` 的 `#[cfg(test)]` | 模块内单元测试（46 项：render 10 / server 23 / trust 7 / cli 5 / assets 1） | `cargo test --lib` |
-| `selftest-rust.sh` | 真二进制的 black-box HTTP 断言（117 项：目录/渲染/源码/大源码全文分块/下载/搜索/Trust/CSP/安全/文件系统边界） | `bash tests/selftest-rust.sh` |
+| `web/src/` | TypeScript 类型检查（岛运行时、Preact 组件、源码岛） | `npm --prefix web run typecheck` |
+| `selftest-rust.sh` | 真二进制的 black-box HTTP 断言（125 项：目录/渲染/源码/大源码全文分块/岛清单/下载/搜索/Trust/CSP/安全/文件系统边界） | `bash tests/selftest-rust.sh` |
 | `trust-tty.sh` + `trust-tty.exp` | 真实 pty 下的信任询问、持久化、非 TTY 默认（9 项） | `bash tests/trust-tty.sh` |
-| `browser-probe.mjs` | headless Chrome 验收（76 项）：三列/sticky/TOC scroll-spy 与开关/侧栏/搜索提交/语言条/复制/放大/主题/大源码分块与懒高亮/无 JS 全文 | `node tests/browser-probe.mjs` |
+| `browser-probe.mjs` | headless Chrome 验收（85 项）：全宽内容面/三列细轨/两列降级/TOC 浮层与 scroll-spy/搜索弹层/岛水合/侧栏/语言条/复制/放大/主题/大源码分块/无 JS 全文 | `node tests/browser-probe.mjs` |
 | `perf-source.mjs` | 源码页性能预算：100 KB / 1 MB / 10 MB / 1 MB Rust（真实 Chrome，含末行完整性检查） | `node tests/perf-source.mjs` |
 | `smoke-artifact.sh` | 对已构建二进制做目录/渲染/资产/下载/CSP 冒烟（7 项） | `bash tests/smoke-artifact.sh <二进制>` |
 
@@ -22,6 +23,8 @@ Rust 实现的断言分多组：
 
 ```bash
 # 在仓库根执行
+npm --prefix web ci
+npm --prefix web run typecheck
 cargo test
 cargo clippy --all-targets -- -D warnings
 bash tests/selftest-rust.sh
@@ -58,7 +61,7 @@ bash tests/smoke-artifact.sh target/release/mdview
   均有宽松上界，拦住平方级退化。
 
 纯 JS/CSS 的旧断言（复制按钮、遮罩动画、主题变量）属于被重写的客户端资产，
-由 `assets/mdview.js` + `browser-probe.mjs` 覆盖。
+由 `web/src/` + `browser-probe.mjs` 覆盖。
 
 ## 其他套件
 
@@ -66,7 +69,8 @@ bash tests/smoke-artifact.sh target/release/mdview
   逐字节比较。有意修改渲染器后运行
   `cargo run --example golden -- --update` 并审阅 diff；`note` 字段标记
   accepted deviation。P0 的 markdown-it 差分 oracle 仍在 `tools/spike/`。
-- **browser-probe**：真实 headless Chrome 里验证 highlight.js 运行、复制按钮反馈、
+- **browser-probe**：真实 headless Chrome 里验证岛屿按页面水合、全宽内容面、
+  TOC 细轨/浮层与 scroll-spy、搜索弹层、highlight.js 运行、复制按钮反馈、
   放大遮罩的打开/关闭/焦点归还、修饰键不拦截、明暗主题、目录/源码页回顶、
   大源码全文分块/末行可达/行锚点/懒高亮/长行横向滚动、无 JS 基线无死按钮、
   大源码仍可读全文且页面无外部资源请求。

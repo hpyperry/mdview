@@ -140,7 +140,7 @@ BASE="http://127.0.0.1:$TRUST_PORT"
 HOME_HTML="$(curl -s "$BASE/")"
 chk "目录索引 200" "$(code "$BASE/")" "200"
 chk "目录列出 a.md" "$HOME_HTML" "a.md"
-chk "目录有搜索框" "$HOME_HTML" 'class="searchbox"'
+chk "目录有搜索入口" "$HOME_HTML" 'class="search-wrap"'
 chk "目录显示文件大小" "$HOME_HTML" ' B · '
 chk "文件带下载入口" "$HOME_HTML" 'a.md?download=1'
 nchk "目录不带下载入口" "$HOME_HTML" 'sub/?download=1'
@@ -173,6 +173,8 @@ SRC="$(curl -s "$BASE/b.txt")"
 chk "源码页行锚点" "$SRC" 'id="L1"'
 chk "源码页内容" "$SRC" "hello"
 chk "源码页下载入口" "$SRC" "?download=1"
+chk "源码页岛清单" "$SRC" 'data-islands="theme sidebar search totop source"'
+nchk "源码页不挂 TOC 岛" "$SRC" ' totop toc'
 
 BIG="$(curl -s "$BASE/big.txt")"
 chk "大源码分块" "$BIG" 'class="source-wrap source-chunked"'
@@ -184,6 +186,8 @@ nchk "大源码不截断" "$BIG" '前 1000 行'
 nchk "大源码无 text 通道" "$BIG" '?text=1'
 
 RENDER="$(curl -s "$BASE/a.md")"
+chk "文档岛清单" "$RENDER" 'data-islands="theme sidebar search totop toc code zoom"'
+nchk "文档不挂 source 岛" "$RENDER" ' source"'
 chk "Markdown 标题" "$RENDER" "<h1>Hello</h1>"
 chk "Markdown 粗体" "$RENDER" "<strong>bold</strong>"
 chk "Markdown 删除线" "$RENDER" "<s>del</s>"
@@ -214,6 +218,7 @@ chk "下载原始字节" "$(cat "$TMP/dl.md")" "# Hello"
 chk "文本下载" "$(curl -s "$BASE/b.txt?download=1")" "hello"
 
 SEARCH="$(curl -s --get --data-urlencode 'q=needle' "$BASE/search")"
+chk "搜索页岛清单" "$SEARCH" 'data-islands="theme sidebar search totop"'
 chk "搜索正文命中" "$SEARCH" "result-group"
 chk "搜索文件名命中" "$SEARCH" "search.md"
 chk "搜索大小写不敏感" "$(curl -s "$BASE/search?q=CASENEEDLE")" "CaseNeedle.md"
@@ -257,10 +262,12 @@ if [ "$TRAVERSAL_CODE" = "403" ] || [ "$TRAVERSAL_CODE" = "404" ]; then ok "路�
 chk "资产 highlight.js" "$(code "$BASE/_assets/highlight.js")" "200"
 chk "资产 highlight.css" "$(code "$BASE/_assets/highlight.css")" "200"
 chk "资产 markdown.css" "$(code "$BASE/_assets/markdown.css")" "200"
-chk "资产 mdview.js" "$(code "$BASE/_assets/mdview.js")" "200"
+chk "资产 app.css" "$(code "$BASE/_assets/app.css")" "200"
+chk "资产 app.js" "$(code "$BASE/_assets/app.js")" "200"
 ASSET_HTML="$(curl -s "$BASE/a.md")"
 chk "页面引用 highlight.js" "$ASSET_HTML" "/_assets/highlight.js"
-chk "页面引用 mdview.js" "$ASSET_HTML" "/_assets/mdview.js"
+chk "页面引用 app.css" "$ASSET_HTML" "/_assets/app.css"
+chk "页面引用 app.js" "$ASSET_HTML" "/_assets/app.js"
 
 HEADERS="$(curl -s -I "$BASE/img.png" | tr -d '\r' | tr '[:upper:]' '[:lower:]')"
 chk "HEAD 200" "$HEADERS" "200"
@@ -283,7 +290,9 @@ start_server "$NOS_PORT" --trust --no-search --port-tries 0
 wait_http "$NOS_PORT" || { echo "no-search server failed"; exit 2; }
 NOS="http://127.0.0.1:$NOS_PORT"
 chk "--no-search 关闭路由" "$(code "$NOS/search?q=x")" "404"
-nchk "--no-search 无搜索框" "$(curl -s "$NOS/")" 'class="search"'
+NOS_HTML="$(curl -s "$NOS/")"
+nchk "--no-search 无搜索入口" "$NOS_HTML" 'id="search-open"'
+chk "--no-search 岛清单省略 search" "$NOS_HTML" 'data-islands="theme sidebar totop"'
 
 echo "== max-preview server =="
 MP="$TMP/maxprev"

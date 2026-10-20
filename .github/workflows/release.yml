@@ -29,14 +29,26 @@ jobs:
         with:
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Build web assets
+        working-directory: web
+        run: npm ci && npm run build:web
       - name: Install cross for musl targets
         if: contains(matrix.target, 'linux-musl')
         uses: taiki-e/install-action@cross
       - name: Build (musl)
         if: contains(matrix.target, 'linux-musl')
+        env:
+          MDVIEW_WEB_PREBUILT: web/dist
         run: cross build --release --locked --target ${{ matrix.target }}
       - name: Build (native)
         if: ${{ !contains(matrix.target, 'linux-musl') }}
+        env:
+          MDVIEW_WEB_PREBUILT: web/dist
         run: cargo build --release --locked --target ${{ matrix.target }}
       - name: Package (unix)
         if: runner.os != 'Windows'
