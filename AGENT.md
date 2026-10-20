@@ -21,8 +21,8 @@ bash tests/selftest-rust.sh
 `npm --prefix web ci`。跨平台 musl 构建用
 `npm --prefix web run build:web` + `MDVIEW_WEB_PREBUILT=web/dist`。
 
-必须全绿：`cargo test`（46 单元 + 134 渲染兼容 + 27 golden）、125 项黑盒 HTTP、
-9 项 pty 信任测试、104 项 headless Chrome 验收、4 项源码页性能预算。
+必须全绿：`cargo test`（47 单元 + 134 渲染兼容 + 27 golden）、129 项黑盒 HTTP、
+9 项 pty 信任测试、121 项 headless Chrome 验收、4 项源码页性能预算。
 
 ## 规格来源
 
@@ -47,7 +47,7 @@ bash tests/selftest-rust.sh
 | `src/main.rs` / `src/lib.rs` | 二进制入口；`lib.rs` 暴露模块给集成测试 |
 | `src/cli.rs` | clap 参数与大小解析 |
 | `src/trust.rs` | Trust 配置读写、flag/存储/询问优先级 |
-| `src/server.rs` | axum 路由、目录索引、源码页/大源码分块、搜索、下载、CSP、token、缓存 |
+| `src/server.rs` | axum 路由、目录索引、全站导航 JSON、源码页/大源码分块、搜索、下载、CSP、token、缓存 |
 | `src/render.rs` | comrak 配置 + 自定义 formatter（链接/图片/表格/删除线）+ URL 重写 |
 | `src/assets.rs` | 内嵌 vendor 资产与 `OUT_DIR` 的 `app.js`/`app.css` |
 | `build.rs` | 编译时执行 web 构建；支持 `MDVIEW_WEB_PREBUILT` |
@@ -76,9 +76,10 @@ bash tests/selftest-rust.sh
    语言条、复制按钮、TOC 由 `web/src/` 的 island 运行时生成，服务端 Markdown 输出
    不得添加标题 id。
 
-   外壳布局约束：`.app` 最大 1680、外边距 16；顶栏 sticky `top:12`；≥1360px 为
-   232 / 1fr / 24px TOC 细轨，901–1359 两列，≤900 单列；内容面最大 1240、
-   阅读行最大 1000；侧栏是平面导航，不再有卡片背景。改布局后跑浏览器探针。
+   外壳布局约束：`.app` 最大 1680、外边距 16；顶栏 sticky `top:12`；正文始终是
+   主网格；≥1360px 才增加 24px TOC 细轨，901–1359 单列，≤900 单列。全站导航
+   是默认收起的浮层（桌面浮岛 / 移动抽屉），不占用正文列。内容面最大 1240、
+   阅读行最大 1000。改布局后跑浏览器探针。
 6. **目录 `rel` 带尾斜杠**：`list_dir` 入口会 `trim_end_matches('/')`；新增目录页逻辑
    注意不要拼出 `//` 或把 `/sub/` 的上级算成 `/sub/`。
 7. **搜索范围**：文件名覆盖所有文件；正文只扫 Markdown/文本，跳过隐藏目录、
@@ -87,10 +88,13 @@ bash tests/selftest-rust.sh
    用 CSS `content-visibility: auto` 跳过离屏布局与绘制；行锚点与语法高亮由
    `web/src/islands/source.ts` 按可见块懒加载。不要恢复服务端截断、`?text=1`
    文本通道、`connect-src` 或 highlightAuto；无 JS 必须仍能读全文。
-9. **岛屿边界**：8 个岛由 `body[data-islands]` 清单控制；岛只接管自己的控制区，
-   服务端 HTML 是权威。新增交互先判断是否能归入现有岛，不要回到一个全局
-   DOMContentLoaded 初始化器。
-10. 文档与提交信息用中文，提交前缀 `feat:` / `fix:` / `docs:` / `refactor:` /
+9. **岛屿边界**：8 个岛（theme/nav/search/totop/toc/code/zoom/source）由
+   `body[data-islands]` 清单控制；岛只接管自己的控制区，服务端 HTML 是权威。
+   新增交互先判断是否能归入现有岛，不要回到一个全局 DOMContentLoaded 初始化器。
+10. **全站导航**：`/_nav` 返回全站可见目录与所有文件；首次打开才 fetch，目录行
+    只展开、文件行才导航；每次加载默认收起，展开状态才存 localStorage。导航
+    不挤压正文。不要恢复“当前目录侧栏”或“目录/文件”分组文字。
+11. 文档与提交信息用中文，提交前缀 `feat:` / `fix:` / `docs:` / `refactor:` /
     `style:` / `test:`。
 
 ## 改哪里
@@ -102,9 +106,10 @@ bash tests/selftest-rust.sh
 | URL 编码/相对路径 | `rewrite_target` + `%20/%2520/%23/%3F` 测试 |
 | 新路由/页面 | `src/server.rs` 的 `app`/`handle` 与 `Page` 外壳 |
 | 搜索范围/结果 | `search_files` / `render_search`；正文只扫文本文件 |
-| 顶部栏/侧栏/页面 chrome/内容面 | `html_page`、`sidebar_html`、`crumbs_html` |
-| TOC/代码条/主题/侧栏/大源码分块 | `web/src/islands/*` |
+| 顶部栏/导航/页面 chrome/内容面 | `html_page`、`crumbs_html`、`nav.tsx` |
+| TOC/代码条/主题/导航/大源码分块 | `web/src/islands/*` |
 | 岛屿清单/水合策略 | `src/server.rs` 的 `data-islands` + `web/src/app.ts` |
+| 全站导航树/接口 | `src/server.rs` 的 `/_nav` + `web/src/islands/nav.tsx` |
 | CSP/安全级别 | `csp_header` + `csp_levels` 测试 |
 | Trust 配置 | `src/trust.rs` + 配置往返测试 |
 | 页面样式 | `web/src/styles/app.css`；VS Code 样式在 `assets/*.css` |
@@ -128,6 +133,8 @@ bash tests/selftest-rust.sh
   `npm --prefix web run typecheck`，`cargo build` 会自动重跑 esbuild。
 - **岛清单**：`body[data-islands]` 与页面实际控制区必须一致；源码页不要挂 `toc`，
   非文档页不要挂 `toc`/`code`/`zoom`，否则会出现空岛或错误初始化。
+- **导航不要回退**：`/_nav` 是懒加载全站树，导航只导航文件；目录行只展开。
+  中间目录页是一张统一列表，没有“目录/文件”分组标题。
 
 ## 测试约定
 

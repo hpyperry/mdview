@@ -37,21 +37,25 @@ cargo build --release
 [0009](docs/adr/0009-search-scope-and-form-csp.md)（搜索与同源表单）、
 [0010](docs/adr/0010-three-column-layout-and-sticky-shell.md)（三列与 sticky 外壳）、
 [0011](docs/adr/0011-chunked-source-viewer.md)（大源码全文分块）、
-[0012](docs/adr/0012-island-frontend-architecture.md)（岛屿前端与全宽外壳）。
+[0012](docs/adr/0012-island-frontend-architecture.md)（岛屿前端与全宽外壳）、
+[0013](docs/adr/0013-full-site-navigation-island.md)（全站导航浮岛与默认收起）。
 
 ## 功能
 
 ### 文档站外壳与搜索
 
-- 所有页面共用全宽顶部栏 + 平面目录栏 + 内容面；Markdown 页在 ≥1360px
-  增加 24px TOC 细轨（232 / 1fr / 24），1200–1359px 为两列，≤900px 单列；
+- 所有页面共用全宽顶部栏 + 内容面；Markdown 页在 ≥1360px 增加 24px TOC 细轨，
+  901–1359px 为单列，≤900px 单列；导航是默认收起的浮层，不占用正文网格；
 - 内容面最大 1240px、阅读行最大 1000px；代码块、表格随内容面变宽，正文行长受限；
-- 目录栏只列**当前目录**的目录与文本文件，sticky、桌面可收起、窄屏抽屉；
-- 顶部栏只保留产品名、搜索图标、主题三态和侧栏开关；页面路径放在正文头部；
+- 全站导航树首次打开时懒加载，包含所有可见目录与文件；目录行只展开/收起，
+  文件行才导航；当前路径自动展开，用户展开状态本地记忆；
+- 顶部栏只保留产品名、搜索图标、主题三态和导航开关；页面路径放在正文头部；
+- 导航默认收起，每次加载都收起；桌面浮岛覆盖、不挤压正文，≤900px 为抽屉 + 遮罩；
 - 搜索：图标 + 按需弹层（`/` 打开），提交进入搜索页；文件名覆盖所有文件，
   正文覆盖 Markdown/文本；结果按文件分组，Markdown 正文命中可“打开文档”或
   “源码 Ln”，文本命中直接进源码行；
-- CSP 放行同源表单（`form-action 'self'`），无 JS 时搜索图标直接进入搜索页；
+- CSP 放行同源表单（`form-action 'self'`）与导航 JSON（`connect-src 'self'`），
+无 JS 时搜索图标直接进入搜索页、导航入口隐藏；
 - 主题：跟随系统 / 浅色 / 深色，手动选择持久化；
 - 页内目录由浏览器从 h2/h3 生成（服务端不生成标题 id）；宽屏 TOC 细轨
   支持刻度跳转、浮层展开和 scroll-spy；窄屏回正文顶部；代码块有语言条与复制按钮。
@@ -74,7 +78,7 @@ cargo build --release
 
 | 请求 | 行为 |
 |------|------|
-| `GET /dir/` | 目录索引：目录/文件分组、大小/时间、下载按钮；上级导航在侧栏/面包屑 |
+| `GET /dir/` | 目录索引：无分组统一列表（目录在前）、大小/时间、下载按钮；上级导航在面包屑 |
 | `GET /x.md` | 渲染为 HTML（未信任目录先出现一次确认页） |
 | `GET /x.md?raw=1` | 源码查看页：行号、`id="L<n>"` 行锚点、回渲染/下载入口 |
 | `GET /x.md?download=1` | 原始字节 + `Content-Disposition` |
@@ -83,6 +87,7 @@ cargo build --release
 | 图片 / PDF | 按 MIME 内联 |
 | 其他 | `application/octet-stream` 下载 |
 | `GET /search?q=…` | 文件名搜所有文件；正文搜 Markdown/文本；按文件分组 |
+| `GET /_nav` | 全站导航树 JSON；包含所有可见目录与文件，供导航浮岛懒加载 |
 | `HEAD` / `301` / `404` | 支持；目录缺尾斜杠返回 301 |
 
 超过 `--max-preview`（默认 20 MiB）的文件一律改为下载，`?raw=1` 也不例外。
@@ -159,10 +164,10 @@ macOS / Linux / Windows 三平台跑 `cargo test` 与黑盒 HTTP 套件。
 ```bash
 npm --prefix web ci
 npm --prefix web run typecheck
-cargo test                      # 46 单元 + 134 渲染兼容 + 27 golden
+cargo test                      # 47 单元 + 134 渲染兼容 + 27 golden
 cargo clippy --all-targets -- -D warnings
-bash tests/selftest-rust.sh     # 125 项真二进制 HTTP 断言
-node tests/browser-probe.mjs      # 104 项 headless Chrome 验收
+bash tests/selftest-rust.sh     # 129 项真二进制 HTTP 断言
+node tests/browser-probe.mjs      # 121 项 headless Chrome 验收
 node tests/perf-source.mjs        # 4 项源码页性能预算
 bash tests/trust-tty.sh           # 9 项真实 pty 信任测试
 ```
@@ -208,6 +213,7 @@ md-preview/
   行号深链与懒高亮需要 JS。首次响应会携带完整源码，网络传输量随文件增大。
 - Trust 判定按根目录路径字符串保存；移动目录后需要重新确认。
 - 从源码构建需要 Node 22 与 `web/` 的 npm 依赖；运行时不需要。
+- 导航默认收起；无 JS 时不显示导航。目录行只展开，不进入目录页。
 - 无 JS 时没有 TOC 细轨/浮层、代码工具条与图片放大；正文与搜索页仍可读。
 - 许可证为 MIT，见 [`LICENSE`](LICENSE)；第三方组件见 [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md)。
 

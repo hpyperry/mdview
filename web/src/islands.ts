@@ -1,6 +1,6 @@
 import type { IslandDefinition } from './types';
 import { mountTheme } from './islands/theme';
-import { mountSidebar } from './islands/sidebar';
+import { mountNav } from './islands/nav';
 import { mountSearch } from './islands/search';
 import { mountBackToTop } from './islands/totop';
 import { mountToc } from './islands/toc';
@@ -15,11 +15,11 @@ export const islands: Record<string, IslandDefinition> = {
     root: () => document.getElementById('theme-toggle'),
     mount: mountTheme,
   },
-  sidebar: {
-    name: 'sidebar',
+  nav: {
+    name: 'nav',
     when: 'immediate',
-    root: () => document.getElementById('sidebar-toggle'),
-    mount: mountSidebar,
+    root: () => document.getElementById('nav-toggle'),
+    mount: mountNav,
   },
   search: {
     name: 'search',

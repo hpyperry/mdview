@@ -1,6 +1,7 @@
 # 岛屿前端与内容主导的全宽外壳
 
-**Status**: accepted（2026-10-20）
+**Status**: accepted（2026-10-20）；左侧当前目录侧栏与正文预留导航列由
+[ADR 0013](0013-full-site-navigation-island.md) 更新
 
 原前端是一个 `assets/mdview.js` IIFE：所有页面加载同一份脚本，DOMContentLoaded
 后执行 7 个初始化器。行为还能用，但改一个交互容易影响整页，且三列卡片把 780px

@@ -149,8 +149,8 @@ chk_num "下载入口数等于文件数" "$(count "$HOME_HTML" '?download=1')" "
 nchk "根目录无上级链接" "$HOME_HTML" '上级目录'
 chk "空目录提示" "$(curl -s "$BASE/empty/")" '这个目录是空的。'
 SUB_HTML="$(curl -s "$BASE/sub/")"
-chk "子目录有上级链接" "$SUB_HTML" '上级目录'
-chk "一级上级指到根" "$SUB_HTML" 'class="side-parent" href="/"'
+chk "子目录面包屑根链接" "$SUB_HTML" '<a href="/">'
+chk "子目录面包屑" "$SUB_HTML" 'aria-label="面包屑"'
 chk "子目录文件链接正确" "$SUB_HTML" 'href="/sub/c.md"'
 nchk "子目录无双重斜杠" "$SUB_HTML" '/sub//'
 nchk "上级链接不是 //" "$SUB_HTML" 'href="//"'
@@ -173,7 +173,7 @@ SRC="$(curl -s "$BASE/b.txt")"
 chk "源码页行锚点" "$SRC" 'id="L1"'
 chk "源码页内容" "$SRC" "hello"
 chk "源码页下载入口" "$SRC" "?download=1"
-chk "源码页岛清单" "$SRC" 'data-islands="theme sidebar search totop source"'
+chk "源码页岛清单" "$SRC" 'data-islands="theme nav search totop source"'
 nchk "源码页不挂 TOC 岛" "$SRC" ' totop toc'
 
 BIG="$(curl -s "$BASE/big.txt")"
@@ -186,7 +186,7 @@ nchk "大源码不截断" "$BIG" '前 1000 行'
 nchk "大源码无 text 通道" "$BIG" '?text=1'
 
 RENDER="$(curl -s "$BASE/a.md")"
-chk "文档岛清单" "$RENDER" 'data-islands="theme sidebar search totop toc code zoom"'
+chk "文档岛清单" "$RENDER" 'data-islands="theme nav search totop toc code zoom"'
 nchk "文档不挂 source 岛" "$RENDER" ' source"'
 chk "Markdown 标题" "$RENDER" "<h1>Hello</h1>"
 chk "Markdown 粗体" "$RENDER" "<strong>bold</strong>"
@@ -218,7 +218,12 @@ chk "下载原始字节" "$(cat "$TMP/dl.md")" "# Hello"
 chk "文本下载" "$(curl -s "$BASE/b.txt?download=1")" "hello"
 
 SEARCH="$(curl -s --get --data-urlencode 'q=needle' "$BASE/search")"
-chk "搜索页岛清单" "$SEARCH" 'data-islands="theme sidebar search totop"'
+chk "搜索页岛清单" "$SEARCH" 'data-islands="theme nav search totop"'
+NAVJSON="$(curl -s "$BASE/_nav")"
+chk "导航 JSON" "$NAVJSON" '"type":"dir"'
+chk "导航含文件" "$NAVJSON" '"name":"a.md"'
+nchk "导航跳过隐藏目录" "$NAVJSON" '".hidden"'
+chk "CSP connect-src" "$(header "$BASE/a.md" content-security-policy)" "connect-src 'self'"
 chk "搜索正文命中" "$SEARCH" "result-group"
 chk "搜索文件名命中" "$SEARCH" "search.md"
 chk "搜索大小写不敏感" "$(curl -s "$BASE/search?q=CASENEEDLE")" "CaseNeedle.md"
@@ -292,7 +297,7 @@ NOS="http://127.0.0.1:$NOS_PORT"
 chk "--no-search 关闭路由" "$(code "$NOS/search?q=x")" "404"
 NOS_HTML="$(curl -s "$NOS/")"
 nchk "--no-search 无搜索入口" "$NOS_HTML" 'id="search-open"'
-chk "--no-search 岛清单省略 search" "$NOS_HTML" 'data-islands="theme sidebar totop"'
+chk "--no-search 岛清单省略 search" "$NOS_HTML" 'data-islands="theme nav totop"'
 
 echo "== max-preview server =="
 MP="$TMP/maxprev"

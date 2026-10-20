@@ -18,11 +18,14 @@ Rust 重写。旧 Python 单文件实现已删除，历史台账见
   `form-action 'self'`（仅搜索表单）、nosniff。
 - 非 Markdown 文本统一源码查看页（行号、行锚点、客户端高亮）。
 - `data:image/*;…` 在链接与图片位置放行（VS Code 1.142 行为）；拒绝 `vscode:` 链接。
-- 岛屿前端：TypeScript + esbuild 单入口，Preact 只用于 TOC/代码工具条/图片放大；
+- 岛屿前端：TypeScript + esbuild 单入口，Preact 用于 TOC/代码工具条/图片放大/全站导航；
   `body[data-islands]` 控制 8 个岛，外壳立即水合、重岛空闲/可见时启动。
 - 内容主导的全宽外壳：内容面最大 1240px、阅读行最大 1000px；≥1360px 为
-  232/1fr/24 TOC 细轨，901–1359px 两列，≤900px 单列；侧栏改为平面导航；
-  搜索改成顶栏图标 + 弹层，路径移入正文头部。
+  正文 + 24px TOC 细轨，901–1359px 与 ≤900px 都为单列；搜索改成顶栏图标 + 弹层，
+  路径移入正文头部。
+- 全站导航浮岛：默认收起、首次打开才懒加载 `/_nav`，包含所有可见目录与文件；
+  目录行只展开、文件行导航，当前路径展开、用户展开状态记忆；桌面浮岛不挤压正文，
+  ≤900px 为抽屉 + 遮罩。目录页改为无分组的统一列表。
 - 搜索覆盖 Markdown/文本正文与所有文件名，结果按文件分组；Markdown 正文命中
   可打开文档或源码行。
 - 页内目录（运行时 h2/h3、细轨 + 浮层 + scroll-spy）、代码块语言条、
@@ -47,9 +50,9 @@ Rust 重写。旧 Python 单文件实现已删除，历史台账见
 
 ### 测试
 
-- `cargo test`：46 项单元/集成 + 134 项渲染兼容 + 27 条 golden。
-- `bash tests/selftest-rust.sh`：125 项黑盒 HTTP 断言；`trust-tty.sh` 9 项；
-  `browser-probe.mjs` 104 项；性能预算 4 项；artifact 冒烟 7 项。
+- `cargo test`：47 项单元/集成 + 134 项渲染兼容 + 27 条 golden。
+- `bash tests/selftest-rust.sh`：129 项黑盒 HTTP 断言；`trust-tty.sh` 9 项；
+  `browser-probe.mjs` 121 项；性能预算 4 项；artifact 冒烟 7 项。
 - CI：macOS / Linux / Windows 测试矩阵、4 目标构建、`cargo audit`。
 
 ### 已知后果

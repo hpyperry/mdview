@@ -5,16 +5,18 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 
+use axum::Json;
 use axum::Router;
 use axum::body::{Body, Bytes};
 use axum::extract::{Query, State};
 use axum::http::{Method, StatusCode, Uri, header};
-use axum::response::Response;
+use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use percent_encoding::{
     AsciiSet, CONTROLS, NON_ALPHANUMERIC, percent_decode_str, utf8_percent_encode,
 };
 use rand::RngCore;
+use serde::Serialize;
 use time::OffsetDateTime;
 use tokio::io::AsyncReadExt;
 use tokio_util::io::ReaderStream;
@@ -235,6 +237,7 @@ struct FileInfo {
 pub fn app(state: AppState) -> Router {
     Router::new()
         .route("/search", get(search))
+        .route("/_nav", get(nav))
         .route("/_assets/highlight.js", get(asset_highlight_js))
         .route("/_assets/highlight.css", get(asset_highlight_css))
         .route("/_assets/markdown.css", get(asset_markdown_css))
@@ -572,20 +575,14 @@ async fn list_dir(state: &AppState, path: &Path, rel: &str, is_head: bool) -> Re
             ));
         }
     }
-    let mut sections = String::new();
-    if !dir_rows.is_empty() {
-        sections.push_str("<div class=\"dir-section\"><h2>目录</h2>");
-        sections.push_str(&dir_rows);
-        sections.push_str("</div>");
-    }
-    if !file_rows.is_empty() {
-        sections.push_str("<div class=\"dir-section\"><h2>文件</h2>");
-        sections.push_str(&file_rows);
-        sections.push_str("</div>");
-    }
-    if sections.is_empty() {
-        sections.push_str("<div class=\"empty-state\">这个目录是空的。</div>");
-    }
+    let mut list = String::new();
+    list.push_str(&dir_rows);
+    list.push_str(&file_rows);
+    let sections = if list.is_empty() {
+        "<div class=\"empty-state\">这个目录是空的。</div>".to_string()
+    } else {
+        format!("<div class=\"dir-list\">{list}</div>")
+    };
     let dir_name = if rel.is_empty() {
         root_name(state)
     } else {
@@ -606,7 +603,6 @@ async fn list_dir(state: &AppState, path: &Path, rel: &str, is_head: bool) -> Re
         Page {
             title: dir_name,
             rel: rel.to_string(),
-            sidebar_dir: rel.to_string(),
             query: String::new(),
             kind: PageKind::Dir,
             body,
@@ -658,7 +654,6 @@ async fn search(
                 format!("搜索 {q}")
             },
             rel: String::new(),
-            sidebar_dir: String::new(),
             query: q,
             kind: PageKind::Search,
             body,
@@ -666,6 +661,123 @@ async fn search(
         is_head,
     )
     .await
+}
+
+#[derive(Serialize)]
+struct NavPayload {
+    root: String,
+    tree: Vec<NavNode>,
+}
+
+#[derive(Serialize)]
+struct NavNode {
+    name: String,
+    path: String,
+    #[serde(rename = "type")]
+    kind: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    href: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    file_kind: Option<&'static str>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    children: Vec<NavNode>,
+}
+
+fn nav_file_kind(path: &Path) -> &'static str {
+    let name = path.file_name().and_then(OsStr::to_str).unwrap_or("");
+    let ext = path
+        .extension()
+        .and_then(OsStr::to_str)
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    if ext == "md" || ext == "markdown" || ext == "mdx" {
+        "doc"
+    } else if IMAGE_EXT.contains(&ext.as_str()) {
+        "image"
+    } else if ext == "pdf" {
+        "pdf"
+    } else if is_text_ext(&ext) || is_text_name(name) {
+        "text"
+    } else {
+        "binary"
+    }
+}
+
+fn nav_children(root: &Path, dir: &Path, safe: bool) -> std::io::Result<Vec<NavNode>> {
+    let mut entries = Vec::new();
+    for entry in std::fs::read_dir(dir)? {
+        let entry = entry?;
+        let name = entry.file_name().to_string_lossy().to_string();
+        if name == ".DS_Store" {
+            continue;
+        }
+        let file_type = entry.file_type()?;
+        if file_type.is_dir() && (name.starts_with('.') || SKIP_DIRS.contains(&name.as_str())) {
+            continue;
+        }
+        if file_type.is_dir() || file_type.is_file() {
+            entries.push((file_type.is_dir(), name, entry.path()));
+        }
+    }
+    entries.sort_by(|a, b| {
+        b.0.cmp(&a.0)
+            .then_with(|| a.1.to_lowercase().cmp(&b.1.to_lowercase()))
+    });
+
+    let mut nodes = Vec::new();
+    for (is_dir, name, path) in entries {
+        let rel = path
+            .strip_prefix(root)
+            .unwrap_or(&path)
+            .to_string_lossy()
+            .replace('\\', "/");
+        if is_dir {
+            let children = nav_children(root, &path, safe)?;
+            nodes.push(NavNode {
+                name,
+                path: rel,
+                kind: "dir",
+                href: None,
+                file_kind: None,
+                children,
+            });
+        } else {
+            if safe && !allowed_in_safe_mode(&path) {
+                continue;
+            }
+            nodes.push(NavNode {
+                name,
+                href: Some(format!("/{}", encode_path(&rel))),
+                path: rel,
+                kind: "file",
+                file_kind: Some(nav_file_kind(&path)),
+                children: Vec::new(),
+            });
+        }
+    }
+    Ok(nodes)
+}
+
+fn nav_payload(root: &Path, safe: bool) -> std::io::Result<NavPayload> {
+    let root_name = root
+        .file_name()
+        .and_then(OsStr::to_str)
+        .filter(|name| !name.is_empty())
+        .unwrap_or("docs")
+        .to_string();
+    Ok(NavPayload {
+        root: root_name,
+        tree: nav_children(root, root, safe)?,
+    })
+}
+
+async fn nav(State(state): State<AppState>) -> Response {
+    let root = state.root.clone();
+    let safe = state.safe;
+    match tokio::task::spawn_blocking(move || nav_payload(&root, safe)).await {
+        Ok(Ok(payload)) => ([(header::CACHE_CONTROL, "no-store")], Json(payload)).into_response(),
+        _ => (StatusCode::INTERNAL_SERVER_ERROR, "无法读取导航").into_response(),
+    }
 }
 
 #[derive(Default)]
@@ -1082,7 +1194,6 @@ async fn source_page(
         Page {
             title: format!("源码 {name}"),
             rel: rel.to_string(),
-            sidebar_dir: parent_rel(rel).to_string(),
             query: String::new(),
             kind: PageKind::Source,
             body,
@@ -1158,7 +1269,6 @@ async fn render_page(state: &AppState, path: &Path, rel: &str, is_head: bool) ->
         Page {
             title: name.to_string(),
             rel: rel.to_string(),
-            sidebar_dir: parent_rel(rel).to_string(),
             query: String::new(),
             kind: PageKind::Doc,
             body,
@@ -1190,7 +1300,6 @@ async fn interstitial_page(state: &AppState, rel: &str, is_head: bool) -> Respon
         Page {
             title: "未信任目录".to_string(),
             rel: rel.to_string(),
-            sidebar_dir: parent_rel(rel).to_string(),
             query: String::new(),
             kind: PageKind::Other,
             body,
@@ -1303,7 +1412,6 @@ enum PageKind {
 struct Page {
     title: String,
     rel: String,
-    sidebar_dir: String,
     query: String,
     kind: PageKind,
     body: String,
@@ -1382,11 +1490,7 @@ fn crumbs_html(rel: &str, kind: PageKind) -> String {
     }
     let parts: Vec<&str> = rel.split('/').filter(|part| !part.is_empty()).collect();
     if parts.is_empty() {
-        return if kind == PageKind::Dir {
-            "<span class=\"current\">目录</span>".to_string()
-        } else {
-            String::new()
-        };
+        return String::new();
     }
     let mut html = String::new();
     let mut accumulated = String::new();
@@ -1438,119 +1542,9 @@ fn topbar_search(query: &str) -> String {
     )
 }
 
-fn is_sidebar_file(name: &str) -> bool {
-    let ext = Path::new(name)
-        .extension()
-        .and_then(OsStr::to_str)
-        .unwrap_or("")
-        .to_ascii_lowercase();
-    ext == "md" || is_text_ext(&ext) || is_text_name(name)
-}
-
-async fn sidebar_html(state: &AppState, dir_rel: &str, active_rel: &str) -> String {
-    let dir_rel = dir_rel.trim_matches('/');
-    let active_rel = active_rel.trim_matches('/');
-    let dir_path = if dir_rel.is_empty() {
-        state.root.clone()
-    } else {
-        state.root.join(dir_rel)
-    };
-    let mut dirs: Vec<String> = Vec::new();
-    let mut files: Vec<String> = Vec::new();
-    if let Ok(mut read_dir) = tokio::fs::read_dir(&dir_path).await {
-        while let Ok(Some(entry)) = read_dir.next_entry().await {
-            let name = entry.file_name().to_string_lossy().to_string();
-            if name == ".DS_Store" {
-                continue;
-            }
-            let Ok(file_type) = entry.file_type().await else {
-                continue;
-            };
-            if file_type.is_dir() {
-                if name.starts_with('.') || SKIP_DIRS.contains(&name.as_str()) {
-                    continue;
-                }
-                dirs.push(name);
-            } else if file_type.is_file()
-                && is_sidebar_file(&name)
-                && (!state.safe || allowed_in_safe_mode(&entry.path()))
-            {
-                files.push(name);
-            }
-        }
-    }
-    dirs.sort_by_key(|name| name.to_lowercase());
-    files.sort_by_key(|name| name.to_lowercase());
-
-    let current = if dir_rel.is_empty() {
-        root_name(state)
-    } else {
-        dir_rel.rsplit('/').next().unwrap_or(dir_rel).to_string()
-    };
-    let mut html = format!(
-        "<aside class=\"sidebar\" id=\"sidebar\" aria-label=\"当前目录\">\
-         <div class=\"side-head\"><span>当前目录</span><span class=\"side-current\">{}</span></div>",
-        escape_html(&current)
-    );
-    if !dir_rel.is_empty() {
-        let parent = parent_rel(dir_rel);
-        let href = if parent.is_empty() {
-            "/".to_string()
-        } else {
-            format!("/{}/", encode_path(parent))
-        };
-        html.push_str(&format!(
-            "<a class=\"side-parent\" href=\"{href}\">{}<span>上级目录</span></a>",
-            icon("arrow-left")
-        ));
-    }
-    if !dirs.is_empty() {
-        html.push_str("<div class=\"side-label\">目录</div>");
-        for name in &dirs {
-            let href = join_href(dir_rel, name, true);
-            html.push_str(&format!(
-                "<a class=\"side-link\" href=\"{href}\">{}<span>{}</span></a>",
-                icon("folder"),
-                escape_html(name)
-            ));
-        }
-    }
-    if !files.is_empty() {
-        html.push_str("<div class=\"side-label\">文件</div>");
-        for name in &files {
-            let href = join_href(dir_rel, name, false);
-            let rel_path = if dir_rel.is_empty() {
-                name.clone()
-            } else {
-                format!("{dir_rel}/{name}")
-            };
-            let active = rel_path == active_rel;
-            html.push_str(&format!(
-                "<a class=\"side-link{}\" href=\"{href}\"{}>{}<span>{}</span></a>",
-                if active { " active" } else { "" },
-                if active { " aria-current=\"page\"" } else { "" },
-                icon("file"),
-                escape_html(name)
-            ));
-        }
-    }
-    if dirs.is_empty() && files.is_empty() {
-        html.push_str("<div class=\"side-empty\">这个目录没有可导航的文本文件。</div>");
-    }
-    html.push_str("<div class=\"side-foot\">只读 · 离线<br>");
-    if state.no_search {
-        html.push_str("搜索已关闭");
-    } else {
-        html.push_str("搜索覆盖 .md 与文本源码");
-    }
-    html.push_str("</div></aside>");
-    html
-}
-
 async fn html_page(state: &AppState, status: StatusCode, page: Page, is_head: bool) -> Response {
     let nonce = random_nonce();
     let version = crate::assets::asset_version();
-    let sidebar = sidebar_html(state, &page.sidebar_dir, &page.rel).await;
     let search = if state.no_search {
         String::new()
     } else {
@@ -1570,7 +1564,7 @@ async fn html_page(state: &AppState, status: StatusCode, page: Page, is_head: bo
         PageKind::Search => "search",
         PageKind::Other => "other",
     };
-    let mut islands = vec!["theme", "sidebar"];
+    let mut islands = vec!["theme", "nav"];
     if !state.no_search {
         islands.push("search");
     }
@@ -1582,6 +1576,12 @@ async fn html_page(state: &AppState, status: StatusCode, page: Page, is_head: bo
         islands.push("source");
     }
     let islands = islands.join(" ");
+    let root = escape_html(&root_name(state));
+    let current_path = match page.kind {
+        PageKind::Dir | PageKind::Doc | PageKind::Source => page.rel.as_str(),
+        _ => "",
+    };
+    let current_is_dir = if page.kind == PageKind::Dir { "1" } else { "0" };
     let html = format!(
         "<!doctype html><html lang=\"zh-CN\" class=\"no-js\"><head><meta charset=\"utf-8\">\
          <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\
@@ -1589,28 +1589,33 @@ async fn html_page(state: &AppState, status: StatusCode, page: Page, is_head: bo
          <script nonce=\"{nonce}\">(function(){{try{{var t=localStorage.getItem('mdview-theme');\
          if(t==='light'||t==='dark'){{document.documentElement.dataset.theme=t;document.documentElement.dataset.themeMode=t;}}\
          else if(t==='system'){{document.documentElement.dataset.themeMode='system';}}\
-         var s=localStorage.getItem('mdview-sidebar');if(s==='collapsed'){{document.documentElement.dataset.sidebar='collapsed';}}\
          }}catch(e){{}}}})();</script>\
          <link rel=\"stylesheet\" href=\"/_assets/markdown.css?v={version}\">\
          <link rel=\"stylesheet\" href=\"/_assets/highlight.css?v={version}\">\
          <link rel=\"stylesheet\" href=\"/_assets/app.css?v={version}\">\
          <script nonce=\"{nonce}\" src=\"/_assets/highlight.js?v={version}\" defer></script>\
          <script nonce=\"{nonce}\" src=\"/_assets/app.js?v={version}\" defer></script>\
-         </head><body data-totop=\"1\" data-page=\"{page_class}\" data-islands=\"{islands}\">\
+         </head><body data-totop=\"1\" data-page=\"{page_class}\" data-islands=\"{islands}\" \
+         data-current-path=\"{current_path}\" data-current-dir=\"{current_is_dir}\">\
          <div class=\"app\"><header class=\"topbar\">\
-         <button class=\"icon-btn sidebar-toggle\" id=\"sidebar-toggle\" type=\"button\" aria-label=\"切换目录栏\">{panel}</button>\
+         <button class=\"icon-btn nav-toggle\" id=\"nav-toggle\" type=\"button\" aria-label=\"打开全站导航\" aria-expanded=\"false\">{panel}</button>\
          <a class=\"brand\" href=\"/\"><span class=\"brand-mark\">m</span><span>mdview</span></a>\
          <div class=\"topbar-actions\">{search}<button class=\"icon-btn theme-toggle\" id=\"theme-toggle\" type=\"button\" aria-label=\"切换主题\" title=\"主题：跟随系统\">\
          <span class=\"theme-icon theme-system\">{monitor}</span>\
          <span class=\"theme-icon theme-light\">{sun}</span>\
          <span class=\"theme-icon theme-dark\">{moon}</span></button></div>\
-         </header><div class=\"{shell_class}\" id=\"shell\">{sidebar}<main class=\"main\">{body}</main>{toc_rail}</div></div>\
-         <div class=\"scrim\" id=\"scrim\" hidden></div></body></html>",
+         </header>\
+         <aside class=\"nav-panel\" id=\"nav-panel\" data-root=\"{root}\" aria-label=\"全站导航\" aria-hidden=\"true\"></aside>\
+         <div class=\"nav-scrim\" id=\"nav-scrim\"></div>\
+         <div class=\"{shell_class}\" id=\"shell\"><main class=\"main\">{body}</main>{toc_rail}</div></div></body></html>",
         title = escape_html(&page.title),
         nonce = nonce,
         version = version,
         page_class = page_class,
         islands = islands,
+        root = root,
+        current_path = escape_html(current_path),
+        current_is_dir = current_is_dir,
         panel = icon("panel"),
         search = search,
         shell_class = shell_class,
@@ -1618,7 +1623,6 @@ async fn html_page(state: &AppState, status: StatusCode, page: Page, is_head: bo
         monitor = icon("monitor"),
         sun = icon("sun"),
         moon = icon("moon"),
-        sidebar = sidebar,
         body = page.body
     );
     let length = html.len();
@@ -1663,7 +1667,6 @@ async fn error_page(
         Page {
             title: title.to_string(),
             rel: String::new(),
-            sidebar_dir: String::new(),
             query: String::new(),
             kind: PageKind::Other,
             body,
@@ -1873,7 +1876,7 @@ fn csp_header(level: u8, nonce: &str) -> Option<String> {
          media-src 'self' https: data:{img_extra}; script-src 'nonce-{nonce}'; \
          style-src 'self' 'unsafe-inline' https: data:{style_extra}; \
          font-src 'self' https: data:{font_extra}; frame-src 'none'; \
-         form-action 'self'; base-uri 'none'; object-src 'none'"
+         form-action 'self'; connect-src 'self'; base-uri 'none'; object-src 'none'"
     ))
 }
 
@@ -1979,8 +1982,11 @@ mod tests {
 
         let (_, _, body) = call(app.clone(), Method::GET, "/sub/").await;
         let html = String::from_utf8(body).unwrap();
-        assert!(html.contains("上级目录"), "{html}");
-        assert!(html.contains("class=\"side-parent\" href=\"/\""), "{html}");
+        assert!(html.contains("aria-label=\"面包屑\""), "{html}");
+        assert!(html.contains("<a href=\"/\">"), "{html}");
+        assert!(!html.contains("上级目录"), "{html}");
+        assert!(!html.contains("<h2>目录</h2>"), "{html}");
+        assert!(!html.contains("<h2>文件</h2>"), "{html}");
         assert!(html.contains("href=\"/sub/c.md\""), "{html}");
         assert!(!html.contains("//c.md"), "{html}");
 
@@ -2068,7 +2074,10 @@ mod tests {
         assert!(html.contains("class=\"shell has-toc\""));
         assert!(html.contains("class=\"toc-rail\" id=\"toc-rail\""));
         assert!(html.contains("id=\"toc-slot\""));
-        assert!(html.contains("data-islands=\"theme sidebar search totop toc code zoom\""));
+        assert!(html.contains("data-islands=\"theme nav search totop toc code zoom\""));
+        assert!(html.contains("id=\"nav-toggle\""));
+        assert!(html.contains("id=\"nav-panel\""));
+        assert!(!html.contains("sidebar-toggle"));
         assert!(html.contains("class=\"search-wrap\""));
         assert!(!html.contains("id=\"toc-toggle\""));
         assert!(!html.contains("<h1>源码</h1>"));
@@ -2338,6 +2347,54 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn nav_endpoint_lists_full_tree_without_hidden_dirs() {
+        let dir = fixture();
+        std::fs::create_dir(dir.path().join(".hidden")).unwrap();
+        std::fs::write(dir.path().join(".hidden").join("h.md"), "# hidden\n").unwrap();
+        let app = app(state(dir.path(), false, 0, 0));
+        let (status, headers, body) = call(app, Method::GET, "/_nav").await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            headers
+                .get(header::CONTENT_TYPE)
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .starts_with("application/json")
+        );
+        let payload: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(
+            payload["root"],
+            dir.path().file_name().unwrap().to_str().unwrap()
+        );
+        let tree = payload["tree"].as_array().unwrap();
+        assert_eq!(tree[0]["type"], "dir", "directories sort first");
+        assert!(
+            tree.iter()
+                .any(|node| node["name"] == "img.png" && node["file_kind"] == "image")
+        );
+        assert!(
+            tree.iter()
+                .any(|node| node["name"] == "bin.dat" && node["file_kind"] == "binary")
+        );
+        let sub = tree.iter().find(|node| node["name"] == "sub").unwrap();
+        assert!(
+            sub["children"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|node| node["name"] == "c.md")
+        );
+        assert!(!body.windows(8).any(|window| window == b".hidden"));
+
+        let safe_app = super::app(state(dir.path(), true, 0, 0));
+        let (status, _, safe_body) = call(safe_app, Method::GET, "/_nav").await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(!safe_body.windows(7).any(|window| window == b"bin.dat"));
+        assert!(safe_body.windows(7).any(|window| window == b"img.png"));
+    }
+
+    #[tokio::test]
     async fn csp_levels() {
         let dir = fixture();
         let strict = app(state(dir.path(), false, 0, 0));
@@ -2349,7 +2406,7 @@ mod tests {
             .unwrap();
         assert!(csp.contains("script-src 'nonce-"));
         assert!(csp.contains("form-action 'self'"));
-        assert!(!csp.contains("connect-src"));
+        assert!(csp.contains("connect-src 'self'"));
         assert!(!csp.contains("'self' 'nonce"));
 
         let (_, headers, _) = call(strict, Method::GET, "/").await;

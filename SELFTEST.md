@@ -17,14 +17,14 @@
 
 | 套件 | 命令 | 结果 |
 |---|---|---|
-| 单元/集成 | `cargo test --lib` | **46 passed** |
+| 单元/集成 | `cargo test --lib` | **47 passed** |
 | Golden | `cargo test --test golden` | **27 cases passed** |
 | 渲染兼容 | `cargo test --test render_compat` | **134 passed** |
 | 静态检查 | `cargo clippy --all-targets -- -D warnings` | **通过** |
 | 格式 | `cargo fmt --all --check` | **通过** |
 | Web 类型 | `npm --prefix web run typecheck` | **通过** |
-| 黑盒 HTTP | `bash tests/selftest-rust.sh` | **PASS=125 FAIL=0** |
-| 浏览器验收 | `node tests/browser-probe.mjs` | **PASS=104 FAIL=0** |
+| 黑盒 HTTP | `bash tests/selftest-rust.sh` | **PASS=129 FAIL=0** |
+| 浏览器验收 | `node tests/browser-probe.mjs` | **PASS=121 FAIL=0** |
 | 源码页性能 | `node tests/perf-source.mjs` | **4 项预算通过** |
 | TTY 信任 | `bash tests/trust-tty.sh` | **PASS=9 FAIL=0** |
 | artifact 冒烟 | `bash tests/smoke-artifact.sh target/release/mdview` | **PASS=7 FAIL=0** |
@@ -35,12 +35,13 @@
 
 ## 黑盒覆盖
 
-- 目录索引：目录/文件分组、大小、下载按钮只给文件、侧栏上级目录、空目录、301 编码；
+- 目录索引：无分组的统一列表（目录在前）、大小、下载按钮只给文件、面包屑、空目录、301 编码；
 - Markdown：标题/粗体/删除线/任务列表字面量/裸 HTML/表格 `style`/标题无 id；
 - 源码页：行锚点、第 5 行内容、`查看渲染页`、下载入口；大于 256 KB 的文件
   全文输出为 24 个分块、服务端保留末行、无 `?text=1` 文本通道；
-- 岛屿清单：文档页 `theme sidebar search totop toc code zoom`，源码页
-  `theme sidebar search totop source`，搜索页与 `--no-search` 各自收敛；
+- 岛屿清单：文档页 `theme nav search totop toc code zoom`，源码页
+  `theme nav search totop source`，搜索页与 `--no-search` 各自收敛；
+- 导航 JSON：全站树、目录优先、所有文件、隐藏目录过滤、safe 模式过滤；
 - 下载：Content-Disposition、原始字节、Markdown 类型；
 - 搜索：正文/文件名/大小写/中文/跳过隐藏目录与 `node_modules`；表单真实提交、
   按文件分组、文本源码命中、文件名覆盖图片；
@@ -63,20 +64,21 @@ P0 差分报告：1035 条计分语料 **1015 条精确匹配（98.07%）**，0 
 
 ## 浏览器验证
 
-`tests/browser-probe.mjs` 在真实 headless Chrome 里跑 **104 项**断言：
+`tests/browser-probe.mjs` 在真实 headless Chrome 里跑 **121 项**断言：
 
 - 岛屿：文档页按需水合 toc/code/zoom，源码页只挂 source；
-- 文档站外壳：全宽内容面、平面侧栏、完整面包屑、代码语言条、移动端抽屉与遮罩；
-- 三列布局：≥1360 的 232/1fr/24、顶栏/侧栏/TOC sticky、TOC 浮层与 scroll-spy；
-  1200 两列并回到内联目录；
+- 文档站外壳：全宽内容面、默认收起的全站导航浮岛、完整面包屑、代码语言条、移动端抽屉与遮罩；
+- 布局：≥1360 的正文 + 24px TOC 细轨、顶栏/TOC sticky、TOC 浮层与 scroll-spy；
+  1200 单列并回到内联目录；导航浮层不挤压正文。
 - 分块源码页：全文 31 块、末行可达、`#L` 深链与目标行高亮、无自动语言探测、
   可见块懒高亮、长行横向滚动；
 - 性能预算：100 KB/1 MB/10 MB/1 MB Rust 源码页。
+- 导航懒加载/全站树/目录只展开/文件导航/展开记忆/默认收起/移动抽屉；
 - 搜索图标弹层、真实提交、搜索页独立表单、结果分组与查询词高亮；
 - highlight.js 实际着色、复制按钮与剪贴板反馈；
 - 图片放大：`href === src`、`showModal()`、焦点落在 dialog、关闭后焦点归还、
   修饰键不拦截；
-- 主题三态切换（浅色/深色/系统）与侧栏收起；
+- 主题三态切换（浅色/深色/系统）；
 - 目录页/源码页的回到顶部按钮与平滑滚动；
 - 无 JS 基线：无 `<dialog>`/复制/语言条/回顶/目录死按钮，隐藏主题开关，
   正文可读，服务端不输出高亮 span；大源码仍读得到末行与总行数；
@@ -89,13 +91,15 @@ P0 差分报告：1035 条计分语料 **1015 条精确匹配（98.07%）**，0 
 
 - 最近一次完整绿色：`CI · 39423447824`（2026-10-20，`0fd5478`），8/8 job
   成功；macOS/Ubuntu/Windows 测试、Node 类型检查、4 目标构建全绿。
+- 全站导航/浮动岛改动按用户要求只在本地验证，未推送、未触发新的远程 CI；
+  下面的 129/121 是本地结果，远程 CI 仍停在上一版。
 - 岛屿架构首跑 `39421064321` 暴露两个 CI 问题：Linux Chrome 因新增的
   headless 启动参数没有在 15s 内暴露 DevTools；musl 的 cross 容器默认不传递
   `MDVIEW_WEB_PREBUILT`，导致 build.rs 在容器内找 npm。修复为移除多余启动
   参数、DevTools 超时 30s，并加 `Cross.toml` 透传预构建路径。
 - 更早的 `39285530389` 曾受 GitHub Actions `degraded_performance` 影响，
   8 个 job 长时间 queued；那是平台事件，不是代码失败。
-- 测试矩阵覆盖：`cargo test`、黑盒 125、TTY 9、浏览器 85、源码页性能 4；
+- 测试矩阵覆盖：`cargo test`、黑盒 129、TTY 9、浏览器 121、源码页性能 4；
   Windows 跳过 pty/浏览器/性能，其余全跑。
 - artifact 冒烟：macOS arm64、Linux x86_64 musl、Windows x86_64 通过；
   Linux arm64 musl 只构建（x86 runner 无法执行 arm64）。
