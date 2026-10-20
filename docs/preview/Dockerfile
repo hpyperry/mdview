@@ -1,8 +1,11 @@
 # 中文注释：Dockerfile
-FROM python:3.12-slim AS builder
+FROM rust:1.96-slim AS builder
 ENV LANG=C.UTF-8
 WORKDIR /app
-COPY mdview.py ./
-RUN echo "中文构建步骤"
+COPY . .
+RUN cargo build --release --locked
+
+FROM debian:bookworm-slim
+COPY --from=builder /app/target/release/mdview /usr/local/bin/mdview
 EXPOSE 8000
-CMD ["python3", "mdview.py"]
+CMD ["mdview", "--root", "/docs", "--host", "0.0.0.0"]

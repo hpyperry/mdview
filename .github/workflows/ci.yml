@@ -1,0 +1,145 @@
+name: CI
+
+on:
+  push:
+    branches: [main, refactor/new-md-view-server]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install web dependencies
+        working-directory: web
+        run: npm ci
+      - name: Typecheck web
+        working-directory: web
+        run: npm run typecheck
+      - name: Install expect (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y expect
+      - name: Format
+        if: runner.os == 'Linux'
+        run: cargo fmt --all --check
+      - name: Clippy
+        run: cargo clippy --all-targets --locked -- -D warnings
+      - name: Unit and integration tests
+        run: cargo test --locked
+      - name: Black-box HTTP tests
+        shell: bash
+        run: bash tests/selftest-rust.sh
+      - name: TTY trust prompt
+        if: runner.os != 'Windows'
+        shell: bash
+        run: bash tests/trust-tty.sh
+      - name: Browser acceptance probe
+        if: runner.os != 'Windows'
+        run: node tests/browser-probe.mjs
+      - name: Source page performance
+        if: runner.os == 'Linux'
+        run: node tests/perf-source.mjs
+
+  build:
+    name: build (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            os: macos-14
+          - target: x86_64-unknown-linux-musl
+            os: ubuntu-latest
+          - target: aarch64-unknown-linux-musl
+            os: ubuntu-latest
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Build web assets
+        working-directory: web
+        run: npm ci && npm run build:web
+      - name: Install cross for musl targets
+        if: contains(matrix.target, 'linux-musl')
+        uses: taiki-e/install-action@cross
+      - name: Build (musl)
+        if: contains(matrix.target, 'linux-musl')
+        env:
+          MDVIEW_WEB_PREBUILT: web/dist
+        run: cross build --release --locked --target ${{ matrix.target }}
+      - name: Build (native)
+        if: ${{ !contains(matrix.target, 'linux-musl') }}
+        env:
+          MDVIEW_WEB_PREBUILT: web/dist
+        run: cargo build --release --locked --target ${{ matrix.target }}
+      - name: Artifact smoke
+        if: matrix.target != 'aarch64-unknown-linux-musl'
+        shell: bash
+        run: |
+          bin="target/${{ matrix.target }}/release/mdview"
+          [ -x "$bin" ] || bin="$bin.exe"
+          bash tests/smoke-artifact.sh "$bin"
+      - name: Package (unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          ref="${GITHUB_REF_NAME:-dev}"
+          ref="${ref//\//-}"
+          name="mdview-${ref}-${{ matrix.target }}"
+          mkdir -p "dist/$name"
+          cp "target/${{ matrix.target }}/release/mdview" "dist/$name/"
+          cp README.md LICENSE THIRD-PARTY-NOTICES.md "dist/$name/"
+          tar -czf "dist/$name.tar.gz" -C dist "$name"
+      - name: Package (windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $name = "mdview-windows-x86_64"
+          New-Item -ItemType Directory -Force -Path "dist/$name" | Out-Null
+          Copy-Item "target/${{ matrix.target }}/release/mdview.exe" "dist/$name/"
+          Copy-Item README.md, LICENSE, THIRD-PARTY-NOTICES.md "dist/$name/"
+          Compress-Archive -Path "dist/$name/*" -DestinationPath "dist/$name.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mdview-${{ matrix.target }}
+          path: dist/*
+          if-no-files-found: error
+
+  audit:
+    name: dependency audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: taiki-e/install-action@cargo-audit
+      - uses: taiki-e/install-action@cargo-deny
+      - name: cargo audit
+        run: cargo audit
+      - name: cargo deny
+        run: cargo deny check advisories licenses bans sources

@@ -1,0 +1,4 @@
+[build.env]
+# CI builds web assets on the host and lets build.rs reuse them; cross filters
+# environment variables unless they are passed through explicitly.
+passthrough = ["MDVIEW_WEB_PREBUILT"]

@@ -8,9 +8,9 @@
     python3 docs/preview/make_preview_samples.py
 
 生成内容：
-    code/     各种源码与配置（命中 TEXT_EXT，按 text/plain; charset=utf-8 发送）
+    code/     各种源码与配置（命中文本表 → 源码查看页）
     config/   配置与数据类
-    text/     纯文本类（含一个 GBK 文件，用来验证编码声明）
+    text/     纯文本类（含一个 GBK 文件，用来验证编码兜底）
     media/    png / bmp / gif（动图）/ ico / svg —— 浏览器可内联显示的真图片
               （含一张 1600×900 带网格的大图，用来验证放大视图确实按视口缩放）
 """
@@ -349,10 +349,10 @@ mdview\t8000\t中文说明
 * 列表项一
 * 列表项二
 '''),
-    "text/sample.diff": ("diff", '''--- a/mdview.py
-+++ b/mdview.py
+    "text/sample.diff": ("diff", '''--- a/src/render.rs
++++ b/src/render.rs
 @@ -1,3 +1,4 @@
- # 中文注释
+ // 中文注释
 -旧的一行
 +新的一行（中文）
 +再新增一行
@@ -369,25 +369,32 @@ mdview\t8000\t中文说明
 '''),
     "text/empty.txt": ("plain", ""),
     "Makefile": ("makefile", '''# 中文注释：Makefile（无扩展名，按文件名判定为文本）
-PY := python3
+CARGO := cargo
 PORT ?= 8000
 
-.PHONY: run test
+.PHONY: run build test
+
+build:
+	$(CARGO) build --release --locked
 
 run:
-	$(PY) mdview.py --root docs --port $(PORT)
+	./target/release/mdview --root docs --port $(PORT)
 
 test:
-	$(PY) tests/tests_render.py && bash tests/selftest.sh
+	$(CARGO) test && $(CARGO) clippy --all-targets -- -D warnings
+	bash tests/selftest-rust.sh
 '''),
     "Dockerfile": ("dockerfile", '''# 中文注释：Dockerfile
-FROM python:3.12-slim AS builder
+FROM rust:1.96-slim AS builder
 ENV LANG=C.UTF-8
 WORKDIR /app
-COPY mdview.py ./
-RUN echo "中文构建步骤"
+COPY . .
+RUN cargo build --release --locked
+
+FROM debian:bookworm-slim
+COPY --from=builder /app/target/release/mdview /usr/local/bin/mdview
 EXPOSE 8000
-CMD ["python3", "mdview.py"]
+CMD ["mdview", "--root", "/docs", "--host", "0.0.0.0"]
 '''),
     ".gitignore": ("gitignore", '''# 中文注释：.gitignore（点文件，按文件名判定为文本）
 __pycache__/

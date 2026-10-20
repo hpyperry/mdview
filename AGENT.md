@@ -1,137 +1,176 @@
 # AGENT.md —— mdview 改动指南
 
-给在这个仓库里干活的 agent。`README.md` 是规格与用户文档，这一页是**改动者的路线图**：
-先读完它，再按指针去读细节。
+给在这个仓库里干活的 agent。用户文档看 `README.md`；文档地图看
+[`docs/README.md`](docs/README.md)，功能编号与验收口径看
+[`docs/reference/features.md`](docs/reference/features.md)，浏览器/自动化测试流程看
+[`docs/testing/agent-guide.md`](docs/testing/agent-guide.md)。
 
 ## 这是什么
 
-`mdview.py` 是**单文件、零第三方依赖的离线 Markdown 预览服务器**：起一个静态服务，
-把目录里的 `.md` 在服务端渲染成网页，其余文件按类型判定后原样发送。
-实现只有 Python 标准库，拿到就能跑（`dist/` 里的压缩版是派生产物，见下）。
+`mdview` 是 Rust 单文件离线 Markdown 预览服务器：渲染 `.md`、为非 Markdown 文本
+提供源码查看页、其他文件按类型内联或下载，并带全文搜索、Trust 拦截与 CSP。
+产物只有 `target/release/mdview`，运行时零外部请求。
 
 ```bash
-python3 mdview.py --root docs --host 127.0.0.1   # 起服务（默认 0.0.0.0:8000，根=当前目录）
-python3 tests/tests_render.py                    # 渲染层单元测试
-bash tests/selftest.sh                           # 端到端 HTTP 断言
-python3 tools/minify.py                          # 改完 mdview.py 必须重新生成 dist/
+npm --prefix web ci
+npm --prefix web run typecheck
+cargo build --release
+bash tests/run-all.sh
 ```
 
-两套测试都必须绿。`PORT=9000 bash tests/selftest.sh` 可换端口；两套都支持指向替代实现
-（`MDVIEW_FILE=` / `MDVIEW=`）来对压缩版跑同一批断言。
+`tests/run-all.sh` 包含 Rust 测试、fmt/clippy、文档链接检查、黑盒 HTTP、TTY Trust、
+浏览器探针、性能预算与 artifact 冒烟；也可以按需单跑。
+
+`build.rs` 默认在编译时执行 `web/` 的 esbuild 构建；没有 Node/npm 依赖时先
+`npm --prefix web ci`。跨平台 musl 构建用
+`npm --prefix web run build:web` + `MDVIEW_WEB_PREBUILT=web/dist`。
+
+必须全绿：`cargo test`（50 单元 + 134 渲染兼容 + 27 golden）、151 项黑盒 HTTP、
+9 项 pty 信任测试、163 项 headless Chrome 验收、4 项源码页性能预算。
+
+## 规格来源
+
+按优先级读：
+
+1. `docs/architecture/adr/0005-vscode-1.142-as-oracle.md`：Markdown 语义、代码高亮与渲染结构对齐 VS Code；
+2. `docs/architecture/adr/0007-hard-edge-cases-use-comrak.md`：linkify / 引用定义 / front matter /
+   URL 与 alt 的 accepted deviations；
+3. `docs/architecture/adr/0006-html-trust-and-csp.md`：裸 HTML 透传与 Trust/CSP；
+   [ADR 0008](docs/architecture/adr/0008-docs-shell-and-reading-typography.md) 文档站外壳/排版，
+   [ADR 0009](docs/architecture/adr/0009-search-scope-and-form-csp.md) 搜索与同源表单；
+4. `docs/architecture/overview.md` 与 `docs/architecture/execution-plan.md`；
+5. `docs/research/comrak-vs-markdown-it.md`：P0 差分证据。
+
+**不要“顺手修”记录在案的取舍。** 典型：标题无 id、任务列表字面量、全角句号进 URL、
+`www.` 链接化、字面 `%xx` 文件名不可达。它们都有 ADR/测试钉着。
+
+## 代码地图
+
+| 文件 | 职责 |
+|------|------|
+| `src/main.rs` / `src/lib.rs` | 二进制入口；`lib.rs` 暴露模块给集成测试 |
+| `src/cli.rs` | clap 参数与大小解析 |
+| `src/trust.rs` | Trust 配置读写、flag/存储/询问优先级 |
+| `src/server.rs` | axum 路由、目录索引、全站导航 JSON、源码页/大源码分块、搜索、下载、CSP、token、缓存 |
+| `src/render.rs` | comrak 配置 + 自定义 formatter（链接/图片/表格/删除线）+ URL 重写 |
+| `src/assets.rs` | 内嵌 vendor 资产与 `OUT_DIR` 的 `app.js`/`app.css` |
+| `build.rs` | 编译时执行 web 构建；支持 `MDVIEW_WEB_PREBUILT` |
+| `web/src/` | TypeScript/Preact 岛屿源码与应用 CSS |
+| `web/build.mjs` | esbuild 单入口 `app.ts` → `app.js` + `app.css` |
+| `assets/` | VS Code CSS、highlight.js bundle |
+| `tools/build-assets/` | 重建 highlight.js bundle |
+| `tools/spike/` | P0 差分探针（不参与构建） |
 
 ## 硬约束
 
-1. **零第三方依赖，语法停在 Python 3.6**：只用 stdlib；可用 f-string，不用 walrus、
-   不用 `list[str]` 这类 3.9 泛型。每隔一段时间就会有人提"引入一个小库"，已经被否过，
-   理由记在 [`docs/adr/0001`](docs/adr/0001-markdown-target-encoding.md)。
-2. **服务端渲染**：正文 HTML 在 Python 侧生成，禁用 JS 也要能正常阅读。全站只有**一段**
-   内联 JS（`COPY_JS`），做三件事：代码块复制按钮、图片放大遮罩、"回到顶部"按钮（目录页/预览页/源码视图）；
-   三者都**由脚本注入** —— 不写死按钮元素、也不写死 `<dialog>`（服务端最多留一个
-   `data-totop` 标记，那不是元素；SELFTEST §26/§32 有断言钉着"基线里没有死元素"）。
-3. **XSS 防线**（已经漏过三次，每次都是真实漏洞）：正文与**代码块内**的裸 HTML 一律转义；
-   链接/图片目标过协议白名单（`javascript:`/`vbscript:`/链接位置的 `data:` 不产出属性；
-   唯一的例外是图片 `src` 的 `data:image/<已登记类型>;base64,…`，见 ADR 0003）；
-   **标签渲染必须区分
-   "纯文本消费方"与"标记内容消费方"**（`read_tokens` vs `read_tokens_markup`，
-   alt 是属性值所以必须 `quote=True`）—— 第三条漏过的是
-   `![a" onerror=…](p.png)`（属性注入）与 `[<script>…](u.md)`（标签里裸 HTML 被反转义）。
-4. **改完 `mdview.py` 的收尾动作**：两套测试 → `python3 tools/minify.py` 重新生成
-   `dist/mdview.min.py`（它入库）→ 同步 README / tests/README.md / SELFTEST.md 里因此
-   变化的计数与描述。
-5. **测试放 `tests/`**，仓库根只留可交付源码。断言与实现冲突时**先核对规格**
-   —— 历史上出现过"断言写错、实现被迫迁就"（SELFTEST §4）。
-6. 文档与提交信息一律中文，前缀用 `feat:` / `fix:` / `docs:` / `refactor:` / `style:`。
+1. **单文件、零外部请求**：所有 CSS/JS/图片资产 `include_str!`/`include_bytes!`
+   进二进制；页面不得出现外部 `<link>`/`<script src>`。
+2. **安全边界是自定义层，不能交给 comrak**：
+   - 链接/图片一律过 `is_safe_link`；拒绝 `javascript:`/`vbscript:`/`file:`/
+     非法 `data:`/`vscode:`；`data:image/*;…` 是唯一放行例外；
+   - 裸 HTML 虽然透传，但 CSP 的 `script-src` 只信任 per-response nonce，
+     不得加 `'self'` 或 `'unsafe-inline'`；
+   - 未信任目录的一次性令牌绑定路径、60 秒、消费一次；
+   - 路径必须 canonicalize 后检查 `starts_with(root)`；拒绝 NUL/反斜杠。
+3. **URL 管线只有 `rewrite_target` 一条路**：切 `?`/`#` → 解码两次 → 相对解析 →
+   编码一次 → 根相对。链接与图片共用；不要在别处再实现一份。
+4. **渲染缓存**键是 `(path, mtime, size)`；改动渲染器后确认
+   `render_cache_invalidates_on_mtime_and_size` 仍绿。
+5. **服务端不生成高亮 HTML**：只输出 `language-…` 类名，highlight.js 在浏览器执行；
+   语言条、复制按钮、TOC 由 `web/src/` 的 island 运行时生成，服务端 Markdown 输出
+   不得添加标题 id。
 
-## 在单文件里定位
+   外壳布局约束：`.app` 最大 1680、外边距 16；顶栏 sticky `top:12`；正文始终是
+   主网格；≥1360px 才增加 24px TOC 细轨，悬停/聚焦展开带文字大纲；901–1359 单列，
+   ≤900 单列。全站导航是默认收起的浮层（桌面浮岛 / 移动抽屉），不占用正文列。
+   内容面最大 1240、阅读行最大 1000。改布局后跑浏览器探针。
+6. **目录 `rel` 带尾斜杠**：`list_dir` 入口会 `trim_end_matches('/')`；新增目录页逻辑
+   注意不要拼出 `//` 或把 `/sub/` 的上级算成 `/sub/`。
+7. **搜索范围**：文件名覆盖所有文件；正文只扫 Markdown/文本，跳过隐藏目录、
+   `SKIP_DIRS` 与超 `--max-preview` 的文件；结果按文件分组。
+8. **大文本源码页全文分块**：>256 KB 仍由服务端输出全文，按 500 行分块，
+   用 CSS `content-visibility: auto` 跳过离屏布局与绘制；行锚点与语法高亮由
+   `web/src/islands/source.ts` 按可见块懒加载。不要恢复服务端截断、`?text=1`
+   文本通道、`connect-src` 或 highlightAuto；无 JS 必须仍能读全文。
+9. **岛屿边界**：9 个岛（theme/nav/search/totop/toc/linetarget/code/zoom/source）
+   由 `body[data-islands]` 清单控制；岛只接管自己的控制区，服务端 HTML 是权威。
+   新增交互先判断是否能归入现有岛，不要回到一个全局 DOMContentLoaded 初始化器。
+10. **全站导航**：`/_nav` 返回全站可见目录与所有文件；页面空闲时预取，目录行
+    只展开、文件行才导航；每次加载默认收起，展开状态才存 localStorage。导航
+    不挤压正文。不要恢复“当前目录侧栏”或“目录/文件”分组文字。
+11. 文档与提交信息用中文，提交前缀 `feat:` / `fix:` / `docs:` / `refactor:` /
+    `style:` / `test:`。
 
-按 **section 标识**搜索，**不按行号**（文档也刻意不写行号，免得漂移）：
-`SECTION 1 CONSTANTS` … `SECTION 10 CLI`，用途表见 README §7。
-注意 `SECTION 2` 只有顶部导航那一行，CSS 块本身没有横幅，搜 `CSS = """`。
+## 改哪里
 
-文件里的注释承载了"为什么"。改任何一段之前先读附近注释：多数坑都写在那里，
-包括那些看起来多余的分支和顺序。
+| 需求 | 落点 |
+|------|------|
+| 新 Markdown 语法/渲染差异 | `src/render.rs` 的 comrak options 或 formatter |
+| 新链接/图片协议规则 | `is_safe_link` + `tests/render_compat.rs` 正反例 |
+| URL 编码/相对路径 | `rewrite_target` + `%20/%2520/%23/%3F` 测试 |
+| 新路由/页面 | `src/server.rs` 的 `app`/`handle` 与 `Page` 外壳 |
+| 搜索范围/结果 | `search_files` / `render_search`；正文只扫文本文件 |
+| 搜索结果行定位 | `render_markdown_with_sourcepos` + `web/src/islands/linetarget.ts` |
+| 顶部栏/导航/页面 chrome/内容面 | `html_page`、`crumbs_html`、`nav.tsx` |
+| TOC/行定位/代码条/主题/导航/大源码分块 | `web/src/islands/*` |
+| 岛屿清单/水合策略 | `src/server.rs` 的 `data-islands` + `web/src/app.ts` |
+| 全站导航树/接口 | `src/server.rs` 的 `/_nav` + `web/src/islands/nav.tsx` |
+| CSP/安全级别 | `csp_header` + `csp_levels` 测试 |
+| Trust 配置 | `src/trust.rs` + 配置往返测试 |
+| 页面样式 | `web/src/styles/app.css`；VS Code 样式在 `assets/*.css` |
+| 构建管线 | `build.rs`、`web/build.mjs`、`web/package.json` |
+| 高亮语言包 | `tools/build-assets/`，重新生成 `assets/highlight.min.js` |
 
-## 别改坏的两处耦合
+## 容易踩的坑
 
-**`docs/` 既是示例语料，也是测试夹具。** `tests/selftest.sh` 断言 `docs/index.md`
-第 5 行的内容、该页「裸 URL 自动链接」小节的逐条行为，以及 `docs/preview/` 下每个样例
-可访问、图片魔数正确。动示例文档会连带弄红测试。
+- **图片被包 `<a class="zoom">`**：父节点是链接时不包（徽章）；href 必须与 src
+  逐字节相同。
+- **表格对齐**：必须输出 `style="text-align:…"`，不是 `align="…"`。
+- **`<s>` 不是 `<del>`**。
+- **被拒链接**只渲染标签文本，不产出 `href`；被拒图片只渲染 alt 文本。
+- **front matter 空块** `---\n---` 不是 front matter，会输出两个 `<hr>`。
+- **尖括号引用定义** `[r]: <a b.md>` 是 accepted comrak deviation，不要加预扫描。
+- **搜索正文**只扫 Markdown 与按文本处理的文件，跳过隐藏目录、`node_modules`
+  等；超过 `--max-preview` 的文件跳过。Markdown 内容行链接到渲染页 `#L<n>`，
+  文本内容行到源码行，文件标题/文件条目到文件开头；不要恢复独立的
+  “打开文档/源码 Ln”操作按钮。UI 文案用“结果”，不要写“命中”。
+- **`?raw=1` 是 HTML 源码查看页**，不是原始字节；原始字节用 `?download=1`。
+- **`serve_file` 的 `Content-Disposition`** 已做 ASCII fallback + RFC 5987 编码；
+  文件名来自磁盘，必须继续防 CR/LF/引号注入。
+- **客户端代码在 `web/src/`**：不要再改/恢复 `assets/mdview.js`；改完先
+  `npm --prefix web run typecheck`，`cargo build` 会自动重跑 esbuild。
+- **岛清单**：`body[data-islands]` 与页面实际控制区必须一致；源码页不要挂 `toc`，
+  非文档页不要挂 `toc`/`linetarget`/`code`/`zoom`，否则会出现空岛或错误初始化。
+- **页头统一逻辑**：所有页头用 `.head-inner` 横跨内容面（左右 30px），正文阅读行
+  仍由 `.markdown-body` 限制为 1000px；搜索页表单在页头右侧。不要再给页头套
+  `max-width: 1000px` 的容器。
+- **搜索结果行**：整条 `.hit` 是链接；Markdown 内容行到渲染页 `#L<n>`，文件标题
+  与文件条目到文件开头。不要恢复独立的“打开文档/源码 Ln”按钮。
+- **行定位**：`render_markdown` 默认不带 sourcepos，保持 golden/render_compat 不变；
+  只有服务端渲染页调用 `render_markdown_with_sourcepos`。`linetarget` 只认块级
+  元素，定位是块级近似。
+- **主题切换**：模式以当前页面内存为准，localStorage 只负责持久化；写入失败不能
+  卡住循环。按钮旁的状态提示是“看起来有没有生效”的反馈，不要删。
+- **导航不要回退**：`/_nav` 是页面空闲时预取的全站树，导航只导航文件；目录行只展开。
+  中间目录页是一张统一列表，没有“目录/文件”分组标题。
+- **源码页头**：H1 是文件名，不是“源码”；下方类型/大小/行数/修改时间用标签展示，
+  操作是“预览/下载”。不要恢复 `查看渲染页` 或把参数重新堆成一行纯文本。
+- **H1 下划线**：`assets/markdown.css` 给全局 `h1` 加了 `border-bottom`；
+  `web/src/styles/app.css` 的 `h1` 重置负责外壳标题。新增页面标题不要绕开它。
+- **文件大小**统一走 `format_size`：1024 进制、KB 起步、1 位小数去尾零；
+  不要直接输出 B/KiB。
 
-**目标路径的编码管线只有一条路**：切 `?`/`#` → 只解一次百分号 → 相对解析 → 只编一次。
-链接、图片、引用式链接/图片、目录索引四条路共用同一个函数，顺序错了就产出指向不存在
-文件的 URL（`%20` 变 `%2520`）。术语与决策见 [`GLOSSARY.md`](GLOSSARY.md) 与
-[`docs/adr/0001`](docs/adr/0001-markdown-target-encoding.md)。
+## 测试约定
 
-## 看着像 bug 的刻意设计
-
-这些是记录在案的取舍，不要顺手"修"；完整清单见 README §4「刻意不支持」与 §9：
-
-- 裸 HTML 全部转义，`<br>` / `<details>` 按文本显示。
-- `---` 只当分隔线，不当 Setext 二级标题下划线。
-- `中文*强调*中文` **会**生效（严格 CommonMark 下不会）。
-- 裸 URL 自动链接把全角 `。，、；：！？` 当句末标点（GFM 只认半角）。
-- 文件名里字面的 `%xx` 要写 `%25xx`：这里**只解码一次**（VS Code 解两次）。
-- 图片放大**不做**相册、滚轮缩放、双指手势、1:1 切换；禁用 JS 时点图片是**同标签**
-  打开原图；带修饰键或中键的点击刻意**不劫持**（那是原图的唯一出口）。理由见 `docs/adr/0002`。
-- 类型判定三层（白名单 → MIME 表 → 内容嗅探），所以没登记过的文本也能预览；代价是前
-  512 字节无 NUL 的二进制会显示乱码 —— 个例不要靠"往白名单加一条"来修。
-
-## 实现层的坑
-
-- **`?raw=1` 不是原始字节**：它返回带行锚点的源码视图页（仍是 HTML），专供搜索跳转；
-  要磁盘原文用 `?download=1`。源码视图里刻意不渲染 Markdown，那里没有链接不是缺陷。
-- **`parse_inline` 的步骤顺序是承重的**：裸 URL 自动链接必须落在 `html.escape` 之前、
-  `_ENTITY_RE` 之前、引用式展开之前、`_AUTOLINK_RE` 之后；四条约束各有对应的坏 HTML
-  反例，见 SELFTEST §24。挪动任何一步之前先读那段注释。
-- **token 表有两个读法，不许合并**：`read_tokens`（反转义，给 URL/title/alt 这类
-  "取出来自己再转义一次"的消费方）与 `read_tokens_markup`（原样取出，给**标记内容**，
-  比如链接标签）。合并的那一版就是 `[<script>alert(1)</script>](u.md)` 这个真漏洞，
-  见 SELFTEST §25。
-- **引用式展开产出的 HTML 必须 `stash` 成 token**（`_REF_DEF_LINK` / `_shortcut_ref`
-  / `_render_ref` 收 `render_label` + `stash` 两个参数）：字面写回文本会被后面的
-  `parse_emphasis` 再解析一遍，属性值里长出 `<em>`/`<strong>`（SELFTEST §25）。
-- **目标装配只有 `_target_attrs` 一个出口**：行内式 / 引用式 × 链接 / 图片四条支路共用
-  它（`safe_href` + `ctx.rewrite_target` 不许在别处再调一次）。曾经是四份各写一遍，
-  其中两份在「协议分支写哪个串」上漂移了 —— 引用式写 `unquote` 后的串、行内式写原样串，
-  于是同一个 `https://e.com/a%20b` 在两种写法下产出不同 href。协议判定是 XSS 白名单的
-  第一道门，副本漂移就是漏洞；要加新的目标来源，接这个函数，别复制（SELFTEST §34）。
-- **`data:` 的放行口只有 `_target_attrs(..., is_image=True)`**：`safe_href` 默认仍拒绝
-  一切 `data:`，只有 `render_image` / `_ref_image_html` 传 `is_image=True`；链接路径
-  都不传。不要把 `data:image/…` 的允许规则挪进 `safe_href` 的无条件分支 —— 同一段串
-  进 `<a href>` 就是攻击面（ADR 0003）。类型集合 `DATA_IMAGE_MIME` 由 `MIME[IMAGE_EXT]`
-  生成，加图片扩展名时自动跟上。
-- **服务端包裹图片的落点在 `parse_inline` 出口**（`wrap_zoom_images`）：那时源文本已转义，
-  输出里的 `<a`/`<img` 只可能是我们自己生成的，锚点深度才数得准；href 一律复用 img 的 src。
-- **遮罩只做入场动画，退场必须瞬时**：不要给 `dialog.zoomdlg` 写
-  `transition:display … allow-discrete` —— 它会把退场也拖成 150ms，图片与遮罩在淡出，
-  而 × 与 caption 没有 opacity 过渡，会原地原样亮着直到 `display:none`（SELFTEST §29）。
-  定位与排版同时放在基础规则里、`[open]` 只切 `display`：几何不随可见性开关变化，
-  将来谁再加回出场过渡也不会按 row 重排（§28）。改这段务必跑
-  `tools/zoom-probe.html`，且**不要**加 `--force-prefers-reduced-motion` —— 它会把整段
-  动画一起关掉，正好藏住这些缺陷。
-- **关闭按钮的 × 用现画的内联 SVG，别用字体字形**：U+00D7 的墨迹在 em 盒里本来就不
-  居中，且各字体偏得还不一样（22px 下 macOS 系统字体差 ~2.3px，Arial 几乎为零），
-  写死任何 px 校正值都会在别的平台偏回去。两条对角线对称于 viewBox 中心，按钮 flex
-  居中即可；`stroke` 走 `currentColor`，强制色彩模式下也不会被压没（SELFTEST §30）。
-- **遮罩的初始焦点落在遮罩自己，不要落在 × 上**：`showModal()` 会聚焦 dialog 里第一个
-  可聚焦元素（那颗 ×），而"上一轮交互是键盘"（比如刚用 Esc 关过）时，程序化聚焦会命中
-  `:focus-visible` —— 再打开就带一圈白边。写法是 `d.tabIndex = -1` +
-  `showModal()` 之后 `zoom.focus()`（顺序不能反），遮罩自身 `outline:none`；× 的
-  `:focus-visible` 白环要留着，那是键盘用户的焦点指示（SELFTEST §31）。
-- **压缩器只做三件语义安全的事**（删注释 / docstring / 空行），用 `tokenize` 定位，
-  **字符串字面量里的空行必须保留**（`COPY_JS` 里有一个）。不要改成正则实现。
-- **浏览器侧验证用 `tools/zoom-probe.html`**：本机 Chrome 跑 `--dump-dom` 会挂着不退出，
-  用 `--headless --screenshot` 取回探针渲染出的逐条状态（用法写在文件头）。
-- **警惕平方级退化**：配对扫描、「每次匹配回退找行首」、**正则回溯**都踩过 —— SELFTEST
-  §34 一次抓出三个，其中 `[` 串 40 KB 要 4.4 秒（默认 20 MiB 上限下以天计）。新增的正则
-  或扫描要对长行保持线性，且要能一眼看出不会回溯：`_REF_LINK_RE` 前面那句
-  `if "][" not in text` 就是为此存在的守卫。另外三条经验：配对用 `closer`/`claimed` 这类
-  O(1) 成员测试，**别写 `x in some_dict.values()`**；区间查询先合并再 `bisect`；
-  `MAX_DELIM_RUNS` 只封定界符 **run 的个数**，单个超长 run 封不住（64000 个 `*`
-  只是 1 个 run，切出 32000 个节点）。行首仍用前进式指针维护。
-
-## 变更记录怎么留
-
-`SELFTEST.md` 是**缺陷与验证台账**，按编号章节追加：现象 → 根因 → 修法 → 验证，
-并写明"旧期望值一行未改"这类约束。修掉一个真实缺陷、或做一次需要论证的取舍时，
-在这里加一节；决策性内容进 `docs/adr/`，新术语进 `GLOSSARY.md`。
+- 功能验收先看 [`docs/reference/features.md`](docs/reference/features.md) 的 `F-xx`；
+  新功能追加编号，不重排旧编号。
+- 渲染层断言放 `tests/render_compat.rs`；路由/安全放 `src/server.rs` 的测试模块；
+  真二进制行为放 `tests/selftest-rust.sh`。
+- 全量本地验收跑 `bash tests/run-all.sh`；文档移动/改链接后先跑
+  `node tests/check-doc-links.mjs`。
+- 浏览器/视觉验收遵循 [`docs/testing/agent-guide.md`](docs/testing/agent-guide.md)：
+  browser-use/Computer Use + 截图证据；自动探针与视觉验收不能互相替代。
+- 断言与实现冲突时，先核对 ADR；accepted deviation 必须在测试名/注释里写明。
+- 修 bug 时先写能复现的断言，再修。
+- 性能断言只拦平方级退化，上界故意宽松（debug 构建也要过）。
+- 用户没有明确要求时，不 push、不触发远程 CI。

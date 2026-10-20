@@ -1,0 +1,104 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: build (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            os: macos-14
+          - target: x86_64-unknown-linux-musl
+            os: ubuntu-latest
+          - target: aarch64-unknown-linux-musl
+            os: ubuntu-latest
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Build web assets
+        working-directory: web
+        run: npm ci && npm run build:web
+      - name: Install cross for musl targets
+        if: contains(matrix.target, 'linux-musl')
+        uses: taiki-e/install-action@cross
+      - name: Build (musl)
+        if: contains(matrix.target, 'linux-musl')
+        env:
+          MDVIEW_WEB_PREBUILT: web/dist
+        run: cross build --release --locked --target ${{ matrix.target }}
+      - name: Build (native)
+        if: ${{ !contains(matrix.target, 'linux-musl') }}
+        env:
+          MDVIEW_WEB_PREBUILT: web/dist
+        run: cargo build --release --locked --target ${{ matrix.target }}
+      - name: Package (unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          ref="${GITHUB_REF_NAME:-dev}"
+          ref="${ref//\//-}"
+          name="mdview-${ref}-${{ matrix.target }}"
+          mkdir -p "dist/$name"
+          cp "target/${{ matrix.target }}/release/mdview" "dist/$name/"
+          cp README.md LICENSE THIRD-PARTY-NOTICES.md "dist/$name/"
+          tar -czf "dist/$name.tar.gz" -C dist "$name"
+      - name: Package (windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ref = $env:GITHUB_REF_NAME
+          if (-not $ref) { $ref = "dev" }
+          $ref = $ref -replace '/', '-'
+          $name = "mdview-$ref-x86_64-pc-windows-msvc"
+          New-Item -ItemType Directory -Force -Path "dist/$name" | Out-Null
+          Copy-Item "target/${{ matrix.target }}/release/mdview.exe" "dist/$name/"
+          Copy-Item README.md, LICENSE, THIRD-PARTY-NOTICES.md "dist/$name/"
+          Compress-Archive -Path "dist/$name/*" -DestinationPath "dist/$name.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mdview-${{ matrix.target }}
+          path: dist/*
+          if-no-files-found: error
+
+  publish:
+    name: publish release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: mdview-*
+          merge-multiple: true
+          path: release
+      - name: Checksums
+        run: |
+          find release -type f \( -name '*.tar.gz' -o -name '*.zip' \) -print0 \
+            | sort -z | xargs -0 sha256sum > release/SHA256SUMS
+          cat release/SHA256SUMS
+      - name: Publish
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release/*.tar.gz
+            release/*.zip
+            release/SHA256SUMS
+          generate_release_notes: true

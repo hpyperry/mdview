@@ -2,12 +2,12 @@
 
 这一页是**可点击的测试清单**。每个文件都标了「预期行为」，你点开对照即可。
 
-判定规则（实现细节见 [SELFTEST.md §16](../../SELFTEST.md)）：
+判定规则（实现细节见 [tests/README.md](../../tests/README.md)）：
 
 | 顺序 | 条件 | 结果 |
 |---|---|---|
 | 1 | 超过 `--max-preview`（默认 **20 MiB**） | 准确类型 + `Content-Disposition: attachment` → **下载** |
-| 2 | 命中源码/配置扩展名表 | `text/plain; charset=utf-8` → 预览 |
+| 2 | 命中源码/配置扩展名表 | **源码查看页**（行号 + 客户端高亮） |
 | 3 | 命中内置 MIME 表 | 按表（图片/PDF…） |
 | 4 | **无扩展名** | 看开头 **512 字节**有无 NUL：有→下载，无→按文本预览 |
 | 5 | 其余 | `application/octet-stream` → 下载 |
@@ -77,19 +77,20 @@ with open("real-30mib.txt", "w", encoding="utf-8") as f:
 EOF
 ```
 
-想看 20 MiB 到底有多卡，把它放进服务根目录点开即可 —— 实测约 **13.7 秒、2.5 GiB 内存**。
+想看超大文本到底有多卡，把它放进服务根目录点开即可 —— 默认 20 MiB 是经验上限，
+超过就改为下载。
 
 ## 5. 常用参数
 
 ```bash
 # 关掉上限（任何大小都尝试预览）
-python3 mdview.py --root docs --max-preview 0
+mdview --root docs --max-preview 0
 
-# 收紧到 1 MiB（舒适阈值，实测数据支持 1-5 MiB）
-python3 mdview.py --root docs --max-preview 1M
+# 收紧到 1 MiB（舒适阈值）
+mdview --root docs --max-preview 1M
 
 # 放宽到 100 MiB
-python3 mdview.py --root docs --max-preview 100M
+mdview --root docs --max-preview 100M
 ```
 
 ---
@@ -133,4 +134,4 @@ curl -O -J "http://127.0.0.1:8000/preview/.gitignore?download=1"
 
 ---
 
-[返回预览总览](index.md) · [代码块专项测试](../guide/code-blocks.md)
+[返回预览总览](index.md) · [代码块专项测试](../guides/code-blocks.md)
