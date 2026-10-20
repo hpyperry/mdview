@@ -3,8 +3,8 @@
 一个把目录变成可浏览文档站的服务器。本术语表按 **Rust 重写分支**更新：Markdown
 语义与视觉以 VS Code 1.142.0 的预览为基准，裸 HTML 由 Trust 与 CSP 约束。
 旧 Python 实现中已被取代的编码与 data URI 决策，见
-[ADR 0001](docs/adr/0001-markdown-target-encoding.md) 与
-[ADR 0003](docs/adr/0003-data-uri-images.md) 的状态说明。
+[ADR 0001](docs/architecture/adr/0001-markdown-target-encoding.md) 与
+[ADR 0003](docs/architecture/adr/0003-data-uri-images.md) 的状态说明。
 
 ## Markdown 语言
 
@@ -44,7 +44,7 @@ _Avoid_: 特殊字符文件名
 `[文字][引用]` 与 `![替代文字][引用]`（含折叠式 `[引用][]` 与简写 `[引用]`），
 目标写在别处的 `[引用]: 目标` 定义里。两者共用同一条目标重写与协议白名单。
 被拒协议的整条定义由 comrak 移除；尖括号目标（`[r]: <a b.md>`）在文件末尾
-无换行时可能留下字面/畸形 raw HTML（EOF quirk，accepted，[ADR 0007](docs/adr/0007-hard-edge-cases-use-comrak.md)）。
+无换行时可能留下字面/畸形 raw HTML（EOF quirk，accepted，[ADR 0007](docs/architecture/adr/0007-hard-edge-cases-use-comrak.md)）。
 _Avoid_: 参考链接、脚注
 
 **尖括号自动链接**：
@@ -61,7 +61,7 @@ _Avoid_: 纯文本链接、自动链接
 把裸 URL 变成 `<a>` 的能力。本站采用 **comrak autolink**：`https://…`、裸邮箱
 `a@b.com`（`mailto:`）与 `www.example.com` 都会链接。实体分号、尾部冒号、
 病态邮箱边界的文本范围跟随 comrak，与 VS Code/markdown-it 可能不同
-（accepted，[ADR 0007](docs/adr/0007-hard-edge-cases-use-comrak.md)）。
+（accepted，[ADR 0007](docs/architecture/adr/0007-hard-edge-cases-use-comrak.md)）。
 与尖括号自动链接的区别在**输入形态**：一个要写成 `<>`，一个不用写任何标记。
 _Avoid_: 自动链接、URL 识别
 
@@ -93,7 +93,7 @@ _Avoid_: 安全协议列表、scheme 列表、URL 过滤
 **硬边角（hard edge）**：
 linkify、reference definition、front matter、URL normalization 与图像 alt 的
 边角集合。P0 确认逐字节对齐 VS Code 的成本过高，按
-[ADR 0007](docs/adr/0007-hard-edge-cases-use-comrak.md) 采用 **comrak 行为**；
+[ADR 0007](docs/architecture/adr/0007-hard-edge-cases-use-comrak.md) 采用 **comrak 行为**；
 它们是 23 条 comrak accepted deviations，另有 2 条 `vscode:` 链接服务器偏差。
 不属于安全边界。
 _Avoid_: 边角、长尾
@@ -130,7 +130,7 @@ _Avoid_: 前言、元数据头
 _Avoid_: 授权、白名单目录
 
 **拦截面**：
-未信任目录里打开 `.md` 时显示的警告页：“此 Markdown 文件位于未信任目录中。
+未信任目录里打开 `.md` 时显示的警告页：“这个 Markdown 文件所在的目录尚未受信任。
 仍要打开吗？” + 取消 / 仍要打开。选择仍要打开会带一个**一次性令牌**放行当前请求；
 令牌用后失效，刷新或打开下一页面会再次拦截。
 _Avoid_: 警告弹窗、登录页
@@ -164,7 +164,8 @@ _Avoid_: 组件、模块、widget
 _Avoid_: 全局岛、公共组件
 
 **页面岛**：
-只在特定页面出现的岛：文档页的 TOC、代码工具条、图片放大；源码页的源码分块。
+只在特定页面出现的岛：文档页的 TOC、渲染行定位、代码工具条、图片放大；
+源码页的源码分块。
 _Avoid_: 业务岛、页面组件
 
 **按需水合**：
@@ -187,10 +188,15 @@ _Avoid_: 搜索框、命令面板
 放在文档正文头部；宽屏滚动时保持可见。
 _Avoid_: 导航栏、header（与页面内容标题混用）
 
+**页头（page head）**：
+内容面顶部的页面身份区：横跨内容面宽度，左右 30px 内边距；标题、面包屑与元信息
+在左，操作按钮或搜索表单在右；正文阅读行仍保持 1000px。
+_Avoid_: 顶部栏（那是产品外壳）、header
+
 **全站导航**：
 从根目录开始的全站树，包含所有可见目录与文件；不随中间页面切换到“当前目录”。
-目录行只展开/收起，文件行才导航；点击文件后中间内容跳转。默认收起，首次打开
-才加载树；当前路径自动展开，用户展开状态本地记忆。
+目录行只展开/收起，文件行才导航；点击文件后中间内容跳转。默认收起；页面空闲时
+预取树，打开时通常已就绪；不跨页缓存。当前路径自动展开，用户展开状态本地记忆。
 _Avoid_: 当前目录侧栏、文件树、资源管理器、sidebar
 
 **导航浮岛**：
@@ -204,9 +210,9 @@ _Avoid_: 主面板、内容卡（仅指视觉时）
 
 **页内目录（TOC）**：
 标题列表，只收 h2–h3；由浏览器运行时生成，服务端 Markdown 输出不变。
-宽屏是右侧 24px 细轨：刻度显示章节与当前位置，点击刻度跳转，点空白/图标
-展开浮层面板；窄屏回到正文顶部的可折叠块。禁用 JS 时不显示，也不改变
-“标题无 id”的渲染语义。
+宽屏是右侧 24px 细轨：刻度显示章节与当前位置；鼠标悬停或键盘聚焦时向左展开
+约 220px 的带文字大纲，可点击标题跳转，也可用顶部图标固定/收起；窄屏回到正文
+顶部的可折叠块。禁用 JS 时不显示，也不改变“标题无 id”的渲染语义。
 _Avoid_: 大纲、大纲导航、锚点目录、toc-col、侧栏目录
 
 **分块源码页**：
@@ -235,8 +241,14 @@ _Avoid_: 三栏、三列网格、侧栏列
 正文 16px、1.7 行高、阅读行上限 1000px。Markdown 语义与代码高亮仍以 VS Code 为基准。
 _Avoid_: 主题、样式
 
+**文件大小显示**：
+统一按 1024 进制显示 KB/MB/GB；保留 1 位小数并去掉 `.0`。0 字节显示 `0 KB`，
+1–1023 字节显示 `<1 KB`；最小单位是 KB，不显示字节数。
+_Avoid_: B、KiB、原始字节数
+
 **主题三态**：
-跟随系统 / 浅色 / 深色三种选择；默认跟随系统，手动选择会在本机持久化。
+跟随系统 / 浅色 / 深色三种选择；默认跟随系统。点击循环切换，并在按钮旁短暂显示
+当前模式；状态以当前页面内存为准，持久化写入失败不影响继续切换。
 _Avoid_: 暗色模式、夜间模式
 
 **文件名命中**：
@@ -248,9 +260,16 @@ _Avoid_: 路径命中、文件搜索
 _Avoid_: 内容命中、全文搜索
 
 **搜索结果组**：
-按文件聚合的搜索结果：文件路径、命中数、若干行片段。Markdown 正文命中提供
-“打开文档”主入口与“源码 Ln”次入口；文本/源码命中直接进入源码行。
+按文件聚合的搜索结果：文件路径、结果数、若干行片段。每条结果整行是一个链接：
+Markdown 内容行跳到渲染页的对应块（`#L<n>`）；文件标题与文件条目跳到文件开头。
+不再提供独立的“打开文档/打开文件”操作链接。UI 文案统一称“结果”，不使用
+“命中”；“命中”只作为内部搜索术语。
 _Avoid_: 结果列表、hit list
+
+**渲染行定位**：
+把搜索结果的源码行映射到渲染页块的能力。服务端给渲染块输出 `data-sourcepos`，
+浏览器找包含该行的最小块并滚动、短暂高亮；是块级近似，不保证字符级。
+_Avoid_: 源码行跳转、行锚点（源码页的 `#L<n>` 锚点）
 
 **同源表单**：
 提交目标只能是本站的搜索表单。它是 CSP 从 `form-action 'none'` 放宽到 `'self'`
@@ -265,16 +284,17 @@ Python、Node 或外部资源文件。源码本身可以分模块。
 _Avoid_: 单体程序、静态二进制（后者只说链接方式）
 
 **源码查看页**：
-非 Markdown 的文本文件（以及 `.md?raw=1`）的 HTML 预览页：服务端输出行号与
-行锚点，浏览器端用 highlight.js 着色；禁用 JS 时仍是带行号的纯文本。
+非 Markdown 的文本文件（以及 `.md?raw=1`）的 HTML 预览页：H1 是文件名，头部用
+标签显示类型、大小、行数与修改时间；服务端输出行号与行锚点，浏览器端用
+highlight.js 着色；禁用 JS 时仍是带行号的纯文本。
 _Avoid_: 源码模式、编辑器页
 
 **VS Code 基准**：
 本机 VS Code 1.142.0 的 Markdown 预览（markdown-it 14.3.2 + highlight.js +
 4 档安全级别）。**Markdown 语义与代码高亮**冲突时以它为准；linkify、reference
 definition、front matter、URL normalization、图像 alt 的硬边角按
-[ADR 0007](docs/adr/0007-hard-edge-cases-use-comrak.md) 采用 comrak 行为。
-页面外壳与正文阅读排版自 [ADR 0008](docs/adr/0008-docs-shell-and-reading-typography.md)
+[ADR 0007](docs/architecture/adr/0007-hard-edge-cases-use-comrak.md) 采用 comrak 行为。
+页面外壳与正文阅读排版自 [ADR 0008](docs/architecture/adr/0008-docs-shell-and-reading-typography.md)
 起改为文档站风格，不再逐像素对齐 VS Code 预览。
 _Avoid_: 参考实现、标准
 

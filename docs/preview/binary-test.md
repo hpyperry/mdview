@@ -134,4 +134,4 @@ curl -O -J "http://127.0.0.1:8000/preview/.gitignore?download=1"
 
 ---
 
-[返回预览总览](index.md) · [代码块专项测试](../guide/code-blocks.md)
+[返回预览总览](index.md) · [代码块专项测试](../guides/code-blocks.md)

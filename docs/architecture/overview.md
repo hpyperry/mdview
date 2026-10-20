@@ -4,11 +4,11 @@
 **Branch**: `refactor/new-md-view-server`
 **Supersedes**: 旧 Python 单文件实现（`mdview.py` / `dist/mdview.min.py`）
 
-> 2026-10-19 补充：页面外壳与阅读排版由 [ADR 0008](../adr/0008-docs-shell-and-reading-typography.md)
-> 改为文档站风格；搜索范围与同源表单由 [ADR 0009](../adr/0009-search-scope-and-form-csp.md) 决定。
+> 2026-10-19 补充：页面外壳与阅读排版由 [ADR 0008](adr/0008-docs-shell-and-reading-typography.md)
+> 改为文档站风格；搜索范围与同源表单由 [ADR 0009](adr/0009-search-scope-and-form-csp.md) 决定。
 
 这一页是本次重写的共同理解。实现以它为准；决策的理由与替代方案在
-[`docs/adr/`](../adr/)。
+[`docs/architecture/adr/`](adr/)。
 
 ## 1. 目标
 
@@ -23,15 +23,15 @@
 
 | 决策 | 结果 | 记录 |
 |---|---|---|
-| 实现栈 | Rust 原生重写；单 crate，产物单文件 | [ADR 0004](../adr/0004-rust-rewrite-and-dependencies.md) |
+| 实现栈 | Rust 原生重写；单 crate，产物单文件 | [ADR 0004](adr/0004-rust-rewrite-and-dependencies.md) |
 | 依赖边界 | 允许成熟 crate；Cargo.lock 入库；运行时仍完全离线 | ADR 0004 |
 | 平台 | macOS arm64、Linux x86_64/arm64（musl 静态）、Windows x86_64（静态 CRT） | ADR 0004 |
 | 服务器契约 | 保留旧 URL/CLI；新增 Trust 与安全级别参数 | ADR 0004 / 0006 |
-| Markdown 解析器 | comrak 0.56 + 必要的安全/视觉自定义层 | [ADR 0005](../adr/0005-vscode-1.142-as-oracle.md) / [ADR 0007](../adr/0007-hard-edge-cases-use-comrak.md) |
+| Markdown 解析器 | comrak 0.56 + 必要的安全/视觉自定义层 | [ADR 0005](adr/0005-vscode-1.142-as-oracle.md) / [ADR 0007](adr/0007-hard-edge-cases-use-comrak.md) |
 | 语义基准 | **VS Code 核心语义与代码高亮**；linkify、reference definition、front matter、URL normalization、image alt 的硬边角采用 comrak 行为；`data:image/*` 按 VS Code、`vscode:` 链接拒绝（23 条 comrak + 2 条服务器偏差 = 25 条 accepted） | ADR 0005 / 0007 |
 | 视觉基准 | 文档站外壳 + 780/16/1.7 阅读排版；代码高亮继续用 VS Code CSS/配色，主题三态 | ADR 0008 |
 | 代码高亮 | 内嵌完整 highlight.js，浏览器端；与 VS Code 预览同一套 CSS | ADR 0005 |
-| 裸 HTML | 始终透传；靠 Trust + CSP 约束 | [ADR 0006](../adr/0006-html-trust-and-csp.md) |
+| 裸 HTML | 始终透传；靠 Trust + CSP 约束 | [ADR 0006](adr/0006-html-trust-and-csp.md) |
 | Trust | 启动时按根目录询问；存用户配置目录；未信任时每次打开 `.md` 都拦 | ADR 0006 |
 | 安全级别 | 完整复刻 VS Code 4 档（0/3/1/2），默认 Strict | ADR 0006 |
 | 非二进制文本 | 统一源码查看页（行号、highlight.js、下载） | 本文 §8 |
@@ -120,7 +120,7 @@ CLI：
 - 脚注、定义列表、数学、Mermaid、emoji shortcode 不支持。
 - 裸 HTML 透传（安全模型见 §7）。
 
-**硬边角采用 comrak 行为**（[ADR 0007](../adr/0007-hard-edge-cases-use-comrak.md)）：
+**硬边角采用 comrak 行为**（[ADR 0007](adr/0007-hard-edge-cases-use-comrak.md)）：
 
 - Linkify：comrak autolink；`www.` 会链接，实体/冒号/邮箱边界跟随 comrak。
 - Reference definition：comrak 解析；被拒协议定义移除；尖括号定义仅在文件末尾无换行时可能留下字面 HTML。
@@ -150,8 +150,8 @@ CLI：
 
 ### 6.3 comrak 需要补齐的地方
 
-P0 差分（[报告](../spikes/comrak-vs-markdown-it.md)）确认 comrak 的核心解析可用。
-按 [ADR 0007](../adr/0007-hard-edge-cases-use-comrak.md)，以下工作保留为自定义层：
+P0 差分（[报告](../research/comrak-vs-markdown-it.md)）确认 comrak 的核心解析可用。
+按 [ADR 0007](adr/0007-hard-edge-cases-use-comrak.md)，以下工作保留为自定义层：
 
 1. **Link/image 协议校验**：自定义 `validateLink`（§6.2）：拒 `javascript:`/
    `vbscript:`/`file:`/非法 `data:`；放行任意 `data:image/*;…`（链接与图片位置）；
@@ -296,8 +296,9 @@ security_level = 0
 2. 接 comrak 与自定义渲染器；golden 差分收敛。
 3. 嵌入 VS Code CSS + highlight.js；实现源码查看页与前端功能。
 4. 移植测试、重写为 `tests/selftest-rust.sh`；更新示例语料与 README/AGENT/GLOSSARY。
-5. 删除 `mdview.py`、`dist/`、`tools/minify.py`、Python 测试；旧 `SELFTEST.md`
-   作为历史归档到 `docs/legacy/`，新台账重新开始。
+5. 删除 `mdview.py`、`dist/`、`tools/minify.py`、Python 测试；旧 Python 台账作为
+   历史归档到 `docs/archive/selftest-python.md`，新台账在 `docs/testing/selftest.md`
+   重新开始。
 6. 建立跨平台 CI 与发布 artifact。
 
 ## 13. 已知后果（有意接受）

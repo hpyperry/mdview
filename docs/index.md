@@ -2,12 +2,12 @@
 
 这是 `--root` 下的第一篇示例，用来演示新实现（Rust 单文件）的常用 GFM 子集。
 
-返回上级目录：[目录索引](/)、[子目录说明](guide/install.md)。
+返回上级目录：[目录索引](/)、[子目录说明](guides/install.md)。
 
 ## 行内语法
 
 普通段落里有 **粗体**、*斜体*、***粗斜***、`行内代码`、~~删除线~~，
-以及 [站内链接](guide/install.md)、[安装页](guide/install.md)、
+以及 [站内链接](guides/install.md)、[安装页](guides/install.md)、
 [外链](https://example.com)。
 
 中文粘着也生效：这句话里有**加粗**和*斜体*，还有 `代码`。
@@ -21,7 +21,7 @@
 <div class="note">这是一个裸 HTML 块；内联 <kbd>Ctrl</kbd>+<kbd>C</kbd> 也能用。</div>
 
 > 新实现不再转义裸 HTML。打开未信任目录时，每个 `.md` 会先出现一次确认页；
-> 确认令牌一次性有效。详见 [安装与安全](guide/install.md)。
+> 确认令牌一次性有效。详见 [安装与安全](guides/install.md)。
 
 ## 裸 URL 自动链接
 
@@ -136,6 +136,6 @@ console.log(greet("mdview"));
 下一步：
 
 - [**preview/** —— 支持哪些文件能在浏览器里直接看](preview/index.md)
-- [install.md](guide/install.md) —— 构建、运行、Trust 与路径规则
-- [advanced.md](guide/advanced.md) —— 会被渲染 / 刻意不渲染的边界
-- [code-blocks.md](guide/code-blocks.md) —— 代码块与围栏变体
+- [install.md](guides/install.md) —— 构建、运行、Trust 与路径规则
+- [advanced.md](guides/advanced.md) —— 会被渲染 / 刻意不渲染的边界
+- [code-blocks.md](guides/code-blocks.md) —— 代码块与围栏变体

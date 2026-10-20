@@ -3,8 +3,8 @@
 这篇文档列出新实现（Rust + comrak）**容易踩的边界**，方便判断渲染结果是不是预期。
 总原则：核心语义与视觉对齐 VS Code 1.142；linkify / reference definition /
 front matter / URL 与 alt 的硬边角采用 comrak 行为
-（[ADR 0005](../adr/0005-vscode-1.142-as-oracle.md)、
-[ADR 0007](../adr/0007-hard-edge-cases-use-comrak.md)）。
+（[ADR 0005](../architecture/adr/0005-vscode-1.142-as-oracle.md)、
+[ADR 0007](../architecture/adr/0007-hard-edge-cases-use-comrak.md)）。
 
 ## 会渲染的
 

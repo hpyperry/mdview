@@ -1,6 +1,6 @@
 # 安装、运行与 Trust
 
-这篇文档放在 `docs/guide/` 下，用来验证**相对链接**与**图片相对路径**的重写，
+这篇文档放在 `docs/guides/` 下，用来验证**相对链接**与**图片相对路径**的重写，
 同时说明新实现的启动方式与安全模型。
 
 ## 构建
@@ -119,7 +119,7 @@ mdview --root docs --port 8000
 
 > 相对目标按 VS Code 语义**解码两次、编码一次**。代价是文件名里**字面**含
 > `%xx` 的文件（如 `x%20y.png`）不能通过相对 Markdown 目标到达；用目录索引或
-> 绝对 URL 访问。理由见 [ADR 0001](../adr/0001-markdown-target-encoding.md)。
+> 绝对 URL 访问。理由见 [ADR 0001](../architecture/adr/0001-markdown-target-encoding.md)。
 
 ## 目录结构
 

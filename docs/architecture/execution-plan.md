@@ -2,9 +2,9 @@
 
 **Status**: P0–P5 完成；P6 基本完成（CI 全绿，release tag 待验证）
 **Branch**: `refactor/new-md-view-server`
-**依据**: [设计方案](new-md-view-server.md) · [ADR 0004](../adr/0004-rust-rewrite-and-dependencies.md) ·
-[ADR 0005](../adr/0005-vscode-1.142-as-oracle.md) · [ADR 0006](../adr/0006-html-trust-and-csp.md) ·
-[ADR 0007](../adr/0007-hard-edge-cases-use-comrak.md)
+**依据**: [设计方案](overview.md) · [ADR 0004](adr/0004-rust-rewrite-and-dependencies.md) ·
+[ADR 0005](adr/0005-vscode-1.142-as-oracle.md) · [ADR 0006](adr/0006-html-trust-and-csp.md) ·
+[ADR 0007](adr/0007-hard-edge-cases-use-comrak.md)
 
 这份计划把设计方案落成可执行的工作包。**P0 是决策门**：先量化 comrak 与
 markdown-it 的差异，再决定是否全速实现。P0 不通过时，停下来重选解析器，
@@ -12,10 +12,10 @@ markdown-it 的差异，再决定是否全速实现。P0 不通过时，停下�
 
 > **P0 结果（2026-10-19）**：1035 条计分语料 **1015 条精确匹配（98.07%）**，
 > **0 条未解释差异**；20 条计分差异 = 17 条 accepted + 3 条表格对齐待修。
-> 按 [ADR 0007](../adr/0007-hard-edge-cases-use-comrak.md)，linkify、reference
+> 按 [ADR 0007](adr/0007-hard-edge-cases-use-comrak.md)，linkify、reference
 > definition、front matter、URL normalization、图像 alt 的 23 条差异接受 comrak
 > 行为；另有 2 条 `vscode:` 链接服务器偏差 accepted。P2 由 8–12 天下调到
-> **4–6 天**。详见 [差分报告](../spikes/comrak-vs-markdown-it.md)。
+> **4–6 天**。详见 [差分报告](../research/comrak-vs-markdown-it.md)。
 
 ## 0. 原则
 
@@ -41,8 +41,8 @@ markdown-it 的差异，再决定是否全速实现。P0 不通过时，停下�
 **总量级**：单人全职约 **4–5 周**（含测试；按 ADR 0007 第二次下调）。最大变量仍是
 P2 的 URL/安全/表格对齐层；P1 可以先落骨架，P3 的资产准备可以在 P2 期间做。
 
-> **实现状态（2026-10-20）**：P1–P5 已完成；`cargo test` 47 + 134 + 27 golden、黑盒 129、pty 9、
-> 浏览器 121、artifact 冒烟 7，clippy/fmt 全绿，release 约 3.4 MB。P6 的 CI 矩阵、打包与依赖审计已实跑通过；
+> **实现状态（2026-10-20）**：P1–P5 已完成；`cargo test` 50 + 134 + 27 golden、黑盒 151、pty 9、
+> 浏览器 163、artifact 冒烟 7，clippy/fmt 全绿，release 约 3.4 MB。P6 的 CI 矩阵、打包与依赖审计已实跑通过；
 > 许可证 MIT，release tag 工作流待验证。
 
 ## 2. P0：解析器差分探针（决策门）
@@ -65,7 +65,7 @@ P2 的 URL/安全/表格对齐层；P1 可以先落骨架，P3 的资产准备�
 - [x] **P0-4 规范化 diff**：DOM 规范化；保留 `pre/code` 内空白；忽略 VS Code 私有
       `data-line`/`code-line`/`data-vscode-context` 与纯序列化差异。
 - [x] **P0-5 性能检查**：1 MB/10 MB、URL 密集、256 KB 长行；未发现平方级退化。
-- [x] **P0-6 报告**：[`docs/spikes/comrak-vs-markdown-it.md`](../spikes/comrak-vs-markdown-it.md)；
+- [x] **P0-6 报告**：[`docs/research/comrak-vs-markdown-it.md`](../research/comrak-vs-markdown-it.md)；
       1015/1035 精确匹配，0 未解释差异，Gate A = 黄。
 
 ### 决策门
@@ -97,7 +97,7 @@ P2 的 URL/安全/表格对齐层；P1 可以先落骨架，P3 的资产准备�
 - [x] **P1-5 静态服务**：目录索引（面包屑、大小、mtime、下载按钮、搜索框）、
       二进制原样发送、`?download=1`（RFC 6266/5987）、`HEAD`、缓存头、流式文件、
       `/search?q=` 全文搜索。
-- [x] **P1-7 测试骨架**：Rust 单元/集成 + `tests/selftest-rust.sh`（后续扩到 129 项）
+- [x] **P1-7 测试骨架**：Rust 单元/集成 + `tests/selftest-rust.sh`（后续扩到 151 项）
       black-box；CI 骨架留到 P6。
 - [x] **P1-6 Trust/CSP**：用户配置目录、TOML、启动询问、非 TTY 默认未信任、
       `--trust/--untrusted`、4 档 CSP、nonce；未信任 `.md` 拦截面与一次性令牌
@@ -169,13 +169,15 @@ P2 的 URL/安全/表格对齐层；P1 可以先落骨架，P3 的资产准备�
 - [x] **P3-5 岛屿交互**：`web/src/islands/` 负责 highlight、复制、图片放大、回顶；
       无 JS 时不出现死按钮；修饰键不劫持、Esc/背景关闭、焦点归还。
 - [x] **P3-6 文档站 chrome**：顶部栏、默认收起的全站导航浮岛、面包屑、主题三态；
-      导航首次打开懒加载，目录只展开、文件才导航；正文不预留导航列；
+      导航页面空闲时预取，目录只展开、文件才导航；正文不预留导航列；
       Markdown 页 ≥1360px 为正文 + 24px TOC 细轨，内容面最大 1240、阅读行 1000；
-      代码语言条、分组搜索页与错误/Trust 页统一（ADR 0008/0009/0010）。
+      页头横跨内容面，搜索表单在页头右侧；代码语言条、统一搜索页与错误/Trust 页
+      统一（ADR 0008/0009/0010/0012）。
 - [x] **P3-7 浏览器探针**：`tests/browser-probe.mjs` 在 headless Chrome 里跑
-      121 项：全宽内容面/导航浮岛/岛水合/TOC 细轨与浮层/搜索弹层、sticky、语言条、
-      高亮、复制、放大/焦点、修饰键、主题三态、移动抽屉、目录/源码回顶、
-      大源码分块/懒高亮、无 JS 全文、无外部请求。
+      163 项：全宽内容面/全宽页头/导航空闲预取/岛水合/TOC 悬停文字大纲/搜索弹层与
+      整行结果/渲染块行定位、sticky、语言条、源码页头、高亮、复制、放大/焦点、
+      修饰键、主题快速切换与状态反馈、移动抽屉、目录/源码回顶、大源码分块/懒高亮、
+      无 JS 全文、无外部请求。
 
 ### 验收
 
@@ -195,8 +197,8 @@ P2 的 URL/安全/表格对齐层；P1 可以先落骨架，P3 的资产准备�
 - [x] **P4-1 移植 217 项渲染测试**：`tests/render_compat.rs` 134 项，按
       ADR 0005/0007 更新期望；纯 JS/CSS 旧断言（复制按钮、遮罩动画）属于
       被重写的客户端资产，不再逐条迁移。
-- [x] **P4-2 重写 345 项 HTTP 断言**：`tests/selftest-rust.sh` 129 项黑盒 +
-      `src/` 46 项单元测试（server 23）覆盖目录/源码/下载/搜索/301/404/HEAD/
+- [x] **P4-2 重写 345 项 HTTP 断言**：`tests/selftest-rust.sh` 151 项黑盒 +
+      `src/` 50 项单元测试（server 26）覆盖目录/源码/下载/搜索/301/404/HEAD/
       MIME/嗅探/上限/端口回退/Trust/CSP/文件系统边界。旧 Python 特有断言
       （标题 id、任务列表 checkbox、服务端高亮、raw HTML 转义、Python 压缩器）
       按 ADR 0005/0006/0007 明确废弃，不逐条复制。
@@ -227,14 +229,14 @@ P2 的 URL/安全/表格对齐层；P1 可以先落骨架，P3 的资产准备�
 
 ### 工作包
 
-- [x] **P5-1 示例语料**：`docs/index.md`、`guide/install.md`、`guide/advanced.md`、
-      `guide/code-blocks.md`、`preview/index.md`、`preview/binary-test.md` 已改为
+- [x] **P5-1 示例语料**：`docs/index.md`、`guides/install.md`、`guides/advanced.md`、
+      `guides/code-blocks.md`、`preview/index.md`、`preview/binary-test.md` 已改为
       VS Code 核心 + comrak 硬边角（task list 字面量、无 heading id、全角 URL、
       `%xx`、data URI、accepted deviations）。
 - [x] **P5-2 文档重写**：README、AGENT、tests/README、GLOSSARY、SELFTEST 已重写；
       含 Trust/CSP/构建/CI/测试说明。
-- [x] **P5-3 归档旧台账**：旧 `SELFTEST.md` → `docs/legacy/SELFTEST-python.md`；
-      新 `SELFTEST.md` 记录 Rust 验证结果。
+- [x] **P5-3 归档旧台账**：旧 Python 台账 → `docs/archive/selftest-python.md`；
+      新台账在 `docs/testing/selftest.md` 记录 Rust 验证结果。
 - [x] **P5-4 删除 Python**：`mdview.py`、`dist/`、`tools/minify.py`、Python 测试、
       `__pycache__` 已删除；`docs/preview/make_preview_samples.py` 作为夹具生成器保留。
 - [x] **P5-5 许可证**：MIT `LICENSE` 已加入；`THIRD-PARTY-NOTICES` 列内嵌资产与直接依赖。
@@ -318,7 +320,7 @@ P0 ──Gate A──> P2 ──Gate B──> P4 ──Gate C──> P5 ──> 
 
 1. 建 `tools/spike/comrak-vs-markdown-it/`（临时 Node + Rust 探针）。
 2. 按 P0-1 收语料，P0-2/P0-3 跑两阶段对比。
-3. 写 `docs/spikes/comrak-vs-markdown-it.md`，给出绿/黄/红结论。
+3. 写 `docs/research/comrak-vs-markdown-it.md`，给出绿/黄/红结论。
 4. 同时起 P1-1/P1-2（Cargo 骨架 + CLI），不与 P0 抢同一批文件。
 
 **在 P0 报告出来之前，不写产品渲染器，也不删旧 Python。**

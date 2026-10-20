@@ -88,4 +88,4 @@
 
 ---
 
-[返回首页](../index.md) · [代码块专项测试](../guide/code-blocks.md) · [边界与约定](../guide/advanced.md)
+[返回首页](../index.md) · [代码块专项测试](../guides/code-blocks.md) · [边界与约定](../guides/advanced.md)

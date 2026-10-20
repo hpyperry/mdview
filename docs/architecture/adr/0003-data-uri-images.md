@@ -62,4 +62,4 @@
 - 文档要同步：README 的 XSS 小节不能再说「`data:` 一律不产出属性」；AGENT.md
   硬约束 3 要写清「按消费方开口」；GLOSSARY 增加协议白名单与数据 URI 图片。
 - 实现收尾仍走仓库纪律：两套测试 → `tools/minify.py` 重新生成 `dist/` →
-  同步 README / tests/README.md / SELFTEST.md 的计数与描述。
+  同步 README / tests/README.md / docs/testing/selftest.md 的计数与描述。

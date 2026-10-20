@@ -1,6 +1,9 @@
 # AGENT.md —— mdview 改动指南
 
-给在这个仓库里干活的 agent。用户文档看 `README.md`；这一页是改动路线图。
+给在这个仓库里干活的 agent。用户文档看 `README.md`；文档地图看
+[`docs/README.md`](docs/README.md)，功能编号与验收口径看
+[`docs/reference/features.md`](docs/reference/features.md)，浏览器/自动化测试流程看
+[`docs/testing/agent-guide.md`](docs/testing/agent-guide.md)。
 
 ## 这是什么
 
@@ -12,30 +15,31 @@
 npm --prefix web ci
 npm --prefix web run typecheck
 cargo build --release
-cargo test
-cargo clippy --all-targets -- -D warnings
-bash tests/selftest-rust.sh
+bash tests/run-all.sh
 ```
+
+`tests/run-all.sh` 包含 Rust 测试、fmt/clippy、文档链接检查、黑盒 HTTP、TTY Trust、
+浏览器探针、性能预算与 artifact 冒烟；也可以按需单跑。
 
 `build.rs` 默认在编译时执行 `web/` 的 esbuild 构建；没有 Node/npm 依赖时先
 `npm --prefix web ci`。跨平台 musl 构建用
 `npm --prefix web run build:web` + `MDVIEW_WEB_PREBUILT=web/dist`。
 
-必须全绿：`cargo test`（47 单元 + 134 渲染兼容 + 27 golden）、129 项黑盒 HTTP、
-9 项 pty 信任测试、121 项 headless Chrome 验收、4 项源码页性能预算。
+必须全绿：`cargo test`（50 单元 + 134 渲染兼容 + 27 golden）、151 项黑盒 HTTP、
+9 项 pty 信任测试、163 项 headless Chrome 验收、4 项源码页性能预算。
 
 ## 规格来源
 
 按优先级读：
 
-1. `docs/adr/0005-vscode-1.142-as-oracle.md`：Markdown 语义、代码高亮与渲染结构对齐 VS Code；
-2. `docs/adr/0007-hard-edge-cases-use-comrak.md`：linkify / 引用定义 / front matter /
+1. `docs/architecture/adr/0005-vscode-1.142-as-oracle.md`：Markdown 语义、代码高亮与渲染结构对齐 VS Code；
+2. `docs/architecture/adr/0007-hard-edge-cases-use-comrak.md`：linkify / 引用定义 / front matter /
    URL 与 alt 的 accepted deviations；
-3. `docs/adr/0006-html-trust-and-csp.md`：裸 HTML 透传与 Trust/CSP；
-   [ADR 0008](docs/adr/0008-docs-shell-and-reading-typography.md) 文档站外壳/排版，
-   [ADR 0009](docs/adr/0009-search-scope-and-form-csp.md) 搜索与同源表单；
-4. `docs/design/new-md-view-server.md` 与 `docs/design/execution-plan.md`；
-5. `docs/spikes/comrak-vs-markdown-it.md`：P0 差分证据。
+3. `docs/architecture/adr/0006-html-trust-and-csp.md`：裸 HTML 透传与 Trust/CSP；
+   [ADR 0008](docs/architecture/adr/0008-docs-shell-and-reading-typography.md) 文档站外壳/排版，
+   [ADR 0009](docs/architecture/adr/0009-search-scope-and-form-csp.md) 搜索与同源表单；
+4. `docs/architecture/overview.md` 与 `docs/architecture/execution-plan.md`；
+5. `docs/research/comrak-vs-markdown-it.md`：P0 差分证据。
 
 **不要“顺手修”记录在案的取舍。** 典型：标题无 id、任务列表字面量、全角句号进 URL、
 `www.` 链接化、字面 `%xx` 文件名不可达。它们都有 ADR/测试钉着。
@@ -77,9 +81,9 @@ bash tests/selftest-rust.sh
    不得添加标题 id。
 
    外壳布局约束：`.app` 最大 1680、外边距 16；顶栏 sticky `top:12`；正文始终是
-   主网格；≥1360px 才增加 24px TOC 细轨，901–1359 单列，≤900 单列。全站导航
-   是默认收起的浮层（桌面浮岛 / 移动抽屉），不占用正文列。内容面最大 1240、
-   阅读行最大 1000。改布局后跑浏览器探针。
+   主网格；≥1360px 才增加 24px TOC 细轨，悬停/聚焦展开带文字大纲；901–1359 单列，
+   ≤900 单列。全站导航是默认收起的浮层（桌面浮岛 / 移动抽屉），不占用正文列。
+   内容面最大 1240、阅读行最大 1000。改布局后跑浏览器探针。
 6. **目录 `rel` 带尾斜杠**：`list_dir` 入口会 `trim_end_matches('/')`；新增目录页逻辑
    注意不要拼出 `//` 或把 `/sub/` 的上级算成 `/sub/`。
 7. **搜索范围**：文件名覆盖所有文件；正文只扫 Markdown/文本，跳过隐藏目录、
@@ -88,10 +92,10 @@ bash tests/selftest-rust.sh
    用 CSS `content-visibility: auto` 跳过离屏布局与绘制；行锚点与语法高亮由
    `web/src/islands/source.ts` 按可见块懒加载。不要恢复服务端截断、`?text=1`
    文本通道、`connect-src` 或 highlightAuto；无 JS 必须仍能读全文。
-9. **岛屿边界**：8 个岛（theme/nav/search/totop/toc/code/zoom/source）由
-   `body[data-islands]` 清单控制；岛只接管自己的控制区，服务端 HTML 是权威。
+9. **岛屿边界**：9 个岛（theme/nav/search/totop/toc/linetarget/code/zoom/source）
+   由 `body[data-islands]` 清单控制；岛只接管自己的控制区，服务端 HTML 是权威。
    新增交互先判断是否能归入现有岛，不要回到一个全局 DOMContentLoaded 初始化器。
-10. **全站导航**：`/_nav` 返回全站可见目录与所有文件；首次打开才 fetch，目录行
+10. **全站导航**：`/_nav` 返回全站可见目录与所有文件；页面空闲时预取，目录行
     只展开、文件行才导航；每次加载默认收起，展开状态才存 localStorage。导航
     不挤压正文。不要恢复“当前目录侧栏”或“目录/文件”分组文字。
 11. 文档与提交信息用中文，提交前缀 `feat:` / `fix:` / `docs:` / `refactor:` /
@@ -106,8 +110,9 @@ bash tests/selftest-rust.sh
 | URL 编码/相对路径 | `rewrite_target` + `%20/%2520/%23/%3F` 测试 |
 | 新路由/页面 | `src/server.rs` 的 `app`/`handle` 与 `Page` 外壳 |
 | 搜索范围/结果 | `search_files` / `render_search`；正文只扫文本文件 |
+| 搜索结果行定位 | `render_markdown_with_sourcepos` + `web/src/islands/linetarget.ts` |
 | 顶部栏/导航/页面 chrome/内容面 | `html_page`、`crumbs_html`、`nav.tsx` |
-| TOC/代码条/主题/导航/大源码分块 | `web/src/islands/*` |
+| TOC/行定位/代码条/主题/导航/大源码分块 | `web/src/islands/*` |
 | 岛屿清单/水合策略 | `src/server.rs` 的 `data-islands` + `web/src/app.ts` |
 | 全站导航树/接口 | `src/server.rs` 的 `/_nav` + `web/src/islands/nav.tsx` |
 | CSP/安全级别 | `csp_header` + `csp_levels` 测试 |
@@ -125,21 +130,47 @@ bash tests/selftest-rust.sh
 - **被拒链接**只渲染标签文本，不产出 `href`；被拒图片只渲染 alt 文本。
 - **front matter 空块** `---\n---` 不是 front matter，会输出两个 `<hr>`。
 - **尖括号引用定义** `[r]: <a b.md>` 是 accepted comrak deviation，不要加预扫描。
-- **搜索只扫 `.md`**，跳过隐藏目录、`node_modules` 等；超过 `--max-preview` 的文件跳过。
+- **搜索正文**只扫 Markdown 与按文本处理的文件，跳过隐藏目录、`node_modules`
+  等；超过 `--max-preview` 的文件跳过。Markdown 内容行链接到渲染页 `#L<n>`，
+  文本内容行到源码行，文件标题/文件条目到文件开头；不要恢复独立的
+  “打开文档/源码 Ln”操作按钮。UI 文案用“结果”，不要写“命中”。
 - **`?raw=1` 是 HTML 源码查看页**，不是原始字节；原始字节用 `?download=1`。
 - **`serve_file` 的 `Content-Disposition`** 已做 ASCII fallback + RFC 5987 编码；
   文件名来自磁盘，必须继续防 CR/LF/引号注入。
 - **客户端代码在 `web/src/`**：不要再改/恢复 `assets/mdview.js`；改完先
   `npm --prefix web run typecheck`，`cargo build` 会自动重跑 esbuild。
 - **岛清单**：`body[data-islands]` 与页面实际控制区必须一致；源码页不要挂 `toc`，
-  非文档页不要挂 `toc`/`code`/`zoom`，否则会出现空岛或错误初始化。
-- **导航不要回退**：`/_nav` 是懒加载全站树，导航只导航文件；目录行只展开。
+  非文档页不要挂 `toc`/`linetarget`/`code`/`zoom`，否则会出现空岛或错误初始化。
+- **页头统一逻辑**：所有页头用 `.head-inner` 横跨内容面（左右 30px），正文阅读行
+  仍由 `.markdown-body` 限制为 1000px；搜索页表单在页头右侧。不要再给页头套
+  `max-width: 1000px` 的容器。
+- **搜索结果行**：整条 `.hit` 是链接；Markdown 内容行到渲染页 `#L<n>`，文件标题
+  与文件条目到文件开头。不要恢复独立的“打开文档/源码 Ln”按钮。
+- **行定位**：`render_markdown` 默认不带 sourcepos，保持 golden/render_compat 不变；
+  只有服务端渲染页调用 `render_markdown_with_sourcepos`。`linetarget` 只认块级
+  元素，定位是块级近似。
+- **主题切换**：模式以当前页面内存为准，localStorage 只负责持久化；写入失败不能
+  卡住循环。按钮旁的状态提示是“看起来有没有生效”的反馈，不要删。
+- **导航不要回退**：`/_nav` 是页面空闲时预取的全站树，导航只导航文件；目录行只展开。
   中间目录页是一张统一列表，没有“目录/文件”分组标题。
+- **源码页头**：H1 是文件名，不是“源码”；下方类型/大小/行数/修改时间用标签展示，
+  操作是“预览/下载”。不要恢复 `查看渲染页` 或把参数重新堆成一行纯文本。
+- **H1 下划线**：`assets/markdown.css` 给全局 `h1` 加了 `border-bottom`；
+  `web/src/styles/app.css` 的 `h1` 重置负责外壳标题。新增页面标题不要绕开它。
+- **文件大小**统一走 `format_size`：1024 进制、KB 起步、1 位小数去尾零；
+  不要直接输出 B/KiB。
 
 ## 测试约定
 
+- 功能验收先看 [`docs/reference/features.md`](docs/reference/features.md) 的 `F-xx`；
+  新功能追加编号，不重排旧编号。
 - 渲染层断言放 `tests/render_compat.rs`；路由/安全放 `src/server.rs` 的测试模块；
   真二进制行为放 `tests/selftest-rust.sh`。
+- 全量本地验收跑 `bash tests/run-all.sh`；文档移动/改链接后先跑
+  `node tests/check-doc-links.mjs`。
+- 浏览器/视觉验收遵循 [`docs/testing/agent-guide.md`](docs/testing/agent-guide.md)：
+  browser-use/Computer Use + 截图证据；自动探针与视觉验收不能互相替代。
 - 断言与实现冲突时，先核对 ADR；accepted deviation 必须在测试名/注释里写明。
 - 修 bug 时先写能复现的断言，再修。
 - 性能断言只拦平方级退化，上界故意宽松（debug 构建也要过）。
+- 用户没有明确要求时，不 push、不触发远程 CI。

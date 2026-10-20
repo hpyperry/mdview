@@ -2,7 +2,9 @@
 
 > **历史文档**：本文件描述 2.0 之前的 Python 单文件实现，其中的命令、计数与行为
 > 不再适用于当前 Rust 实现。保留它仅为追溯缺陷与修复过程；当前测试见
-> [`tests/README.md`](../../tests/README.md) 与根目录 `SELFTEST.md`。
+> [`tests/README.md`](../../tests/README.md) 与
+> [`docs/testing/selftest.md`](../testing/selftest.md)。文内出现的旧路径（如
+> `docs/legacy/`、根目录 `SELFTEST.md`）是历史写法，保留原文。
 
 本文件记录 `mdview.py` 的实际验证结果，**每条都能照着复现**。
 不是"应该可以"，而是这台机器上当时跑出来的输出。

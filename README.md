@@ -4,6 +4,10 @@
 所有类型下载、全文搜索；不联网、不请求任何外部资源。Markdown 语义与代码高亮
 对齐 **VS Code 1.142.0**，页面外壳采用文档站风格。
 
+文档地图见 [`docs/README.md`](docs/README.md)，功能矩阵见
+[`docs/reference/features.md`](docs/reference/features.md)，测试与浏览器验收见
+[`docs/testing/`](docs/testing/)。
+
 ```bash
 npm --prefix web ci
 cargo build --release
@@ -20,7 +24,7 @@ cargo build --release
 ## 2.0 与旧 Python 版的关系
 
 - 旧实现（`mdview.py`、Python 测试、`dist/`）已删除；历史与缺陷台账归档在
-  [`docs/legacy/SELFTEST-python.md`](docs/legacy/SELFTEST-python.md)。
+  [`docs/archive/selftest-python.md`](docs/archive/selftest-python.md)。
 - 新实现是 Rust（edition 2024），允许成熟 crate，但产物仍是单文件。
 - **行为变化**（均为决策，不是回归）：
   - 裸 HTML **原样透传**，由 Trust + CSP 约束（旧实现一律转义）；
@@ -29,42 +33,48 @@ cargo build --release
   - 非 Markdown 文本统一进入**源码查看页**；
   - 增加 Trust 拦截页、4 档 CSP、`vscode:` 链接拒绝与 data URI 策略。
 
-决策记录：[ADR 0004](docs/adr/0004-rust-rewrite-and-dependencies.md)（Rust 重写）、
-[0005](docs/adr/0005-vscode-1.142-as-oracle.md)（VS Code 基准）、
-[0006](docs/adr/0006-html-trust-and-csp.md)（HTML/CSP）、
-[0007](docs/adr/0007-hard-edge-cases-use-comrak.md)（comrak 硬边角）、
-[0008](docs/adr/0008-docs-shell-and-reading-typography.md)（文档站外壳与排版）、
-[0009](docs/adr/0009-search-scope-and-form-csp.md)（搜索与同源表单）、
-[0010](docs/adr/0010-three-column-layout-and-sticky-shell.md)（三列与 sticky 外壳）、
-[0011](docs/adr/0011-chunked-source-viewer.md)（大源码全文分块）、
-[0012](docs/adr/0012-island-frontend-architecture.md)（岛屿前端与全宽外壳）、
-[0013](docs/adr/0013-full-site-navigation-island.md)（全站导航浮岛与默认收起）。
+决策记录：[ADR 0004](docs/architecture/adr/0004-rust-rewrite-and-dependencies.md)（Rust 重写）、
+[0005](docs/architecture/adr/0005-vscode-1.142-as-oracle.md)（VS Code 基准）、
+[0006](docs/architecture/adr/0006-html-trust-and-csp.md)（HTML/CSP）、
+[0007](docs/architecture/adr/0007-hard-edge-cases-use-comrak.md)（comrak 硬边角）、
+[0008](docs/architecture/adr/0008-docs-shell-and-reading-typography.md)（文档站外壳与排版）、
+[0009](docs/architecture/adr/0009-search-scope-and-form-csp.md)（搜索与同源表单）、
+[0010](docs/architecture/adr/0010-three-column-layout-and-sticky-shell.md)（三列与 sticky 外壳）、
+[0011](docs/architecture/adr/0011-chunked-source-viewer.md)（大源码全文分块）、
+[0012](docs/architecture/adr/0012-island-frontend-architecture.md)（岛屿前端与全宽外壳）、
+[0013](docs/architecture/adr/0013-full-site-navigation-island.md)（全站导航浮岛与默认收起）、
+[0014](docs/architecture/adr/0014-markdown-line-target.md)（Markdown 搜索结果行定位到渲染块）。
 
 ## 功能
 
 ### 文档站外壳与搜索
 
 - 所有页面共用全宽顶部栏 + 内容面；Markdown 页在 ≥1360px 增加 24px TOC 细轨，
-  901–1359px 为单列，≤900px 单列；导航是默认收起的浮层，不占用正文网格；
-- 内容面最大 1240px、阅读行最大 1000px；代码块、表格随内容面变宽，正文行长受限；
-- 全站导航树首次打开时懒加载，包含所有可见目录与文件；目录行只展开/收起，
+  悬停或键盘聚焦时向左展开带文字大纲；901–1359px 为单列，≤900px 单列；导航是
+  默认收起的浮层，不占用正文网格；
+- 内容面最大 1240px、阅读行最大 1000px；页头横跨内容面（左右 30px），正文仍
+  保持阅读行；搜索页表单在页头右侧，窄屏自动换行；代码块、表格随内容面变宽；
+- 全站导航树在页面空闲时预取，包含所有可见目录与文件；目录行只展开/收起，
   文件行才导航；当前路径自动展开，用户展开状态本地记忆；
 - 顶部栏只保留产品名、搜索图标、主题三态和导航开关；页面路径放在正文头部；
 - 导航默认收起，每次加载都收起；桌面浮岛覆盖、不挤压正文，≤900px 为抽屉 + 遮罩；
 - 搜索：图标 + 按需弹层（`/` 打开），提交进入搜索页；文件名覆盖所有文件，
-  正文覆盖 Markdown/文本；结果按文件分组，Markdown 正文命中可“打开文档”或
-  “源码 Ln”，文本命中直接进源码行；
+  正文覆盖 Markdown/文本；每条结果整行是链接：Markdown 内容行跳到渲染页的
+  对应块并高亮，文件标题与文件条目跳到文件开头；不再有独立的打开按钮；
+- 文件大小统一按 1024 进制显示 KB/MB/GB，0 字节为 `0 KB`，1–1023 字节为 `<1 KB`；
 - CSP 放行同源表单（`form-action 'self'`）与导航 JSON（`connect-src 'self'`），
 无 JS 时搜索图标直接进入搜索页、导航入口隐藏；
-- 主题：跟随系统 / 浅色 / 深色，手动选择持久化；
-- 页内目录由浏览器从 h2/h3 生成（服务端不生成标题 id）；宽屏 TOC 细轨
-  支持刻度跳转、浮层展开和 scroll-spy；窄屏回正文顶部；代码块有语言条与复制按钮。
+- 主题：跟随系统 / 浅色 / 深色，手动选择持久化；点击后按钮旁短暂显示当前模式，
+  存储写入失败也仍可继续切换；
+- 页内目录由浏览器从 h2/h3 生成（服务端不生成标题 id）；宽屏 TOC 细轨支持刻度
+  跳转、悬停展开文字大纲、固定/收起与 scroll-spy；窄屏回正文顶部；代码块有
+  语言条与复制按钮。
 
 ### Markdown 渲染
 
 - CommonMark + GFM 表格 / 删除线 / 自动链接；`~~x~~` 输出 `<s>`；
 - Markdown 语义与代码高亮对齐 VS Code；正文采用文档阅读排版：阅读行上限 1000px、
-  16px、1.7 行高；
+  16px、1.7 行高；渲染页带 `data-sourcepos`，供搜索结果行定位到对应块；
 - 客户端高亮：highlight.js 11.11.1 完整语言包，仅对明确 `language-*` 的代码块
   高亮（不做自动语言探测）；大源码按可见分块懒高亮，单块仍有大小上限；代码块
   复制按钮、图片放大遮罩、回到顶部按钮都由脚本注入（禁用 JS 时没有死按钮）；
@@ -80,14 +90,14 @@ cargo build --release
 |------|------|
 | `GET /dir/` | 目录索引：无分组统一列表（目录在前）、大小/时间、下载按钮；上级导航在面包屑 |
 | `GET /x.md` | 渲染为 HTML（未信任目录先出现一次确认页） |
-| `GET /x.md?raw=1` | 源码查看页：行号、`id="L<n>"` 行锚点、回渲染/下载入口 |
+| `GET /x.md?raw=1` | 源码查看页：文件名为标题，类型/大小/行数/时间标签、行号、`id="L<n>"` 行锚点、预览/下载入口 |
 | `GET /x.md?download=1` | 原始字节 + `Content-Disposition` |
-| 已知文本扩展名/文件名 | 源码查看页（行号 + 客户端高亮）；> 256 KB 全文分块 |
+| 已知文本扩展名/文件名 | 源码查看页（文件名标题 + 类型/大小/行数/时间标签 + 行号与客户端高亮）；> 256 KB 全文分块 |
 | 无扩展名 | 前 512 字节无 NUL → 文本；有 NUL → 下载 |
 | 图片 / PDF | 按 MIME 内联 |
 | 其他 | `application/octet-stream` 下载 |
-| `GET /search?q=…` | 文件名搜所有文件；正文搜 Markdown/文本；按文件分组 |
-| `GET /_nav` | 全站导航树 JSON；包含所有可见目录与文件，供导航浮岛懒加载 |
+| `GET /search?q=…` | 文件名搜所有文件；正文搜 Markdown/文本；按文件分组；每条结果整行可点击 |
+| `GET /_nav` | 全站导航树 JSON；包含所有可见目录与文件，供导航浮岛空闲预取 |
 | `HEAD` / `301` / `404` | 支持；目录缺尾斜杠返回 301 |
 
 超过 `--max-preview`（默认 20 MiB）的文件一律改为下载，`?raw=1` 也不例外。
@@ -134,7 +144,7 @@ accepted deviations：
 - 23 条来自 comrak 的 linkify / reference definition / front matter / URL 与 alt；
 - 2 条是服务器拒绝 `vscode:` / `vscode-insiders:`（VS Code 放行，但本服务器没有处理器）。
 
-完整分类与反例见 [`docs/spikes/comrak-vs-markdown-it.md`](docs/spikes/comrak-vs-markdown-it.md)。
+完整分类与反例见 [`docs/research/comrak-vs-markdown-it.md`](docs/research/comrak-vs-markdown-it.md)。
 新增差异必须修掉或在 ADR 中记录，不能沉默带过。
 
 ## 构建与平台
@@ -164,10 +174,10 @@ macOS / Linux / Windows 三平台跑 `cargo test` 与黑盒 HTTP 套件。
 ```bash
 npm --prefix web ci
 npm --prefix web run typecheck
-cargo test                      # 47 单元 + 134 渲染兼容 + 27 golden
+cargo test                      # 50 单元 + 134 渲染兼容 + 27 golden
 cargo clippy --all-targets -- -D warnings
-bash tests/selftest-rust.sh     # 129 项真二进制 HTTP 断言
-node tests/browser-probe.mjs      # 121 项 headless Chrome 验收
+bash tests/selftest-rust.sh     # 151 项真二进制 HTTP 断言
+node tests/browser-probe.mjs      # 163 项 headless Chrome 验收
 node tests/perf-source.mjs        # 4 项源码页性能预算
 bash tests/trust-tty.sh           # 9 项真实 pty 信任测试
 ```
@@ -177,7 +187,10 @@ bash tests/trust-tty.sh           # 9 项真实 pty 信任测试
 - `tests/selftest-rust.sh`：目录/301/源码/渲染/下载/搜索/MIME/嗅探/上限/端口回退/
   Trust/CSP/FIFO/symlink。
 
-测试说明见 [`tests/README.md`](tests/README.md)。
+一次跑完用 `bash tests/run-all.sh`。测试说明见 [`tests/README.md`](tests/README.md)；
+最近一次浏览器验收见
+[`docs/testing/browser-report-2026-10-20.md`](docs/testing/browser-report-2026-10-20.md)，
+自主测试流程见 [`docs/testing/agent-guide.md`](docs/testing/agent-guide.md)。
 
 ## 目录结构
 
@@ -192,7 +205,7 @@ md-preview/
 │  ├─ render.rs     # comrak + VS Code 定制层
 │  └─ assets.rs     # 内嵌 vendor 资产与 web 构建产物
 ├─ web/             # TypeScript/Preact 岛屿源码 + esbuild
-│  ├─ src/islands/  # 8 个岛
+│  ├─ src/islands/  # 9 个岛
 │  └─ src/styles/   # app.css
 ├─ assets/          # markdown.css / highlight.css / highlight.min.js
 ├─ tests/           # render_compat.rs + selftest-rust.sh + 浏览器/性能探针
@@ -217,4 +230,4 @@ md-preview/
 - 无 JS 时没有 TOC 细轨/浮层、代码工具条与图片放大；正文与搜索页仍可读。
 - 许可证为 MIT，见 [`LICENSE`](LICENSE)；第三方组件见 [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md)。
 
-更细的边界见 [`docs/guide/advanced.md`](docs/guide/advanced.md)。
+更细的边界见 [`docs/guides/advanced.md`](docs/guides/advanced.md)。

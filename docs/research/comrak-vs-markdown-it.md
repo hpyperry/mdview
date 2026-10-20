@@ -12,7 +12,7 @@
   策略语料（2 匹配 / 8 预期差异，这 8 条也 accepted）。
 - comrak 的 CommonMark/GFM 核心没有问题；**不需要换解析器**。
 - Gate A 判为 **Yellow**：核心解析可用，但 comrak 的 autolink 与 reference definition 行为不能直接当 VS Code 用。
-- **后续决策（2026-10-19）**：按 [ADR 0007](../../docs/adr/0007-hard-edge-cases-use-comrak.md)，
+- **后续决策（2026-10-19）**：按 [ADR 0007](../architecture/adr/0007-hard-edge-cases-use-comrak.md)，
   linkify / reference definition / front matter / URL normalization / 图像 alt 的
   23 条差异改为 **accepted comrak deviations**；`data:image/*` 按 VS Code 覆盖逻辑，
   `vscode:` 链接 2 条为服务器偏差。合计 **25 条 accepted**，只剩 3 条表格对齐待修。
@@ -242,4 +242,4 @@ node perf.mjs            # 生成 perf 语料并测 markdown-it
 - 探针不实现 front matter/表格样式/alt 提取/linkify 自定义层；ADR 0007 后
   linkify/reference/front matter/alt 是 accepted，只有表格对齐仍需自定义。
 - 拒绝目标的 raw tail 是 markdown-it `html:true` 的真实行为；生产安全依赖
-  [ADR 0006](../../docs/adr/0006-html-trust-and-csp.md) 的 Trust/CSP，不依赖解析器转义。
+  [ADR 0006](../architecture/adr/0006-html-trust-and-csp.md) 的 Trust/CSP，不依赖解析器转义。
