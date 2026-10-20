@@ -24,7 +24,7 @@
 | 格式 | `cargo fmt --all --check` | **通过** |
 | Web 类型 | `npm --prefix web run typecheck` | **通过** |
 | 黑盒 HTTP | `bash tests/selftest-rust.sh` | **PASS=125 FAIL=0** |
-| 浏览器验收 | `node tests/browser-probe.mjs` | **PASS=90 FAIL=0** |
+| 浏览器验收 | `node tests/browser-probe.mjs` | **PASS=104 FAIL=0** |
 | 源码页性能 | `node tests/perf-source.mjs` | **4 项预算通过** |
 | TTY 信任 | `bash tests/trust-tty.sh` | **PASS=9 FAIL=0** |
 | artifact 冒烟 | `bash tests/smoke-artifact.sh target/release/mdview` | **PASS=7 FAIL=0** |
@@ -63,7 +63,7 @@ P0 差分报告：1035 条计分语料 **1015 条精确匹配（98.07%）**，0 
 
 ## 浏览器验证
 
-`tests/browser-probe.mjs` 在真实 headless Chrome 里跑 **90 项**断言：
+`tests/browser-probe.mjs` 在真实 headless Chrome 里跑 **104 项**断言：
 
 - 岛屿：文档页按需水合 toc/code/zoom，源码页只挂 source；
 - 文档站外壳：全宽内容面、平面侧栏、完整面包屑、代码语言条、移动端抽屉与遮罩；

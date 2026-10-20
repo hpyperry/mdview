@@ -10,7 +10,7 @@ Rust 实现的断言分多组：
 | `web/src/` | TypeScript 类型检查（岛运行时、Preact 组件、源码岛） | `npm --prefix web run typecheck` |
 | `selftest-rust.sh` | 真二进制的 black-box HTTP 断言（125 项：目录/渲染/源码/大源码全文分块/岛清单/下载/搜索/Trust/CSP/安全/文件系统边界） | `bash tests/selftest-rust.sh` |
 | `trust-tty.sh` + `trust-tty.exp` | 真实 pty 下的信任询问、持久化、非 TTY 默认（9 项） | `bash tests/trust-tty.sh` |
-| `browser-probe.mjs` | headless Chrome 验收（90 项）：全宽内容面/三列细轨/两列降级/TOC 浮层与 scroll-spy/搜索弹层/岛水合/侧栏/语言条/复制/放大/主题/大源码分块/无 JS 全文 | `node tests/browser-probe.mjs` |
+| `browser-probe.mjs` | headless Chrome 验收（104 项）：全宽内容面/三列细轨/两列降级/TOC 浮层与 scroll-spy/搜索弹层/岛水合/侧栏/语言条/复制/放大/主题/大源码分块/无 JS 全文 | `node tests/browser-probe.mjs` |
 | `perf-source.mjs` | 源码页性能预算：100 KB / 1 MB / 10 MB / 1 MB Rust（真实 Chrome，含末行完整性检查） | `node tests/perf-source.mjs` |
 | `smoke-artifact.sh` | 对已构建二进制做目录/渲染/资产/下载/CSP 冒烟（7 项） | `bash tests/smoke-artifact.sh <二进制>` |
 

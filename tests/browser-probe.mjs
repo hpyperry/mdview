@@ -188,6 +188,9 @@ async function writeFixture(root) {
   );
   await writeFile(join(root, 'sub', 'page.md'), '# Sub\n\n[上级](/) · ![图](img.png)\n');
   await writeFile(join(root, 'plain.txt'), 'plain text without a language\nsecond line\n');
+  await writeFile(join(root, 'small.rs'), 'fn main() {\n    let x = 1;\n    println!("{}", x);\n}\n');
+  await writeFile(join(root, 'single.md'), '# Single\n\nOnly a heading.\n');
+  await writeFile(join(root, 'huge-code.md'), `# Huge\n\n\`\`\`js\n${'const x = 1;\n'.repeat(22000)}\`\`\`\n`);
   const bigLines = Array.from({ length: 15000 }, (_, i) => `line ${i + 1} the quick brown fox jumps over the lazy dog`).join('\n') + '\n';
   await writeFile(join(root, 'big.txt'), bigLines);
   const bigRust = Array.from({ length: 12000 }, (_, i) => `fn f${i + 1}() { let x = ${i + 1}; println!("hello"); }`).join('\n') + '\n';
@@ -367,6 +370,9 @@ async function main() {
     check('移动端遮罩可见', (await evaluate('!document.getElementById("scrim").hidden')) === true);
     await evaluate('document.getElementById("scrim").click()');
     check('移动端遮罩关闭抽屉', (await evaluate('document.documentElement.dataset.sidebarOpen')) === undefined);
+    await page.send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
+    await goto('/page.md');
+    check('390 无横向溢出', (await evaluate('document.documentElement.scrollWidth <= innerWidth + 1')) === true);
 
     console.log('== three columns ==');
     await page.send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
@@ -375,6 +381,7 @@ async function main() {
       await evaluate('document.getElementById("sidebar-toggle").click()');
     }
     check('三列网格', (await evaluate('getComputedStyle(document.getElementById("shell")).gridTemplateColumns.split(" ").length')) === 3);
+    check('1440 无横向溢出', (await evaluate('document.documentElement.scrollWidth <= innerWidth + 1')) === true);
     check('TOC 细轨可见', (await evaluate('getComputedStyle(document.querySelector(".toc-rail")).display')) !== 'none');
     check('正文面使用宽布局', (await evaluate('Math.round(document.querySelector(".doc-card").getBoundingClientRect().width)')) >= 1000);
     check('TOC 当前项', await waitFor('!!document.querySelector(".toc-tick.is-active")', 3000));
@@ -392,6 +399,18 @@ async function main() {
     );
     await evaluate('document.querySelector(".toc-close").click()');
     check('TOC 面板可收起', await waitFor('document.querySelector(".toc-pop") === null', 2000));
+    await evaluate('document.querySelector(".toc-rail-btn").click()');
+    await waitFor('document.querySelector(".toc-pop") !== null', 2000);
+    await evaluate('document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))');
+    check('TOC Esc 关闭', await waitFor('document.querySelector(".toc-pop") === null', 2000));
+    await evaluate('document.querySelector(".toc-rail-btn").click()');
+    await waitFor('document.querySelector(".toc-pop") !== null', 2000);
+    await evaluate('document.querySelector(".doc-prose p").click()');
+    check('TOC 点外部关闭', await waitFor('document.querySelector(".toc-pop") === null', 2000));
+    await goto('/single.md');
+    check('无标题时不显示 TOC', await waitFor('document.getElementById("toc-rail")?.hidden === true && document.getElementById("toc-slot")?.hidden === true', 2000));
+    check('无标题时正文两列', (await evaluate('getComputedStyle(document.getElementById("shell")).gridTemplateColumns.split(" ").length')) === 2);
+    await goto('/page.md');
     await evaluate('window.scrollTo(0, 500)');
     await sleep(250);
     check('顶栏 sticky', (await evaluate('Math.round(document.querySelector(".topbar").getBoundingClientRect().top)')) === 12);
@@ -402,10 +421,13 @@ async function main() {
     check('1200 两列', (await evaluate('getComputedStyle(document.getElementById("shell")).gridTemplateColumns.split(" ").length')) === 2);
     check('1200 细轨隐藏', (await evaluate('getComputedStyle(document.querySelector(".toc-rail")).display')) === 'none');
     check('1200 内联目录', (await evaluate('getComputedStyle(document.querySelector(".toc-inline")).display')) !== 'none');
+    check('1200 无横向溢出', (await evaluate('document.documentElement.scrollWidth <= innerWidth + 1')) === true);
 
     console.log('== chunked source ==');
     await goto('/plain.txt');
     check('无语言源码不自动高亮', (await evaluate('document.querySelectorAll("pre code.hljs").length')) === 0);
+    await goto('/small.rs');
+    check('小源码按语言高亮', await waitFor('document.querySelectorAll(".source .code code.hljs span").length > 0', 3000));
     const chunkedStarted = Date.now();
     await goto('/big.txt');
     check('源码全文分块容器', (await evaluate('document.querySelectorAll(".source-chunked .source-chunk").length')) === 31);
@@ -425,11 +447,18 @@ async function main() {
     await goto('/big.rs');
     check('大源码按块着色', await waitFor('document.querySelectorAll(".source-chunk code.hljs").length > 0', 3000));
     check('大源码着色有界', (await evaluate('document.querySelectorAll(".source-chunk code.hljs").length')) < 10);
+    await goto('/huge-code.md');
+    check('超大代码块标记未高亮', await waitFor('document.querySelector(".code-block .lang")?.textContent.includes("未高亮")', 3000));
+    check('超大代码块不着色', (await evaluate('document.querySelectorAll(".code-block code.hljs").length')) === 0);
     await goto('/page.md');
 
     console.log('== search ==');
     await goto('/page.md');
     check('搜索岛已水合', await waitFor('window.__mdviewIslands?.mounted.includes("search")', 3000));
+    await evaluate('document.dispatchEvent(new KeyboardEvent("keydown", { key: "/", bubbles: true }))');
+    check('搜索快捷键打开', await waitFor('document.getElementById("search-pop")?.hidden === false', 2000));
+    await evaluate('document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))');
+    check('搜索 Esc 关闭', await waitFor('document.getElementById("search-pop")?.hidden === true', 2000));
     await evaluate('document.getElementById("search-open").click()');
     check('搜索弹层打开', await waitFor('document.getElementById("search-pop")?.hidden === false', 2000));
     await evaluate('(() => { document.getElementById("search-input").value = "Probe"; document.getElementById("search-form").requestSubmit(); })()');
@@ -438,6 +467,11 @@ async function main() {
     check('搜索词高亮', await waitFor('document.querySelectorAll(".hit-snippet mark").length > 0', 3000));
     check('搜索页有独立表单', (await evaluate('!!document.querySelector(".search-page-form input")')) === true);
     check('搜索页面包屑完整', await crumbsComplete('.search-head .crumbs', '搜索'));
+    await page.send('Emulation.setDeviceMetricsOverride', { width: 800, height: 600, deviceScaleFactor: 1, mobile: false });
+    await goto('/page.md');
+    await evaluate('document.getElementById("search-open").click()');
+    check('窄屏搜索直达搜索页', await waitFor('document.body.dataset.page === "search"', 5000));
+    await page.send('Emulation.setDeviceMetricsOverride', { width: 1200, height: 320, deviceScaleFactor: 1, mobile: false });
 
     console.log('== directory and raw pages ==');
     await goto('/sub/');
@@ -469,6 +503,7 @@ async function main() {
     check('无 JS 正文可读', (await evaluate('document.querySelector("article.markdown-body h1").textContent')) === 'Probe');
     check('无 JS 服务端不着色', (await evaluate('document.querySelectorAll("pre code span").length')) === 0);
     check('无 JS 隐藏主题按钮', (await evaluate('getComputedStyle(document.getElementById("theme-toggle")).display')) === 'none');
+    check('无 JS 搜索入口是链接', (await evaluate('document.getElementById("search-open")?.getAttribute("href") === "/search" && document.getElementById("search-pop")?.hidden === true')) === true);
     await goto('/big.txt');
     check('无 JS 大源码全文', (await evaluate('document.querySelector(".source-chunked")?.textContent.includes("line 15000")')) === true);
     check('无 JS 大源码总行数', (await evaluate('document.querySelector(".source-note")?.textContent.includes("15001 行")')) === true);

@@ -49,7 +49,7 @@ Rust 重写。旧 Python 单文件实现已删除，历史台账见
 
 - `cargo test`：46 项单元/集成 + 134 项渲染兼容 + 27 条 golden。
 - `bash tests/selftest-rust.sh`：125 项黑盒 HTTP 断言；`trust-tty.sh` 9 项；
-  `browser-probe.mjs` 90 项；性能预算 4 项；artifact 冒烟 7 项。
+  `browser-probe.mjs` 104 项；性能预算 4 项；artifact 冒烟 7 项。
 - CI：macOS / Linux / Windows 测试矩阵、4 目标构建、`cargo audit`。
 
 ### 已知后果

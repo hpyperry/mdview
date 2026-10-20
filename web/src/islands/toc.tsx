@@ -1,6 +1,6 @@
 import { createPortal } from 'preact/compat';
 import { render } from 'preact';
-import { useEffect, useRef, useState } from 'preact/hooks';
+import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import { Icon } from '../icons';
 import { prefersReducedMotion } from '../utils';
 
@@ -123,7 +123,7 @@ function Toc({ headings, inlineNav }: TocProps) {
     };
   }, [headings]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!open) return;
     function onKey(event: KeyboardEvent): void {
       if (event.key === 'Escape') setOpen(false);

@@ -4,9 +4,30 @@ const CHUNK_MARGIN = 1500;
 const LINE_HEIGHT = 21;
 const MAX_HIGHLIGHT_CHARS = 256 * 1024;
 
+function highlightSmallSource(source: HTMLElement): void {
+  const code = source.querySelector<HTMLElement>('.source .code code');
+  if (!code || !window.hljs || !hasExplicitLanguage(code)) return;
+  if (code.textContent && code.textContent.length > MAX_HIGHLIGHT_CHARS) {
+    code.dataset.highlightSkipped = '1';
+    return;
+  }
+  try {
+    window.hljs.highlightElement(code);
+  } catch {
+    // keep plain text
+  }
+}
+
 export function mountSource(): void {
-  const wrap = document.querySelector<HTMLElement>('.source-chunked');
-  if (!wrap) return;
+  const source = document.querySelector<HTMLElement>('.source-wrap');
+  if (!source) return;
+  const wrap = source.classList.contains('source-chunked')
+    ? source
+    : source.querySelector<HTMLElement>('.source-chunked');
+  if (!wrap) {
+    highlightSmallSource(source);
+    return;
+  }
   const chunks = Array.from(wrap.querySelectorAll<HTMLElement>('.source-chunk'));
   if (!chunks.length) return;
   const chunkSize = Number.parseInt(wrap.getAttribute('data-chunk-lines') || '500', 10) || 500;
