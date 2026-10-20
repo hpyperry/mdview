@@ -149,10 +149,6 @@ function launchChrome(chrome, profile) {
     '--disable-dev-shm-usage',
     '--no-first-run',
     '--no-default-browser-check',
-    '--disable-background-timer-throttling',
-    '--disable-backgrounding-occluded-windows',
-    '--disable-renderer-backgrounding',
-    '--disable-features=CalculateNativeWinOcclusion',
     '--remote-debugging-port=0',
     `--user-data-dir=${profile}`,
     'about:blank',
@@ -160,7 +156,7 @@ function launchChrome(chrome, profile) {
   const child = spawn(chrome, args, { stdio: ['ignore', 'ignore', 'pipe'] });
   const wsUrl = new Promise((resolve, reject) => {
     let buffer = '';
-    const timer = setTimeout(() => reject(new Error(`Chrome did not expose DevTools:\n${buffer}`)), 15000);
+    const timer = setTimeout(() => reject(new Error(`Chrome did not expose DevTools:\n${buffer}`)), 30000);
     child.stderr.on('data', (chunk) => {
       buffer += chunk.toString();
       const match = buffer.match(/DevTools listening on (ws:\/\/[^\s]+)/);
