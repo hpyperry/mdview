@@ -149,6 +149,10 @@ function launchChrome(chrome, profile) {
     '--disable-dev-shm-usage',
     '--no-first-run',
     '--no-default-browser-check',
+    '--disable-background-timer-throttling',
+    '--disable-backgrounding-occluded-windows',
+    '--disable-renderer-backgrounding',
+    '--disable-features=CalculateNativeWinOcclusion',
     '--remote-debugging-port=0',
     `--user-data-dir=${profile}`,
     'about:blank',
@@ -206,6 +210,8 @@ async function main() {
     process.exit(2);
   }
   const binary = findBinary();
+  const version = spawnSync(chrome, ['--version'], { encoding: 'utf8' }).stdout.trim();
+  console.log(`Chrome: ${version || chrome}`);
   const tmp = await mkdtemp(join(tmpdir(), 'mdview-browser-'));
   const root = join(tmp, 'root');
   const profile = join(tmp, 'chrome');
@@ -241,6 +247,9 @@ async function main() {
     await page.send('Page.enable');
     await page.send('Runtime.enable');
     await page.send('Network.enable');
+    await page.send('Page.bringToFront');
+    await page.send('Emulation.setFocusEmulationEnabled', { enabled: true }).catch(() => {});
+    await page.send('Page.setWebLifecycleState', { state: 'active' }).catch(() => {});
     await page.send('Emulation.setDeviceMetricsOverride', {
       width: 1200, height: 320, deviceScaleFactor: 1, mobile: false,
     });
@@ -336,7 +345,7 @@ async function main() {
     await evaluate('document.querySelector(".zoom-close").click()');
     await sleep(100);
     check('关闭按钮生效', (await evaluate('document.querySelector("dialog.zoomdlg").open')) === false);
-    check('焦点归还图片链接', (await evaluate('document.activeElement === document.querySelector("a.zoom")')) === true);
+    check('焦点归还图片链接', await waitFor('document.activeElement === document.querySelector("a.zoom")', 2000));
 
     console.log('== theme ==');
     await evaluate('document.getElementById("theme-toggle").click()');
@@ -367,7 +376,7 @@ async function main() {
     check('TOC 当前项', (await evaluate('!!document.querySelector(".toc-col a.active")')) === true);
     await evaluate('document.getElementById("toc-3").scrollIntoView({ block: "start" })');
     check('TOC 定位到 Section B', await waitFor('document.getElementById("toc-3").getBoundingClientRect().top < 120', 3000));
-    await evaluate('window.dispatchEvent(new Event("scroll"))');
+    await evaluate('window.dispatchEvent(new Event("scroll")); window.dispatchEvent(new Event("resize"))');
     const tocActive = await waitFor('document.querySelector(".toc-col a.active")?.getAttribute("data-target") === "toc-3"', 3000);
     check(
       'TOC 跟随滚动',
@@ -402,7 +411,7 @@ async function main() {
     check('源码行高亮', (await evaluate('!!document.querySelector(".source-target-line")')) === true);
     check('源码锚点滚动', (await evaluate('window.scrollY')) > 0);
     await goto('/wide.txt');
-    check('源码长行横向滚动', (await evaluate('document.querySelector(".source-wrap").scrollWidth > document.querySelector(".source-wrap").clientWidth + 100')) === true);
+    check('源码长行横向滚动', await waitFor('document.querySelector(".source-wrap").scrollWidth > document.querySelector(".source-wrap").clientWidth + 100', 3000));
     await goto('/big.rs');
     check('大源码按块着色', await waitFor('document.querySelectorAll(".source-chunk code.hljs").length > 0', 3000));
     check('大源码着色有界', (await evaluate('document.querySelectorAll(".source-chunk code.hljs").length')) < 10);

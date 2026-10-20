@@ -65,7 +65,7 @@
 
   var MAX_HIGHLIGHT_CHARS = 256 * 1024;
   var SOURCE_LINE_HEIGHT = 21;
-  var SOURCE_CHUNK_MARGIN = '1500px 0px';
+  var SOURCE_CHUNK_MARGIN = 1500;
 
   function hasExplicitLanguage(code) {
     return /(?:^|\s)language-[\w-]+/.test(code.className || '');
@@ -198,21 +198,29 @@
       });
     }
 
-    if (window.IntersectionObserver) {
-      var observer = new IntersectionObserver(function (entries) {
-        entries.forEach(function (entry) {
-          if (!entry.isIntersecting) return;
-          ensureGutter(entry.target);
-          ensureHighlight(entry.target);
-        });
-      }, { rootMargin: SOURCE_CHUNK_MARGIN });
-      chunks.forEach(function (chunk) { observer.observe(chunk); });
-    } else {
-      chunks.slice(0, 3).forEach(function (chunk) {
+    function enhanceVisible() {
+      var viewport = window.innerHeight || 800;
+      chunks.forEach(function (chunk) {
+        var rect = chunk.getBoundingClientRect();
+        if (rect.bottom < -SOURCE_CHUNK_MARGIN || rect.top > viewport + SOURCE_CHUNK_MARGIN) return;
         ensureGutter(chunk);
         ensureHighlight(chunk);
       });
     }
+
+    var enhanceScheduled = false;
+    function scheduleEnhance() {
+      if (enhanceScheduled) return;
+      enhanceScheduled = true;
+      window.setTimeout(function () {
+        enhanceScheduled = false;
+        enhanceVisible();
+      }, 80);
+    }
+
+    window.addEventListener('scroll', scheduleEnhance, { passive: true });
+    window.addEventListener('resize', scheduleEnhance);
+    enhanceVisible();
 
     window.addEventListener('hashchange', goHash);
     if (window.location.hash) goHash();
@@ -317,6 +325,9 @@
       });
     }, { passive: true });
     window.addEventListener('resize', spy);
+    document.addEventListener('visibilitychange', function () {
+      if (!document.hidden) spy();
+    });
 
     function setTocHidden(hidden) {
       if (hidden) root.dataset.toc = 'hidden';
