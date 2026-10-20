@@ -97,10 +97,10 @@ P0 差分报告：1035 条计分语料 **1015 条精确匹配（98.07%）**，0 
 
 ## CI（GitHub Actions）
 
-- 最近一次远程完整绿色：`CI · 39423447824`（2026-10-20，`0fd5478`），8/8 job
+- 最近一次远程完整绿色：`CI · 39450506481`（2026-10-20，`b3a133a`），8/8 job
   成功；macOS/Ubuntu/Windows 测试、Node 类型检查、4 目标构建全绿。
-- 2026-10-20 的界面/文档收敛先在本地验证；本次推送后会生成新的远程 CI run，
-  以该 run 为准。下面的 151/163 是本地结果，不是远程 CI 状态。
+- 本地 `run-all.sh` 的 151/163 与远程 CI 同一工作树结果一致。
+- Release 由 tag `v2.0.0` 触发 `release.yml`；发布结果以该 GitHub Release 为准。
 - 岛屿架构首跑 `39421064321` 暴露两个 CI 问题：Linux Chrome 因新增的
   headless 启动参数没有在 15s 内暴露 DevTools；musl 的 cross 容器默认不传递
   `MDVIEW_WEB_PREBUILT`，导致 build.rs 在容器内找 npm。修复为移除多余启动
@@ -113,11 +113,12 @@ P0 差分报告：1035 条计分语料 **1015 条精确匹配（98.07%）**，0 
   Linux arm64 musl 只构建（x86 runner 无法执行 arm64）。
 - 4 个 artifact 大小：macOS 2.8 MB、Windows 3.3 MB、Linux x64 3.3 MB、
   Linux arm64 3.0 MB。
-- tag `v*` 触发的 `release.yml`（SHA256SUMS + GitHub Release）尚未实跑。
+- tag `v2.0.0` 首次触发 `release.yml`（SHA256SUMS + GitHub Release）；
+  产物列表与校验和以该 Release 页面为准。
 
 ## 尚未验证 / 待办
 
-- `release.yml` 需要一次 tag 才能验证；当前只验证了 CI 打包。
+- v2.0.0 Release 的 artifact 下载与 SHA256SUMS 需在发布后核对一次。
 - 完整 P0 语料的 golden 生成器仍以 `tools/spike/` 为准（当前为 27 条 curated golden）。
 
 ## 复现

@@ -1,6 +1,6 @@
 # Changelog
 
-## 2.0.0（未发布）
+## 2.0.0（2026-10-20）
 
 Rust 重写。旧 Python 单文件实现已删除，历史台账见
 [`docs/archive/selftest-python.md`](docs/archive/selftest-python.md)。

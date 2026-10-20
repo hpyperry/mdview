@@ -1,6 +1,6 @@
 # 执行计划：Rust 单文件 mdview
 
-**Status**: P0–P5 完成；P6 基本完成（CI 全绿，release tag 待验证）
+**Status**: P0–P5 完成；P6 完成（CI 全绿，v2.0.0 Release）
 **Branch**: `refactor/new-md-view-server`
 **依据**: [设计方案](overview.md) · [ADR 0004](adr/0004-rust-rewrite-and-dependencies.md) ·
 [ADR 0005](adr/0005-vscode-1.142-as-oracle.md) · [ADR 0006](adr/0006-html-trust-and-csp.md) ·
@@ -43,7 +43,7 @@ P2 的 URL/安全/表格对齐层；P1 可以先落骨架，P3 的资产准备�
 
 > **实现状态（2026-10-20）**：P1–P5 已完成；`cargo test` 50 + 134 + 27 golden、黑盒 151、pty 9、
 > 浏览器 163、artifact 冒烟 7，clippy/fmt 全绿，release 约 3.4 MB。P6 的 CI 矩阵、打包与依赖审计已实跑通过；
-> 许可证 MIT，release tag 工作流待验证。
+> 许可证 MIT，v2.0.0 由 `release.yml` 发布。
 
 ## 2. P0：解析器差分探针（决策门）
 
