@@ -141,7 +141,7 @@ HTML 文件内部的 CSS/JS/图片等子资源按真实 MIME 返回，不受该�
 | `--no-search` | 关 | 关闭搜索路由与搜索框 |
 | `--trust` / `--untrusted` | — | 本次运行强制信任/不信任，不写配置 |
 | `--security-level` | 配置或 `0` | CSP 级别 0–3 |
-| `--verbose` | 关 | 把每个请求、状态与耗时打到 stderr；用于诊断 CSS/导航等客户端问题 |
+| `--verbose` | 关 | 把每个请求的方法、路径、`Sec-Fetch-Dest`、状态、`Content-Type/Length` 与耗时打到 stderr；启动时打印内嵌资产尺寸 |
 
 ## Trust 与 CSP
 

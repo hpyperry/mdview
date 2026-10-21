@@ -1,7 +1,7 @@
 # mdview 文档地图
 
 这里是 2.0 文档的入口。根目录的 [`README.md`](../README.md) 是产品入口，
-[`AGENT.md`](../AGENT.md) 是改动指南，[`GLOSSARY.md`](../GLOSSARY.md) 是术语表，
+[`AGENTS.md`](../AGENTS.md) 是改动指南，[`GLOSSARY.md`](../GLOSSARY.md) 是术语表，
 [`CHANGELOG.md`](../CHANGELOG.md) 记录版本变化。
 
 ## 按用途查找
@@ -14,11 +14,12 @@
 | `testing/` | 自测记录、浏览器验收报告、agent 测试指南、截图证据 | [selftest.md](testing/selftest.md) · [browser-report-2026-10-20.md](testing/browser-report-2026-10-20.md) · [browser-report-2026-10-21.md](testing/browser-report-2026-10-21.md) · [browser-report-2026-10-21-archives.md](testing/browser-report-2026-10-21-archives.md) · [agent-guide.md](testing/agent-guide.md) |
 | `research/` | P0 comrak vs markdown-it 差分探针 | [comrak-vs-markdown-it.md](research/comrak-vs-markdown-it.md) |
 | `archive/` | 旧 Python 实现历史台账 | [selftest-python.md](archive/selftest-python.md) |
+| `releases/` | 版本发布说明 | [2.0.1.md](releases/2.0.1.md) |
 | `index.md` + `preview/` | 作为服务根时使用的示例文档与夹具，不是产品文档 | [index.md](index.md) · [preview/](preview/) |
 
 ## 文档状态
 
-- **current**：描述当前 Rust 实现，改代码时优先依据它。`README.md`、`AGENT.md`、
+- **current**：描述当前 Rust 实现，改代码时优先依据它。`README.md`、`AGENTS.md`、
   `GLOSSARY.md`、`architecture/`、`guides/`、`reference/features.md`、`testing/`。
 - **historical**：归档内容，保留当时的命令与计数，不代表当前行为。`archive/`、
   ADR 中标记为 superseded 的记录。

@@ -1,4 +1,4 @@
-# AGENT.md —— mdview 改动指南
+# AGENTS.md —— mdview 改动指南
 
 给在这个仓库里干活的 agent。用户文档看 `README.md`；文档地图看
 [`docs/README.md`](docs/README.md)，功能编号与验收口径看
@@ -28,6 +28,18 @@ bash tests/run-all.sh
 
 必须全绿：`cargo test`（68 单元 + 134 渲染兼容 + 27 golden）、198 项黑盒 HTTP、
 9 项 pty 信任测试、203 项 headless Chrome 验收、4 项源码页性能预算。
+
+## 协作流程
+
+1. **需求先建 Issue**：写清目标、范围与验收标准；Issue 是需求的唯一入口。
+2. **从 main 拉分支**：分支名用 `feat/…`、`fix/…`、`docs/…` 或 `release/…`；
+   不在 main 上直接开发。
+3. **PR 关联 Issue**：PR 描述写 `Closes #N`；CI 全绿、评审通过后合并。
+4. **不直接推 main、不打 tag、不发 Release**：除非用户明确要求。
+5. **发布**：更新版本号、`CHANGELOG.md` 与 `docs/releases/<tag>.md`；合并后打
+   annotated tag；Release workflow 构建 4 个 artifact；发布后核对 `SHA256SUMS`
+   与 release notes。
+6. **紧急修复**也走 PR；直接推 main 或改历史必须得到用户明确授权。
 
 ## 规格来源
 

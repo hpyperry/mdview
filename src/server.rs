@@ -275,13 +275,32 @@ async fn log_request(State(state): State<AppState>, request: Request, next: Next
     }
     let method = request.method().clone();
     let uri = request.uri().clone();
+    let dest = request
+        .headers()
+        .get("sec-fetch-dest")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("-")
+        .to_string();
     let started = Instant::now();
     let response = next.run(request).await;
+    let content_type = response
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("-");
+    let content_length = response
+        .headers()
+        .get(header::CONTENT_LENGTH)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("-");
     eprintln!(
-        "{} {} -> {} ({} ms)",
+        "{} {} dest={} -> {} type={} len={} ({} ms)",
         method,
         loggable_uri(&uri),
+        dest,
         response.status().as_u16(),
+        content_type,
+        content_length,
         started.elapsed().as_millis()
     );
     response
@@ -391,6 +410,16 @@ fn print_banner(cli: &Cli, root: &Path, max_preview: u64, trust: TrustState, por
             "warning: 内嵌 web 资产为空（app.css={} bytes, app.js={} bytes）；页面会丢样式或交互，请重新构建 web 资产",
             APP_CSS.len(),
             APP_JS.len()
+        );
+    }
+    if cli.verbose {
+        eprintln!(
+            "assets: markdown.css={} B highlight.css={} B app.css={} B app.js={} B version={}",
+            MARKDOWN_CSS.len(),
+            HIGHLIGHT_CSS.len(),
+            APP_CSS.len(),
+            APP_JS.len(),
+            crate::assets::asset_version()
         );
     }
     println!(
@@ -1244,7 +1273,12 @@ async fn nav(State(state): State<AppState>) -> Response {
     let root_label = root.display().to_string();
     let safe = state.safe;
     match tokio::task::spawn_blocking(move || nav_payload(&root, safe)).await {
-        Ok(Ok(payload)) => ([(header::CACHE_CONTROL, "no-store")], Json(payload)).into_response(),
+        Ok(Ok(payload)) => {
+            if payload.partial {
+                eprintln!("nav: 部分目录无法读取，已返回不完整树");
+            }
+            ([(header::CACHE_CONTROL, "no-store")], Json(payload)).into_response()
+        }
         Ok(Err(error)) => {
             eprintln!("nav: 构建导航失败 root={root_label}: {error}");
             (StatusCode::INTERNAL_SERVER_ERROR, "导航加载失败").into_response()
