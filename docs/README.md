@@ -15,6 +15,7 @@
 | `research/` | P0 comrak vs markdown-it 差分探针 | [comrak-vs-markdown-it.md](research/comrak-vs-markdown-it.md) |
 | `archive/` | 旧 Python 实现历史台账 | [selftest-python.md](archive/selftest-python.md) |
 | `releases/` | 版本发布说明 | [2.0.1.md](releases/2.0.1.md) |
+| `agents/` | Agent skills 配置：Issue tracker、triage 标签、domain docs | [issue-tracker.md](agents/issue-tracker.md) · [triage-labels.md](agents/triage-labels.md) · [domain.md](agents/domain.md) |
 | `index.md` + `preview/` | 作为服务根时使用的示例文档与夹具，不是产品文档 | [index.md](index.md) · [preview/](preview/) |
 
 ## 文档状态
