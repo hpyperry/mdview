@@ -12,7 +12,7 @@
 // Requires Node 22 (global WebSocket/fetch) and a Chrome/Chromium binary.
 
 import { spawn, spawnSync } from 'node:child_process';
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { copyFile, mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -196,6 +196,7 @@ async function writeFixture(root) {
     join(root, 'evil.svg'),
     '<svg xmlns="http://www.w3.org/2000/svg"><script>document.documentElement.dataset.x=1</script></svg>\n',
   );
+  await copyFile(join(REPO, 'tests', 'fixtures', 'archives', 'sample.zip'), join(root, 'sample.zip'));
   await writeFile(join(root, 'plain.txt'), 'plain text without a language\nsecond line\n');
   await writeFile(join(root, 'small.rs'), 'fn main() {\n    let x = 1;\n    println!("{}", x);\n}\n');
   await writeFile(join(root, 'single.md'), '# Single\n\nOnly a heading.\n');
@@ -757,6 +758,24 @@ async function main() {
     check('未信任 HTML 源码行锚点', (await evaluate('document.querySelector("#L1")?.textContent')) === '1');
     await gotoUntrusted('/evil.svg');
     check('SVG 直开脚本不执行', (await evaluate('document.documentElement.getAttribute("data-x") === null')) === true);
+
+    console.log('== archives ==');
+    await goto('/sample.zip/');
+    check('压缩包页面标题', (await evaluate('document.querySelector("h1")?.textContent')) === 'sample.zip');
+    check('压缩包格式头', (await evaluate('document.querySelector(".dir-head p")?.textContent'))?.includes('ZIP ·'));
+    check('压缩包下载入口', (await evaluate('[...document.querySelectorAll(".page-actions .action")].some((a) => a.textContent.includes("下载压缩包"))')) === true);
+    check('包内目录入口', (await evaluate(`document.querySelector('a[href="/sample.zip/docs/"]') !== null`)) === true);
+    await goto('/sample.zip/docs/a.md');
+    check('包内 Markdown 渲染', (await evaluate('document.querySelector("article.markdown-body h1")?.textContent')) === 'Archive A');
+    check('包内相对图片', (await evaluate('document.querySelector("article.markdown-body img")?.getAttribute("src")')) === '/sample.zip/docs/pic.png');
+    await goto('/sample.zip/docs/page.html');
+    check('包内 HTML trusted 原文', (await evaluate('document.querySelector("h1")?.textContent')) === 'Archive HTML');
+    check('包内 HTML trusted 无外壳', (await evaluate('!document.querySelector("iframe") && !document.querySelector(".html-toolbar")')) === true);
+    await goto('/sample.zip/docs/a.md?raw=1');
+    check('包内源码行锚点', (await evaluate('document.querySelector("#L1")?.textContent')) === '1');
+    await gotoUntrusted('/sample.zip/docs/page.html');
+    check('包内 HTML untrusted 沙箱', (await evaluate('document.body.dataset.page')) === 'html');
+    check('包内 HTML untrusted iframe', (await evaluate('document.querySelector("iframe.html-frame") !== null')) === true);
 
     console.log('== no-JS baseline ==');
     await page.send('Emulation.setScriptExecutionDisabled', { value: true });

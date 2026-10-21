@@ -8,7 +8,8 @@
 ## 这是什么
 
 `mdview` 是 Rust 单文件离线 Markdown 预览服务器：渲染 `.md`、为非 Markdown 文本
-提供源码查看页、其他文件按类型内联或下载，并带全文搜索、Trust 拦截与 CSP。
+提供源码查看页、压缩包虚拟目录、其他文件按类型内联或下载，并带全文搜索、
+Trust 拦截与 CSP。
 产物只有 `target/release/mdview`，运行时零外部请求。
 
 ```bash
@@ -25,8 +26,8 @@ bash tests/run-all.sh
 `npm --prefix web ci`。跨平台 musl 构建用
 `npm --prefix web run build:web` + `MDVIEW_WEB_PREBUILT=web/dist`。
 
-必须全绿：`cargo test`（56 单元 + 134 渲染兼容 + 27 golden）、183 项黑盒 HTTP、
-9 项 pty 信任测试、192 项 headless Chrome 验收、4 项源码页性能预算。
+必须全绿：`cargo test`（67 单元 + 134 渲染兼容 + 27 golden）、198 项黑盒 HTTP、
+9 项 pty 信任测试、203 项 headless Chrome 验收、4 项源码页性能预算。
 
 ## 规格来源
 
@@ -39,7 +40,7 @@ bash tests/run-all.sh
    [ADR 0008](docs/architecture/adr/0008-docs-shell-and-reading-typography.md) 文档站外壳/排版，
    [ADR 0009](docs/architecture/adr/0009-search-scope-and-form-csp.md) 搜索与同源表单；
    [ADR 0015](docs/architecture/adr/0015-html-file-preview-and-sandbox.md) HTML 文件双模式与沙箱，
-   [ADR 0016](docs/architecture/adr/0016-archive-virtual-paths.md) 压缩包虚拟路径（待实现）；
+   [ADR 0016](docs/architecture/adr/0016-archive-virtual-paths.md) 压缩包虚拟路径与解压缓存；
 4. `docs/architecture/overview.md` 与 `docs/architecture/execution-plan.md`；
 5. `docs/research/comrak-vs-markdown-it.md`：P0 差分证据。
 
@@ -56,6 +57,7 @@ bash tests/run-all.sh
 | `src/server.rs` | axum 路由、目录索引、全站导航 JSON、源码页/大源码分块、搜索、下载、CSP、token、缓存 |
 | `src/render.rs` | comrak 配置 + 自定义 formatter（链接/图片/表格/删除线）+ URL 重写 |
 | `src/assets.rs` | 内嵌 vendor 资产与 `OUT_DIR` 的 `app.js`/`app.css` |
+| `src/archive.rs` | 压缩包检测、zip/tar.gz/7z 解压、路径/编码/上限、临时缓存与淘汰 |
 | `build.rs` | 编译时执行 web 构建；支持 `MDVIEW_WEB_PREBUILT` |
 | `web/src/` | TypeScript/Preact 岛屿源码与应用 CSS |
 | `web/build.mjs` | esbuild 单入口 `app.ts` → `app.js` + `app.css` |
@@ -119,7 +121,14 @@ bash tests/run-all.sh
 14. **SVG 直开**：`image/svg+xml` 响应必须带
     `Content-Security-Policy: sandbox allow-top-navigation-by-user-activation`；
     `<img>` 内嵌不受影响。
-15. 文档与提交信息用中文，提交前缀 `feat:` / `fix:` / `docs:` / `refactor:` /
+15. **压缩包虚拟路径**：`/a.zip/docs/x.md`；真实目录优先；只有第一个压缩包段是容器，
+    嵌套包按普通文件下载，不递归。压缩包检测发生在 `--max-preview` 下载判断之前；
+    包内条目仍受 `--max-preview` 限制。
+16. **压缩包解压缓存**：进程私有 0700 临时根；按 (路径, mtime, size) 复用；
+    包 200 MB / 解压 1 GB / 2 万条 / 单条 100 MB；拒绝加密、多卷、绝对路径、
+    `..`、软链/硬链/设备、重复路径。`--safe` 下压缩包不可见。不要恢复“把临时目录
+    直接暴露成站点路径”或“每次请求重新解压”。
+17. 文档与提交信息用中文，提交前缀 `feat:` / `fix:` / `docs:` / `refactor:` /
     `style:` / `test:`。
 
 ## 改哪里
@@ -141,7 +150,8 @@ bash tests/run-all.sh
 | HTML 子资源 MIME | `fetch_kind` / `raw_mime`；直接导航仍走 `source_page` |
 | HTML 页面样式 | `web/src/styles/app.css` 的 `.html-toolbar` / `.html-frame` |
 | SVG 直开安全 | `serve_file` 的 `SVG_SANDBOX_CSP` |
-| 压缩包（待实现） | ADR 0016；新增 archive 模块 + `handle` 虚拟路径解析 |
+| 压缩包虚拟路径/解压 | `src/archive.rs` + `handle`/`handle_archive`/`handle_file` |
+| 压缩包页面 | `ArchiveView` + `list_dir_with` 的包根页头 |
 | CSP/安全级别 | `csp_header` + `csp_levels` 测试 |
 | Trust 配置 | `src/trust.rs` + 配置往返测试 |
 | 页面样式 | `web/src/styles/app.css`；VS Code 样式在 `assets/*.css` |
@@ -199,6 +209,13 @@ bash tests/run-all.sh
 - **safe 模式**：`.html` 只给源码；压缩包与文本仍 404。不要把 HTML 预览放进 safe。
 - **触屏目录行**：`.dir-row .dl` 由 `@media (hover: none)` 常显；不要改回只靠 hover。目录操作只用图标，用 `title` + `aria-label` 提供悬浮/无障碍文本；每个图标点击区 36×36、间距 8，不要贴在一起；不要再加行内“下载”文字，否则会破坏固定列。
 - **目录行固定列**：桌面是 `图标 / 名称 / 大小 / 修改时间 / 操作` 五列；HTML 的源码图标不能挤动大小/时间列。`list_dir` 的行模板必须保持五个 grid 子项（目录行用 `row-kind` 跨 3–4 列），≤720px 才隐藏大小/时间。
+- **压缩包路径**：URL 里的条目路径也要过 `safe_entry_path`；不要只依赖解压时的
+  canonicalize，否则 `..` 会变成同一包内的别名 URL。
+- **压缩包临时根**：macOS 的 `/var` 与 `/private/var` 会让 `starts_with` 误判；
+  缓存里存 canonical 后的 root，再和条目 canonical 比较。
+- **压缩包与 max-preview**：容器可以大于 `--max-preview` 仍可浏览；条目预览仍按
+  `--max-preview` 下载。检测顺序不要反过来。
+- **嵌套压缩包**：只把第一个压缩包段当容器；包内 `.zip` 只当普通文件，不能再解压。
 - **文件大小**统一走 `format_size`：1024 进制、KB 起步、1 位小数去尾零；
   不要直接输出 B/KiB。
 

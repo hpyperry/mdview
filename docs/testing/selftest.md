@@ -19,18 +19,18 @@
 
 | 套件 | 命令 | 结果 |
 |---|---|---|
-| 单元/集成 | `cargo test --lib` | **56 passed** |
+| 单元/集成 | `cargo test --lib` | **67 passed** |
 | Golden | `cargo test --test golden` | **27 cases passed** |
 | 渲染兼容 | `cargo test --test render_compat` | **134 passed** |
 | 静态检查 | `cargo clippy --all-targets -- -D warnings` | **通过** |
 | 格式 | `cargo fmt --all --check` | **通过** |
 | Web 类型 | `npm --prefix web run typecheck` | **通过** |
-| 黑盒 HTTP | `bash tests/selftest-rust.sh` | **PASS=183 FAIL=0** |
-| 浏览器验收 | `node tests/browser-probe.mjs` | **PASS=192 FAIL=0** |
+| 黑盒 HTTP | `bash tests/selftest-rust.sh` | **PASS=198 FAIL=0** |
+| 浏览器验收 | `node tests/browser-probe.mjs` | **PASS=203 FAIL=0** |
 | 源码页性能 | `node tests/perf-source.mjs` | **4 项预算通过** |
 | TTY 信任 | `bash tests/trust-tty.sh` | **PASS=9 FAIL=0** |
 | artifact 冒烟 | `bash tests/smoke-artifact.sh target/release/mdview` | **PASS=7 FAIL=0** |
-| 依赖漏洞 | `cargo audit` | **134 deps，无漏洞** |
+| 依赖漏洞 | `cargo audit` | **195 deps，无漏洞** |
 | 许可证/来源 | `cargo deny check advisories licenses bans sources` | **全部 ok** |
 
 `cargo test` 总耗时约 1.5 秒（debug）；黑盒套件约 15 秒（含 release 构建）。
@@ -69,10 +69,11 @@ P0 差分报告：1035 条计分语料 **1015 条精确匹配（98.07%）**，0 
 
 ## 浏览器验证
 
-`tests/browser-probe.mjs` 在真实 headless Chrome 里跑 **192 项**断言：
+`tests/browser-probe.mjs` 在真实 headless Chrome 里跑 **203 项**断言：
 
 - 岛屿：文档页按需水合 toc/linetarget/code/zoom，源码页只挂 source；
 - HTML 文件：trusted 根原文顶层、脚本/localStorage/同源 fetch 正常；untrusted 根沙箱 iframe 内脚本运行/相对 CSS 生效、localStorage 与同源 fetch 被阻断；源码页切换、SVG 直开脚本不执行、目录大小/时间列对齐；
+- 压缩包：包根页、包内 Markdown/HTML/源码、相对图片、嵌套 zip 不递归、整包/条目下载；压缩包虚拟目录/包内 Markdown/HTML/源码/下载；
 - 文档站外壳：全宽内容面、横跨内容面的页头、默认收起的全站导航浮岛、完整面包屑、
   代码语言条、移动端抽屉与遮罩；
 - 布局：≥1360 的正文 + 24px TOC 细轨、顶栏/TOC sticky、TOC 悬停文字大纲/固定/scroll-spy；
@@ -100,7 +101,7 @@ P0 差分报告：1035 条计分语料 **1015 条精确匹配（98.07%）**，0 
 
 - 最近一次远程完整绿色：`CI · 39450506481`（2026-10-20，`b3a133a`），8/8 job
   成功；macOS/Ubuntu/Windows 测试、Node 类型检查、4 目标构建全绿。
-- 本地 `run-all.sh` 当前为 183/192；远程 CI 最近一次绿色仍是 `b3a133a` 的 151/163。
+- 本地 `run-all.sh` 当前为 198/203；远程 CI 最近一次绿色仍是 `b3a133a` 的 151/163。
 - Release 由 tag `v2.0.0` 触发 `release.yml`；发布结果以该 GitHub Release 为准。
 - 岛屿架构首跑 `39421064321` 暴露两个 CI 问题：Linux Chrome 因新增的
   headless 启动参数没有在 15s 内暴露 DevTools；musl 的 cross 容器默认不传递
@@ -108,7 +109,7 @@ P0 差分报告：1035 条计分语料 **1015 条精确匹配（98.07%）**，0 
   参数、DevTools 超时 30s，并加 `Cross.toml` 透传预构建路径。
 - 更早的 `39285530389` 曾受 GitHub Actions `degraded_performance` 影响，
   8 个 job 长时间 queued；那是平台事件，不是代码失败。
-- 测试矩阵覆盖：`cargo test`、黑盒 183、TTY 9、浏览器 192、源码页性能 4；
+- 测试矩阵覆盖：`cargo test`、黑盒 198、TTY 9、浏览器 203、源码页性能 4；
   Windows 跳过 pty/浏览器/性能，其余全跑。
 - artifact 冒烟：macOS arm64、Linux x86_64 musl、Windows x86_64 通过；
   Linux arm64 musl 只构建（x86 runner 无法执行 arm64）。

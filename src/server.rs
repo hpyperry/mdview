@@ -23,6 +23,7 @@ use tokio::io::AsyncReadExt;
 use tokio_util::io::ReaderStream;
 use walkdir::WalkDir;
 
+use crate::archive::{self, ArchiveRequest, ArchiveStore, Extracted};
 use crate::assets::{APP_CSS, APP_JS, HIGHLIGHT_CSS, HIGHLIGHT_JS, MARKDOWN_CSS};
 use crate::cli::Cli;
 use crate::render::render_markdown_with_sourcepos;
@@ -170,6 +171,7 @@ pub struct AppState {
     pub max_preview: u64,
     pub trust: TrustState,
     pub verbose: bool,
+    pub archives: ArchiveStore,
     tokens: Arc<Mutex<HashMap<String, TokenEntry>>>,
     cache: Arc<Mutex<HashMap<PathBuf, CacheEntry>>>,
 }
@@ -202,6 +204,7 @@ impl AppState {
             max_preview,
             trust,
             verbose: false,
+            archives: ArchiveStore::new(),
             tokens: Arc::new(Mutex::new(HashMap::new())),
             cache: Arc::new(Mutex::new(HashMap::new())),
         }
@@ -480,6 +483,12 @@ async fn handle(
         return error_page(&state, StatusCode::BAD_REQUEST, "地址格式不正确", is_head).await;
     }
 
+    if !state.safe
+        && let Some(request) = archive::detect(&state.root, rel).await
+    {
+        return handle_archive(&state, &request, raw_path, &uri, &query, &headers, is_head).await;
+    }
+
     let target = match resolve_path(&state.root, rel).await {
         Ok(path) => path,
         Err(status) => {
@@ -530,9 +539,32 @@ async fn handle(
         .await;
     }
 
-    let size = metadata.len();
-    let info = classify(&target).await;
-    let fetch = fetch_kind(&headers);
+    return handle_file(
+        &state,
+        &target,
+        rel,
+        metadata.len(),
+        metadata.modified().unwrap_or(SystemTime::UNIX_EPOCH),
+        &headers,
+        &query,
+        is_head,
+    )
+    .await;
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn handle_file(
+    state: &AppState,
+    path: &Path,
+    rel: &str,
+    size: u64,
+    mtime: SystemTime,
+    headers: &HeaderMap,
+    query: &HashMap<String, String>,
+    is_head: bool,
+) -> Response {
+    let info = classify(path).await;
+    let fetch = fetch_kind(headers);
     let explicit_download = query.get("download").map(|v| v == "1").unwrap_or(false);
 
     // `--max-preview` limits documents, not the CSS/JS/images those documents
@@ -540,96 +572,205 @@ async fn handle(
     // stylesheet must arrive as CSS even if it is large.
     if !explicit_download && fetch == FetchKind::Subresource {
         return match info.kind {
-            Kind::Binary => serve_file(&state, &target, &info, size, false, is_head).await,
-            _ => serve_raw(&state, &target, &info, size, is_head).await,
+            Kind::Binary => serve_file(state, path, &info, size, false, is_head).await,
+            _ => serve_raw(state, path, &info, size, is_head).await,
         };
     }
 
     let force_download = explicit_download || (state.max_preview > 0 && size > state.max_preview);
     if force_download {
-        return serve_file(&state, &target, &info, size, true, is_head).await;
+        return serve_file(state, path, &info, size, true, is_head).await;
     }
 
     match info.kind {
         Kind::Markdown => {
             if query.get("raw").map(|value| value == "1").unwrap_or(false) {
-                return source_page(
-                    &state,
-                    &target,
-                    rel,
-                    &info,
-                    metadata.modified().unwrap_or(SystemTime::UNIX_EPOCH),
-                    is_head,
-                )
-                .await;
+                return source_page(state, path, rel, &info, mtime, is_head).await;
             }
             if state.trust.trusted {
-                return render_page(&state, &target, rel, is_head).await;
+                return render_page(state, path, rel, is_head).await;
             }
             if let Some(token) = query.get("open")
                 && state.consume_token(token, rel)
             {
-                return render_page(&state, &target, rel, is_head).await;
+                return render_page(state, path, rel, is_head).await;
             }
-            interstitial_page(&state, rel, is_head).await
+            interstitial_page(state, rel, is_head).await
         }
         Kind::Html => {
             if state.safe {
-                return source_page(
-                    &state,
-                    &target,
-                    rel,
-                    &info,
-                    metadata.modified().unwrap_or(SystemTime::UNIX_EPOCH),
-                    is_head,
-                )
-                .await;
+                return source_page(state, path, rel, &info, mtime, is_head).await;
             }
             if query.get("raw").map(|value| value == "1").unwrap_or(false) {
-                return source_page(
-                    &state,
-                    &target,
-                    rel,
-                    &info,
-                    metadata.modified().unwrap_or(SystemTime::UNIX_EPOCH),
-                    is_head,
-                )
-                .await;
+                return source_page(state, path, rel, &info, mtime, is_head).await;
             }
             // A trusted root is the "simple static server" path: serve the
             // original HTML as a top-level document, like the Python version.
             // Only untrusted roots fall back to the sandbox preview shell.
             if state.trust.trusted {
-                return html_trusted_document(&state, &target, size, is_head).await;
+                return html_trusted_document(state, path, size, is_head).await;
             }
             if query.get("view").map(|value| value == "1").unwrap_or(false)
                 || fetch == FetchKind::Iframe
             {
-                return html_preview_document(&state, &target, size, is_head).await;
+                return html_preview_document(state, path, size, is_head).await;
             }
-            html_preview_page(
-                &state,
-                rel,
-                &info,
-                size,
-                metadata.modified().unwrap_or(SystemTime::UNIX_EPOCH),
-                is_head,
-            )
-            .await
+            html_preview_page(state, rel, &info, size, mtime, is_head).await
         }
-        Kind::Text => {
-            source_page(
-                &state,
-                &target,
-                rel,
-                &info,
-                metadata.modified().unwrap_or(SystemTime::UNIX_EPOCH),
-                is_head,
-            )
-            .await
-        }
-        Kind::Binary => serve_file(&state, &target, &info, size, false, is_head).await,
+        Kind::Text => source_page(state, path, rel, &info, mtime, is_head).await,
+        Kind::Binary => serve_file(state, path, &info, size, false, is_head).await,
     }
+}
+
+async fn load_archive(
+    state: &AppState,
+    request: &ArchiveRequest,
+    is_head: bool,
+) -> Result<Arc<Extracted>, Response> {
+    let store = state.archives.clone();
+    let request = request.clone();
+    match tokio::task::spawn_blocking(move || store.get(&request)).await {
+        Ok(Ok(extracted)) => Ok(extracted),
+        Ok(Err(error)) => {
+            let status = if error.too_large {
+                StatusCode::PAYLOAD_TOO_LARGE
+            } else {
+                StatusCode::BAD_REQUEST
+            };
+            Err(error_page(
+                state,
+                status,
+                &format!("压缩包无法预览：{}", error.message),
+                is_head,
+            )
+            .await)
+        }
+        Err(_) => Err(error_page(
+            state,
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "压缩包解压失败",
+            is_head,
+        )
+        .await),
+    }
+}
+
+async fn handle_archive(
+    state: &AppState,
+    request: &ArchiveRequest,
+    raw_path: &str,
+    uri: &Uri,
+    query: &HashMap<String, String>,
+    headers: &HeaderMap,
+    is_head: bool,
+) -> Response {
+    let explicit_download = query.get("download").is_some_and(|value| value == "1");
+    let entry = request.entry_rel.trim_matches('/');
+    if entry.is_empty() {
+        if explicit_download {
+            let info = classify(&request.path).await;
+            return serve_file(state, &request.path, &info, request.size, true, is_head).await;
+        }
+        if !raw_path.ends_with('/') {
+            let location = match uri.query() {
+                Some(q) => format!("{raw_path}/?{q}"),
+                None => format!("{raw_path}/"),
+            };
+            return redirect(&location);
+        }
+        let extracted = match load_archive(state, request, is_head).await {
+            Ok(extracted) => extracted,
+            Err(response) => return response,
+        };
+        let view = ArchiveView {
+            label: request.kind.label().to_string(),
+            size: request.size,
+            entries: extracted.entries,
+            download_href: format!("/{}?download=1", encode_path(&request.archive_rel)),
+        };
+        return list_dir_with(
+            state,
+            &extracted.root,
+            &request.archive_rel,
+            is_head,
+            Some(&view),
+        )
+        .await;
+    }
+
+    let extracted = match load_archive(state, request, is_head).await {
+        Ok(extracted) => extracted,
+        Err(response) => return response,
+    };
+    let entry_path = match archive::safe_entry_path(entry) {
+        Ok(path) => path,
+        Err(_) => {
+            return error_page(state, StatusCode::BAD_REQUEST, "压缩包路径不正确", is_head).await;
+        }
+    };
+    let target = extracted.root.join(&entry_path);
+    let canonical = match tokio::fs::canonicalize(&target).await {
+        Ok(path) => path,
+        Err(_) => {
+            return error_page(
+                state,
+                StatusCode::NOT_FOUND,
+                "压缩包中没有这个条目",
+                is_head,
+            )
+            .await;
+        }
+    };
+    if !canonical.starts_with(&extracted.root) {
+        return error_page(state, StatusCode::FORBIDDEN, "无法打开这个地址", is_head).await;
+    }
+    let metadata = match tokio::fs::metadata(&canonical).await {
+        Ok(metadata) => metadata,
+        Err(_) => {
+            return error_page(
+                state,
+                StatusCode::NOT_FOUND,
+                "压缩包中没有这个条目",
+                is_head,
+            )
+            .await;
+        }
+    };
+    let virtual_rel = format!(
+        "{}/{}",
+        request.archive_rel,
+        entry_path.to_string_lossy().replace('\\', "/")
+    );
+    if metadata.is_dir() {
+        if !raw_path.ends_with('/') {
+            let location = match uri.query() {
+                Some(q) => format!("{raw_path}/?{q}"),
+                None => format!("{raw_path}/"),
+            };
+            return redirect(&location);
+        }
+        return list_dir_with(state, &canonical, &virtual_rel, is_head, None).await;
+    }
+    if !metadata.is_file() || raw_path.ends_with('/') {
+        return error_page(
+            state,
+            StatusCode::NOT_FOUND,
+            "压缩包中没有这个条目",
+            is_head,
+        )
+        .await;
+    }
+    handle_file(
+        state,
+        &canonical,
+        &virtual_rel,
+        metadata.len(),
+        metadata.modified().unwrap_or(SystemTime::UNIX_EPOCH),
+        headers,
+        query,
+        is_head,
+    )
+    .await
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -723,7 +864,24 @@ fn redirect(location: &str) -> Response {
         .unwrap()
 }
 
+struct ArchiveView {
+    label: String,
+    size: u64,
+    entries: usize,
+    download_href: String,
+}
+
 async fn list_dir(state: &AppState, path: &Path, rel: &str, is_head: bool) -> Response {
+    list_dir_with(state, path, rel, is_head, None).await
+}
+
+async fn list_dir_with(
+    state: &AppState,
+    path: &Path,
+    rel: &str,
+    is_head: bool,
+    archive: Option<&ArchiveView>,
+) -> Response {
     // Directory requests arrive with a trailing slash; normalize it so hrefs
     // do not become `/sub//c.md` and the parent of `/sub/` is `/`, not `/sub/`.
     let rel = rel.trim_end_matches('/');
@@ -836,13 +994,33 @@ async fn list_dir(state: &AppState, path: &Path, rel: &str, is_head: bool) -> Re
         rel.rsplit('/').next().unwrap_or(rel).to_string()
     };
     let crumbs = page_crumbs(state, rel, PageKind::Dir);
+    let meta = match archive {
+        Some(view) => format!(
+            "{} · {} · {} 个条目",
+            view.label,
+            format_size(view.size),
+            view.entries
+        ),
+        None => format!("{} 个项目", entries.len()),
+    };
+    let actions = match archive {
+        Some(view) => format!(
+            "<div class=\"page-actions\"><a class=\"action\" href=\"{href}\" aria-label=\"下载压缩包\">\
+             {download}<span>下载压缩包</span></a></div>",
+            href = escape_html(&view.download_href),
+            download = icon("download")
+        ),
+        None => String::new(),
+    };
     let body = format!(
         "<div class=\"content-card\"><div class=\"dir-head\"><div class=\"head-inner\">\
          <nav class=\"crumbs\" aria-label=\"面包屑\">{crumbs}</nav>\
-         <h1>{}</h1><p>{} 个项目</p></div></div>{}</div>",
-        escape_html(&dir_name),
-        entries.len(),
-        sections
+         <div class=\"dir-head-main\"><div class=\"grow\"><h1>{name}</h1><p>{meta}</p></div>{actions}</div>\
+         </div></div>{sections}</div>",
+        name = escape_html(&dir_name),
+        meta = escape_html(&meta),
+        actions = actions,
+        sections = sections
     );
     html_page(
         state,
@@ -2262,6 +2440,12 @@ async fn classify(path: &Path) -> FileInfo {
             mime: "application/pdf".to_string(),
         };
     }
+    if archive::ArchiveKind::detect(path).is_some() {
+        return FileInfo {
+            kind: Kind::Binary,
+            mime: guess_binary_mime(&ext),
+        };
+    }
     if is_text_ext(&ext) || is_text_name(name) {
         let mime = match ext.as_str() {
             "json" => "application/json",
@@ -2519,6 +2703,7 @@ mod tests {
     use super::*;
     use axum::body::to_bytes;
     use axum::http::{HeaderMap, Request};
+    use std::io::Write;
     use tower::ServiceExt;
 
     fn fixture() -> tempfile::TempDir {
@@ -2543,6 +2728,68 @@ mod tests {
         .unwrap();
         std::fs::create_dir(root.join("sub")).unwrap();
         std::fs::write(root.join("sub").join("c.md"), "# c\n").unwrap();
+        dir
+    }
+
+    fn write_zip(path: &Path, entries: &[(&str, &[u8])]) {
+        let file = std::fs::File::create(path).unwrap();
+        let mut writer = zip::ZipWriter::new(file);
+        let options = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Stored);
+        for (name, data) in entries {
+            writer.start_file(*name, options).unwrap();
+            writer.write_all(data).unwrap();
+        }
+        writer.finish().unwrap();
+    }
+
+    fn write_tar_gz(path: &Path, entries: &[(&str, &[u8])]) {
+        let file = std::fs::File::create(path).unwrap();
+        let encoder = flate2::write::GzEncoder::new(file, flate2::Compression::default());
+        let mut builder = tar::Builder::new(encoder);
+        for (name, data) in entries {
+            let mut header = tar::Header::new_gnu();
+            header.set_size(data.len() as u64);
+            header.set_mode(0o644);
+            header.set_cksum();
+            builder.append_data(&mut header, *name, *data).unwrap();
+        }
+        builder.finish().unwrap();
+        let encoder = builder.into_inner().unwrap();
+        encoder.finish().unwrap();
+    }
+
+    fn write_7z(path: &Path, entries: &[(&str, &[u8])]) {
+        let mut writer = sevenz_rust2::ArchiveWriter::create(path).unwrap();
+        for (name, data) in entries {
+            writer
+                .push_archive_entry(
+                    sevenz_rust2::ArchiveEntry::new_file(name),
+                    Some(std::io::Cursor::new(data.to_vec())),
+                )
+                .unwrap();
+        }
+        writer.finish().unwrap();
+    }
+
+    fn archive_fixture() -> tempfile::TempDir {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let entries: &[(&str, &[u8])] = &[
+            ("docs/a.md", b"# Archive A\n\n![pic](pic.png)\n"),
+            ("docs/pic.png", b"\x89PNG\r\n\x1a\n"),
+            (
+                "docs/page.html",
+                b"<!doctype html><html><body><h1>Archive HTML</h1><link rel=\"stylesheet\" href=\"style.css\"></body></html>\n",
+            ),
+            ("docs/style.css", b"body { color: red; }\n"),
+            ("inner.zip", b"PK\x03\x04\x00not a real nested zip"),
+        ];
+        write_zip(&root.join("sample.zip"), entries);
+        write_tar_gz(&root.join("sample.tar.gz"), &[("docs/a.md", b"# Tar A\n")]);
+        write_7z(&root.join("sample.7z"), &[("docs/a.md", b"# Seven A\n")]);
+        std::fs::create_dir(root.join("not.zip")).unwrap();
+        std::fs::write(root.join("not.zip").join("real.txt"), "real\n").unwrap();
         dir
     }
 
@@ -3042,6 +3289,227 @@ mod tests {
                 .unwrap()
                 .contains("attachment")
         );
+    }
+
+    #[tokio::test]
+    async fn archive_virtual_paths_and_formats() {
+        let dir = archive_fixture();
+        let app = app(state(dir.path(), false, 0, 0));
+
+        let (status, headers, _) = call(app.clone(), Method::GET, "/sample.zip").await;
+        assert_eq!(status, StatusCode::MOVED_PERMANENTLY);
+        assert_eq!(headers.get(header::LOCATION).unwrap(), "/sample.zip/");
+
+        let (status, _, body) = call(app.clone(), Method::GET, "/sample.zip/").await;
+        assert_eq!(status, StatusCode::OK);
+        let html = String::from_utf8(body).unwrap();
+        assert!(html.contains("<h1>sample.zip</h1>"), "{html}");
+        assert!(html.contains("ZIP ·"), "{html}");
+        assert!(html.contains("下载压缩包"), "{html}");
+        assert!(html.contains("href=\"/sample.zip/docs/\""), "{html}");
+
+        let (status, _, body) = call(app.clone(), Method::GET, "/sample.zip/docs/").await;
+        assert_eq!(status, StatusCode::OK);
+        let html = String::from_utf8(body).unwrap();
+        assert!(html.contains("a.md"), "{html}");
+        assert!(html.contains("page.html"), "{html}");
+        assert!(html.contains("<a href=\"/\">"), "{html}");
+
+        let (status, _, body) = call(app.clone(), Method::GET, "/sample.zip/docs/a.md").await;
+        assert_eq!(status, StatusCode::OK);
+        let html = String::from_utf8(body).unwrap();
+        assert!(html.contains("src=\"/sample.zip/docs/pic.png\""), "{html}");
+        assert!(
+            html.contains("href=\"/sample.zip/docs/a.md?raw=1\""),
+            "{html}"
+        );
+
+        let (status, headers, _) = call(app.clone(), Method::GET, "/sample.zip/docs/pic.png").await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            headers
+                .get(header::CONTENT_TYPE)
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .starts_with("image/png")
+        );
+
+        let (status, headers, body) =
+            call(app.clone(), Method::GET, "/sample.zip/docs/page.html").await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            headers.get(header::CONTENT_TYPE).unwrap().to_str().unwrap(),
+            "text/html"
+        );
+        assert!(!headers.contains_key("Content-Security-Policy"));
+        assert!(
+            String::from_utf8(body)
+                .unwrap()
+                .contains("<h1>Archive HTML</h1>")
+        );
+
+        let (status, headers, body) = call_with_headers(
+            app.clone(),
+            Method::GET,
+            "/sample.zip/docs/style.css",
+            &[("Sec-Fetch-Dest", "style")],
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            headers
+                .get(header::CONTENT_TYPE)
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .starts_with("text/css")
+        );
+        assert_eq!(String::from_utf8(body).unwrap(), "body { color: red; }\n");
+
+        let (status, _, body) = call(app.clone(), Method::GET, "/sample.zip/docs/style.css").await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            String::from_utf8(body)
+                .unwrap()
+                .contains("<h1>style.css</h1>")
+        );
+
+        let (status, _, body) = call(app.clone(), Method::GET, "/sample.zip/docs/a.md?raw=1").await;
+        assert_eq!(status, StatusCode::OK);
+        let html = String::from_utf8(body).unwrap();
+        assert!(html.contains("<h1>a.md</h1>"), "{html}");
+        assert!(html.contains("id=\"L1\""), "{html}");
+
+        let (status, headers, body) =
+            call(app.clone(), Method::GET, "/sample.zip/docs/a.md?download=1").await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            headers
+                .get(header::CONTENT_DISPOSITION)
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .contains("attachment")
+        );
+        assert!(String::from_utf8(body).unwrap().contains("# Archive A"));
+
+        let (status, headers, _) = call(app.clone(), Method::GET, "/sample.zip?download=1").await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            headers
+                .get(header::CONTENT_DISPOSITION)
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .contains("attachment")
+        );
+
+        let (status, headers, _) = call(app.clone(), Method::GET, "/sample.zip/inner.zip").await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            headers
+                .get(header::CONTENT_TYPE)
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .starts_with("application/zip")
+        );
+
+        let (status, _, body) = call(app.clone(), Method::GET, "/sample.tar.gz/docs/a.md").await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(String::from_utf8(body).unwrap().contains("Tar A"));
+
+        let (status, _, body) = call(app.clone(), Method::GET, "/sample.7z/docs/a.md").await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(String::from_utf8(body).unwrap().contains("Seven A"));
+
+        // A real directory named `not.zip` is a directory, not an archive.
+        let (status, _, body) = call(app, Method::GET, "/not.zip/").await;
+        assert_eq!(status, StatusCode::OK);
+        let html = String::from_utf8(body).unwrap();
+        assert!(html.contains("real.txt"), "{html}");
+        assert!(!html.contains("下载压缩包"), "{html}");
+    }
+
+    #[tokio::test]
+    async fn archive_container_bypasses_max_preview() {
+        let dir = archive_fixture();
+        let app = app(state(dir.path(), false, 5, 0));
+        let (status, _, _) = call(app.clone(), Method::GET, "/sample.zip/").await;
+        assert_eq!(status, StatusCode::OK);
+        let (status, headers, _) = call(app.clone(), Method::GET, "/sample.zip/docs/a.md").await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            headers
+                .get(header::CONTENT_DISPOSITION)
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .contains("attachment")
+        );
+    }
+
+    #[tokio::test]
+    async fn archive_rejects_bad_paths() {
+        let dir = archive_fixture();
+        write_zip(
+            &dir.path().join("evil.zip"),
+            &[("../escape.txt", b"escaped\n")],
+        );
+        let app = app(state(dir.path(), false, 0, 0));
+
+        let (status, _, body) = call(app.clone(), Method::GET, "/evil.zip/").await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert!(String::from_utf8(body).unwrap().contains("越界路径"));
+
+        let (status, _, _) = call(app.clone(), Method::GET, "/sample.zip/../a.md").await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+
+        let (status, _, _) = call(app, Method::GET, "/sample.zip/docs/../docs/a.md").await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn archive_is_hidden_in_safe_mode() {
+        let dir = archive_fixture();
+        let app = app(state(dir.path(), true, 0, 0));
+        for uri in ["/sample.zip", "/sample.zip/", "/sample.zip/docs/a.md"] {
+            let (status, _, _) = call(app.clone(), Method::GET, uri).await;
+            assert_eq!(status, StatusCode::NOT_FOUND, "{uri}");
+        }
+    }
+
+    #[tokio::test]
+    async fn archive_markdown_uses_trust_interstitial() {
+        let dir = archive_fixture();
+        let app = app(state_untrusted(dir.path(), false, 0, 0));
+        let (status, _, body) = call(app.clone(), Method::GET, "/sample.zip/docs/a.md").await;
+        assert_eq!(status, StatusCode::OK);
+        let html = String::from_utf8(body).unwrap();
+        assert!(html.contains("仍要打开"), "{html}");
+        let start = html.find("?open=").unwrap() + "?open=".len();
+        let end = html[start..].find('"').unwrap() + start;
+        let token = &html[start..end];
+        let (status, _, body) = call(
+            app,
+            Method::GET,
+            &format!("/sample.zip/docs/a.md?open={token}"),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(String::from_utf8(body).unwrap().contains("Archive A"));
+    }
+
+    #[tokio::test]
+    async fn archive_html_entry_uses_root_trust() {
+        let dir = archive_fixture();
+        let app = app(state_untrusted(dir.path(), false, 0, 0));
+        let (status, _, body) = call(app, Method::GET, "/sample.zip/docs/page.html").await;
+        assert_eq!(status, StatusCode::OK);
+        let html = String::from_utf8(body).unwrap();
+        assert!(html.contains("data-page=\"html\""), "{html}");
+        assert!(html.contains("iframe class=\"html-frame\""), "{html}");
     }
 
     #[tokio::test]

@@ -12,19 +12,25 @@ axum = "0.8"
 clap = { version = "4", features = ["derive"] }
 comrak = { version = "0.56", default-features = false }
 directories = "6"
+encoding_rs = "0.8"
+filetime = "0.2"
+flate2 = "1"
 mime_guess = "2"
 percent-encoding = "2"
 rand = "0.9"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+sevenz-rust2 = "0.20"
+tar = "0.4"
+tempfile = "3"
 time = { version = "0.3", features = ["formatting", "local-offset"] }
 tokio = { version = "1", features = ["fs", "io-util", "macros", "net", "rt-multi-thread", "signal"] }
 tokio-util = { version = "0.7", features = ["io"] }
 toml = "0.8"
 walkdir = "2"
+zip = { version = "9", default-features = false, features = ["deflate-flate2", "bzip2", "zstd", "lzma", "deflate64", "time"] }
 
 [dev-dependencies]
-tempfile = "3"
 tower = { version = "0.5", features = ["util"] }
 
 [profile.release]

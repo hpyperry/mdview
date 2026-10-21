@@ -109,6 +109,9 @@ printf '关键词在这里\n' >"$ROOT/关键词.md"
 printf 'CaseNeedle body\n' >"$ROOT/CaseNeedle.md"
 printf 'HIDDENNEEDLE\n' >"$ROOT/.hidden/h.md"
 printf 'HIDDENNEEDLE\n' >"$ROOT/node_modules/n.md"
+cp "$REPO_ROOT/tests/fixtures/archives/sample.zip" "$ROOT/sample.zip"
+cp "$REPO_ROOT/tests/fixtures/archives/sample.tar.gz" "$ROOT/sample.tar.gz"
+cp "$REPO_ROOT/tests/fixtures/archives/sample.7z" "$ROOT/sample.7z"
 cat >"$ROOT/page.html" <<'HTML'
 <!doctype html><html><head><meta charset="utf-8"><title>HTML Probe</title><link rel="stylesheet" href="style.css"></head><body><h1>HTML Probe</h1><p>htmlneedle</p><script>document.body.dataset.script='yes'</script></body></html>
 HTML
@@ -257,6 +260,21 @@ chk "HTML 搜索行跳源码" "$(curl -s "$BASE/search?q=htmlneedle")" 'href="/p
 chk "HTML 目录行有源码入口" "$HOME_HTML" 'href="/page.html?raw=1"'
 chk "目录下载图标有悬浮文案" "$HOME_HTML" 'title="下载 page.html"'
 chk "目录源码图标有悬浮文案" "$HOME_HTML" 'title="查看 page.html 源码"'
+chk "压缩包重定向" "$(code "$BASE/sample.zip")" "301"
+chk "压缩包页面 200" "$(code "$BASE/sample.zip/")" "200"
+chk "压缩包页面标题" "$(curl -s "$BASE/sample.zip/")" '<h1>sample.zip</h1>'
+chk "压缩包格式与条目" "$(curl -s "$BASE/sample.zip/")" "ZIP ·"
+chk "压缩包下载入口" "$(curl -s "$BASE/sample.zip/")" "下载压缩包"
+chk "包内 Markdown" "$(curl -s "$BASE/sample.zip/docs/a.md")" "Archive A"
+chk "包内 Markdown 图片" "$(curl -s "$BASE/sample.zip/docs/a.md")" 'src="/sample.zip/docs/pic.png"'
+chk "包内图片 200" "$(code "$BASE/sample.zip/docs/pic.png")" "200"
+chk "包内 HTML 原文" "$(curl -s "$BASE/sample.zip/docs/page.html")" "<h1>Archive HTML</h1>"
+chk "包内源码" "$(curl -s "$BASE/sample.zip/docs/a.md?raw=1")" 'id="L1"'
+chk "包内下载" "$(header "$BASE/sample.zip/docs/a.md?download=1" content-disposition)" "attachment"
+chk "整包下载" "$(header "$BASE/sample.zip?download=1" content-disposition)" "attachment"
+chk "tar.gz 条目" "$(curl -s "$BASE/sample.tar.gz/docs/a.md")" "Archive A"
+chk "7z 条目" "$(curl -s "$BASE/sample.7z/docs/a.md")" "Archive A"
+chk "嵌套 zip 不递归" "$(header "$BASE/sample.zip/inner.zip" content-type)" "application/zip"
 chk "CSP connect-src" "$(header "$BASE/a.md" content-security-policy)" "connect-src 'self'"
 chk "搜索正文结果" "$SEARCH" "result-group"
 chk "搜索摘要用结果" "$SEARCH" '条结果'

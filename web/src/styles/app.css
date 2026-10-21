@@ -155,6 +155,9 @@ html[data-sidebar="collapsed"] .sidebar { padding: 0; border: 0; overflow: hidde
 
 /* directory */
 .dir-head, .search-head { padding: 26px 0 18px; border-bottom: 1px solid var(--border); }
+.dir-head-main { display: flex; align-items: flex-start; gap: 16px; flex-wrap: wrap; }
+.dir-head-main .grow { flex: 1; min-width: 0; }
+.dir-head-main .page-actions { margin-left: auto; }
 .dir-head h1, .search-head h1 { margin: 0; font-size: 24px; line-height: 1.25; letter-spacing: -.01em; }
 .dir-head p, .search-head p { margin: 6px 0 0; color: var(--muted); font-size: 13px; }
 .dir-section { padding: 6px 18px 18px; }

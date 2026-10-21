@@ -1,7 +1,7 @@
 # mdview 2.0 —— 单文件离线 Markdown 预览服务器
 
 用一个可执行文件，把一个目录变成可浏览的文档站：Markdown 渲染、文本源码查看、
-所有类型下载、全文搜索；不联网、不请求任何外部资源。Markdown 语义与代码高亮
+压缩包虚拟目录、所有类型下载、全文搜索；不联网、不请求任何外部资源。Markdown 语义与代码高亮
 对齐 **VS Code 1.142.0**，页面外壳采用文档站风格。
 
 文档地图见 [`docs/README.md`](docs/README.md)，功能矩阵见
@@ -15,7 +15,7 @@ cargo build --release
 # 打开 http://127.0.0.1:8000/
 ```
 
-产物是单个二进制（macOS arm64 约 **3.4 MB**，内嵌 CSS、highlight.js 与岛屿前端）。
+产物是单个二进制（macOS arm64 约 **4.1 MB**，内嵌 CSS、highlight.js、岛屿前端与压缩包解码器）。
 **运行时**不需要 Python、Node 或任何动态资源；**从源码构建**需要 Node 22 +
 `web/` 的 npm 依赖，`build.rs` 会在编译时生成并嵌入 `app.js`/`app.css`。
 跨平台 musl 构建可先执行 `npm --prefix web run build:web`，再用
@@ -31,6 +31,8 @@ cargo build --release
   - 不生成标题 `id`，不渲染任务列表 checkbox；
   - 裸 URL / 引用定义 / front matter / URL 与 alt 的硬边角采用 comrak 行为；
   - 非 Markdown 文本统一进入**源码查看页**；
+  - 压缩包以虚拟目录预览（zip / tar.gz / 7z），包内条目复用 Markdown/HTML/源码/图片/下载管线；
+    嵌套包不递归解压；
   - 增加 Trust 拦截页、4 档 CSP、`vscode:` 链接拒绝与 data URI 策略。
 
 决策记录：[ADR 0004](docs/architecture/adr/0004-rust-rewrite-and-dependencies.md)（Rust 重写）、
@@ -98,6 +100,10 @@ cargo build --release
 | `GET /x.html?raw=1` | HTML 源码页；可信/未信任都可用 |
 | `GET /x.html?view=1` | 裸页：已信任根是原文；未信任根是沙箱裸页（CSP `sandbox`） |
 | `GET /x.html?download=1` | 原始字节 + `Content-Disposition` |
+| `GET /a.zip/` | 压缩包虚拟目录：包名/格式/大小/条目数与“下载压缩包”；包内目录与文件复用目录列表 |
+| `GET /a.zip/docs/x.md` | 包内条目；Markdown/源码/图片/PDF/HTML 走现有管线；相对链接保持在包内 |
+| `GET /a.zip?download=1` | 下载原压缩包 |
+| `GET /a.zip/docs/x?download=1` | 下载解包后的条目 |
 | 已知文本扩展名/文件名 | 源码查看页（文件名标题 + 类型/大小/行数/时间标签 + 行号与客户端高亮）；> 256 KB 全文分块 |
 | 无扩展名 | 前 512 字节无 NUL → 文本；有 NUL → 下载 |
 | 图片 / PDF | 按 MIME 内联；SVG 直开带 CSP `sandbox`，脚本不执行 |
@@ -105,6 +111,11 @@ cargo build --release
 | `GET /search?q=…` | 文件名搜所有文件；正文搜 Markdown/文本；按文件分组；每条结果整行可点击；HTML 内容行到 `?raw=1#L<n>` |
 | `GET /_nav` | 全站导航树 JSON；包含所有可见目录与文件，供导航浮岛空闲预取 |
 | `HEAD` / `301` / `404` | 支持；目录缺尾斜杠返回 301 |
+
+压缩包支持 `.zip`、`.tar.gz`/`.tgz`、`.7z`；嵌套包按普通文件下载，不递归解压。
+解压到进程私有临时缓存（0700），按包路径/mtime/size 复用；安全上限为包 200 MB、
+解压总量 1 GB、2 万条、单条 100 MB；加密包、多卷包、绝对路径、`..`、软链/硬链、
+设备文件、重复路径整包拒绝。`--safe` 下压缩包不可见。
 
 超过 `--max-preview`（默认 20 MiB）的**文档**改为下载，`?raw=1` 也不例外；
 HTML 文件内部的 CSS/JS/图片等子资源按真实 MIME 返回，不受该限制（否则大图或
@@ -125,7 +136,7 @@ HTML 文件内部的 CSS/JS/图片等子资源按真实 MIME 返回，不受该�
 | `--port` | `8000` | 起始端口 |
 | `--port-tries` | `10` | 端口占用时向后尝试次数 |
 | `--root` | 当前目录 | 服务根目录 |
-| `--safe` | 关 | 只放行 `.md`、图片与 HTML 源码；不渲染 HTML 预览 |
+| `--safe` | 关 | 只放行 `.md`、图片与 HTML 源码；不渲染 HTML 预览；压缩包不可见 |
 | `--max-preview` | `20M` | 超过则下载；`0` 不限制 |
 | `--no-search` | 关 | 关闭搜索路由与搜索框 |
 | `--trust` / `--untrusted` | — | 本次运行强制信任/不信任，不写配置 |
@@ -147,6 +158,7 @@ mdview 外壳、无沙箱、无 CSP；脚本同源运行，链接、localStorage
 下载都像 Python 版/静态服务器。**未信任根**才用外壳 + 沙箱 iframe（`?view=1`
 是沙箱裸页），脚本处于 opaque origin，读不到本站同源数据。`?raw=1` 始终是源码页；
 `--safe` 下只显示源码。独立 HTML 不走 Markdown 的一次性令牌拦截面。
+压缩包条目沿用服务根 Trust：trusted 包内 HTML 是原文，untrusted 包内 HTML 走沙箱。
 SVG 直开始终带 `CSP: sandbox`，`<script>` 不执行（`<img>` 内嵌不受影响）。
 
 CSP 四档：0 Strict（默认）、1 允许 HTTP、2 关闭（不推荐）、3 允许 localhost HTTP。

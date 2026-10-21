@@ -54,9 +54,9 @@
   重复规范化路径与 Windows 大小写冲突路径。
 - 条目路径只用于映射到服务端生成的安全磁盘名；用户路径永远不直接拼接到磁盘。
   条目访问同样做 canonicalize + `starts_with` 检查。
-- 文件名编码：ZIP 有 UTF-8 标志按 UTF-8；否则 UTF-8 → GBK → CP437 依次尝试。
-  tar 的字节名同样回退；7z 使用其 UTF-16 名称。显示用 lossy，无法解码的条目
-  仍以下载形式可达。
+- 文件名编码：ZIP 有 UTF-8 标志按 UTF-8；否则 UTF-8 → GBK，再由 `zip` crate
+  做 CP437 回退。tar 的字节名按 UTF-8 → GBK，仍失败则 lossy；7z 使用其 UTF-16
+  名称。显示用 lossy，无法解码的条目仍以下载形式可达。
 
 ### 5. UI 与导航
 

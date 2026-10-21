@@ -29,17 +29,25 @@ mdview 的源码是自有代码；交付二进制嵌入了以下第三方资产/
 | `clap` | MIT OR Apache-2.0 |
 | `comrak` | BSD-2-Clause |
 | `directories` | MIT OR Apache-2.0 |
+| `encoding_rs` | MIT OR Apache-2.0 |
+| `filetime` | MIT OR Apache-2.0 |
+| `flate2` | MIT OR Apache-2.0 |
 | `mime_guess` | MIT |
 | `percent-encoding` | MIT OR Apache-2.0 |
 | `rand` | MIT OR Apache-2.0 |
 | `serde` | MIT OR Apache-2.0 |
+| `sevenz-rust2` | Apache-2.0 |
+| `tar` | MIT OR Apache-2.0 |
+| `tempfile` | MIT OR Apache-2.0 |
 | `time` | MIT OR Apache-2.0 |
 | `tokio` | MIT |
 | `tokio-util` | MIT |
 | `toml` | MIT OR Apache-2.0 |
 | `walkdir` | MIT OR Unlicense |
+| `zip` | MIT |
 
-开发依赖：`tempfile`（MIT OR Apache-2.0）、`tower`（MIT，仅测试）。
+开发依赖：`tower`（MIT，仅测试）。压缩包传递依赖包含 `bzip2-1.0.6`
+（bzip2/libbzip2 License）与 `ppmd-rust`（CC0-1.0 OR MIT-0）等宽松许可证。
 
 ## 许可证状态
 
