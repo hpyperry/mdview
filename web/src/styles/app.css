@@ -954,6 +954,7 @@ html.no-js .nav-toggle, html.no-js .nav-panel, html.no-js .nav-scrim { display: 
 }
 .nav-close:hover, .nav-retry:hover { color: var(--fg); background: var(--surface-2); border-color: var(--border); }
 .nav-status { display: flex; align-items: center; gap: 8px; padding: 10px 8px; color: var(--muted); font-size: 12px; }
+.nav-note { padding: 8px 8px 2px; color: var(--muted); font-size: 11px; line-height: 1.5; }
 .nav-retry { font-size: 12px; height: 24px; border-color: var(--border); }
 .nav-tree { display: flex; flex-direction: column; gap: 1px; font-size: 13px; }
 .nav-row {

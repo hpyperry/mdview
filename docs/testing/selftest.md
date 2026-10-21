@@ -19,7 +19,7 @@
 
 | 套件 | 命令 | 结果 |
 |---|---|---|
-| 单元/集成 | `cargo test --lib` | **67 passed** |
+| 单元/集成 | `cargo test --lib` | **68 passed** |
 | Golden | `cargo test --test golden` | **27 cases passed** |
 | 渲染兼容 | `cargo test --test render_compat` | **134 passed** |
 | 静态检查 | `cargo clippy --all-targets -- -D warnings` | **通过** |

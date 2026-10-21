@@ -35,7 +35,7 @@
   相对图片、包内 HTML trusted/untrusted、包内源码。
 - `bash tests/selftest-rust.sh`：**PASS=198 FAIL=0**；覆盖 zip/tar.gz/7z 条目、
   301、整包/条目下载、嵌套 zip 不递归、包内 HTML、safe 404。
-- `cargo test --lib`：**67 passed**，含压缩包解压、缓存复用、路径穿越/重复、GBK。
+- `cargo test --lib`：**68 passed**，含压缩包解压、缓存复用、路径穿越/重复、GBK。
 - `bash tests/run-all.sh`：ALL LOCAL CHECKS PASSED。
 
 ## 已知边界

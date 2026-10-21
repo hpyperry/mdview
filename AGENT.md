@@ -26,7 +26,7 @@ bash tests/run-all.sh
 `npm --prefix web ci`。跨平台 musl 构建用
 `npm --prefix web run build:web` + `MDVIEW_WEB_PREBUILT=web/dist`。
 
-必须全绿：`cargo test`（67 单元 + 134 渲染兼容 + 27 golden）、198 项黑盒 HTTP、
+必须全绿：`cargo test`（68 单元 + 134 渲染兼容 + 27 golden）、198 项黑盒 HTTP、
 9 项 pty 信任测试、203 项 headless Chrome 验收、4 项源码页性能预算。
 
 ## 规格来源
@@ -101,7 +101,8 @@ bash tests/run-all.sh
    新增交互先判断是否能归入现有岛，不要回到一个全局 DOMContentLoaded 初始化器。
 10. **全站导航**：`/_nav` 返回全站可见目录与所有文件；页面空闲时预取，目录行
     只展开、文件行才导航；每次加载默认收起，展开状态才存 localStorage。导航
-    不挤压正文。不要恢复“当前目录侧栏”或“目录/文件”分组文字。
+    不挤压正文。读不了的目录/条目跳过并返回 `partial: true`，只有根目录本身
+    不可读才 500。不要恢复“当前目录侧栏”或“目录/文件”分组文字。
 11. **HTML 文件（Trust 门控）**：`trusted` 根下 `/x.html` 直接以原字节
     `text/html` 顶层返回，无 mdview 外壳、无 sandbox、无 CSP——这是 Python 版/
     静态服务器的行为，脚本、localStorage、同源 fetch、下载与顶层链接都正常。

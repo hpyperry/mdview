@@ -1099,6 +1099,7 @@ async fn search(
 #[derive(Serialize)]
 struct NavPayload {
     root: String,
+    partial: bool,
     tree: Vec<NavNode>,
 }
 
@@ -1136,13 +1137,23 @@ fn nav_file_kind(path: &Path) -> &'static str {
     }
 }
 
-fn nav_children(root: &Path, dir: &Path, safe: bool) -> std::io::Result<Vec<NavNode>> {
+fn nav_children(
+    root: &Path,
+    dir: &Path,
+    safe: bool,
+    partial: &mut bool,
+    is_root: bool,
+) -> std::io::Result<Vec<NavNode>> {
     let mut entries = Vec::new();
     let read_dir = match std::fs::read_dir(dir) {
         Ok(read_dir) => read_dir,
         Err(error) => {
             eprintln!("nav: 无法读取目录 {}: {error}", dir.display());
-            return Err(error);
+            if is_root {
+                return Err(error);
+            }
+            *partial = true;
+            return Ok(Vec::new());
         }
     };
     for entry in read_dir {
@@ -1150,7 +1161,8 @@ fn nav_children(root: &Path, dir: &Path, safe: bool) -> std::io::Result<Vec<NavN
             Ok(entry) => entry,
             Err(error) => {
                 eprintln!("nav: 目录 {} 中有条目无法读取: {error}", dir.display());
-                return Err(error);
+                *partial = true;
+                continue;
             }
         };
         let name = entry.file_name().to_string_lossy().to_string();
@@ -1161,7 +1173,8 @@ fn nav_children(root: &Path, dir: &Path, safe: bool) -> std::io::Result<Vec<NavN
             Ok(file_type) => file_type,
             Err(error) => {
                 eprintln!("nav: 无法读取条目类型 {}: {error}", entry.path().display());
-                return Err(error);
+                *partial = true;
+                continue;
             }
         };
         if file_type.is_dir() && (name.starts_with('.') || SKIP_DIRS.contains(&name.as_str())) {
@@ -1184,7 +1197,7 @@ fn nav_children(root: &Path, dir: &Path, safe: bool) -> std::io::Result<Vec<NavN
             .to_string_lossy()
             .replace('\\', "/");
         if is_dir {
-            let children = nav_children(root, &path, safe)?;
+            let children = nav_children(root, &path, safe, partial, false)?;
             nodes.push(NavNode {
                 name,
                 path: rel,
@@ -1217,9 +1230,12 @@ fn nav_payload(root: &Path, safe: bool) -> std::io::Result<NavPayload> {
         .filter(|name| !name.is_empty())
         .unwrap_or("docs")
         .to_string();
+    let mut partial = false;
+    let tree = nav_children(root, root, safe, &mut partial, true)?;
     Ok(NavPayload {
         root: root_name,
-        tree: nav_children(root, root, safe)?,
+        partial,
+        tree,
     })
 }
 
@@ -3737,6 +3753,36 @@ mod tests {
         assert_eq!(status, StatusCode::OK);
         let html = String::from_utf8(body).unwrap();
         assert!(html.contains(">hi</h1>"), "{html}");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn nav_skips_unreadable_directories() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = fixture();
+        let locked = dir.path().join("locked");
+        std::fs::create_dir(&locked).unwrap();
+        std::fs::write(locked.join("secret.md"), "secret\n").unwrap();
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let app = app(state(dir.path(), false, 0, 0));
+        let (status, _, body) = call(app, Method::GET, "/_nav").await;
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o700)).unwrap();
+        assert_eq!(status, StatusCode::OK);
+        let payload: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(payload["partial"], true);
+        assert!(
+            payload["tree"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|node| node["name"] == "a.md")
+        );
+        assert!(!payload["tree"].as_array().unwrap().iter().any(|node| {
+            node["name"] == "locked"
+                && node["children"]
+                    .as_array()
+                    .is_some_and(|children| !children.is_empty())
+        }));
     }
 
     #[tokio::test]

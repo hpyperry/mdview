@@ -13,6 +13,7 @@ interface NavNode {
 
 interface NavPayload {
   root: string;
+  partial?: boolean;
   tree: NavNode[];
 }
 
@@ -269,19 +270,22 @@ function NavApp({ panel, toggle, rootName, currentPath, currentIsDir }: NavProps
         </div>
       ) : null}
       {payload && open ? (
-        <div class="nav-tree" role="tree">
-          {payload.tree.map((node) => (
-            <TreeNode
-              key={node.path}
-              node={node}
-              depth={0}
-              expanded={expanded}
-              currentPath={currentPath}
-              onToggle={toggleDir}
-              onNavigate={close}
-            />
-          ))}
-        </div>
+        <>
+          <div class="nav-tree" role="tree">
+            {payload.tree.map((node) => (
+              <TreeNode
+                key={node.path}
+                node={node}
+                depth={0}
+                expanded={expanded}
+                currentPath={currentPath}
+                onToggle={toggleDir}
+                onNavigate={close}
+              />
+            ))}
+          </div>
+          {payload.partial ? <div class="nav-note">部分目录无法读取，内容未显示</div> : null}
+        </>
       ) : null}
     </>
   );

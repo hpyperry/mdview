@@ -109,7 +109,7 @@ cargo build --release
 | 图片 / PDF | 按 MIME 内联；SVG 直开带 CSP `sandbox`，脚本不执行 |
 | 其他 | `application/octet-stream` 下载 |
 | `GET /search?q=…` | 文件名搜所有文件；正文搜 Markdown/文本；按文件分组；每条结果整行可点击；HTML 内容行到 `?raw=1#L<n>` |
-| `GET /_nav` | 全站导航树 JSON；包含所有可见目录与文件，供导航浮岛空闲预取 |
+| `GET /_nav` | 全站导航树 JSON；包含所有可见目录与文件；读不了的子树跳过并标记 `partial`，供导航浮岛空闲预取 |
 | `HEAD` / `301` / `404` | 支持；目录缺尾斜杠返回 301 |
 
 压缩包支持 `.zip`、`.tar.gz`/`.tgz`、`.7z`；嵌套包按普通文件下载，不递归解压。

@@ -6,7 +6,7 @@ Rust 实现的断言分多组：
 |------|------|------|
 | `tests/render_compat.rs` | 渲染器回归（134 项）：内联/块/URL 重写/目标编码/引用式/data URI/裸 URL/放大包裹/属性转义/协议安全/性能 | `cargo test --test render_compat` |
 | `tests/golden.rs` + `tests/golden/` | 27 条 curated golden 的逐字节输出（accepted deviation 带 `note`） | `cargo test --test golden` |
-| `src/` 的 `#[cfg(test)]` | 模块内单元测试（67 项：render 11 / server 38 / trust 7 / cli 5 / assets 1 / archive 5） | `cargo test --lib` |
+| `src/` 的 `#[cfg(test)]` | 模块内单元测试（68 项：render 11 / server 39 / trust 7 / cli 5 / assets 1 / archive 5） | `cargo test --lib` |
 | `web/src/` | TypeScript 类型检查（岛运行时、Preact 组件、源码岛） | `npm --prefix web run typecheck` |
 | `selftest-rust.sh` | 真二进制的 black-box HTTP 断言（198 项：目录/渲染/源码/大源码全文分块/导航 JSON/岛清单/下载/搜索/Trust/CSP/HTML 信任原文与未信任沙箱/子资源/压缩包虚拟目录与包内条目/SVG sandbox/安全/文件系统边界） | `bash tests/selftest-rust.sh` |
 | `trust-tty.sh` + `trust-tty.exp` | 真实 pty 下的信任询问、持久化、非 TTY 默认（9 项） | `bash tests/trust-tty.sh` |
