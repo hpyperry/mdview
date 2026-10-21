@@ -626,7 +626,7 @@ async fn load_archive(
     state: &AppState,
     request: &ArchiveRequest,
     is_head: bool,
-) -> Result<Arc<Extracted>, Response> {
+) -> Result<Arc<Extracted>, Box<Response>> {
     let store = state.archives.clone();
     let request = request.clone();
     match tokio::task::spawn_blocking(move || store.get(&request)).await {
@@ -637,21 +637,25 @@ async fn load_archive(
             } else {
                 StatusCode::BAD_REQUEST
             };
-            Err(error_page(
+            Err(Box::new(
+                error_page(
+                    state,
+                    status,
+                    &format!("压缩包无法预览：{}", error.message),
+                    is_head,
+                )
+                .await,
+            ))
+        }
+        Err(_) => Err(Box::new(
+            error_page(
                 state,
-                status,
-                &format!("压缩包无法预览：{}", error.message),
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "压缩包解压失败",
                 is_head,
             )
-            .await)
-        }
-        Err(_) => Err(error_page(
-            state,
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "压缩包解压失败",
-            is_head,
-        )
-        .await),
+            .await,
+        )),
     }
 }
 
@@ -680,7 +684,7 @@ async fn handle_archive(
         }
         let extracted = match load_archive(state, request, is_head).await {
             Ok(extracted) => extracted,
-            Err(response) => return response,
+            Err(response) => return *response,
         };
         let view = ArchiveView {
             label: request.kind.label().to_string(),
@@ -700,7 +704,7 @@ async fn handle_archive(
 
     let extracted = match load_archive(state, request, is_head).await {
         Ok(extracted) => extracted,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
     let entry_path = match archive::safe_entry_path(entry) {
         Ok(path) => path,
