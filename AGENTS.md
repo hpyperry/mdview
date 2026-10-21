@@ -32,14 +32,34 @@ bash tests/run-all.sh
 ## 协作流程
 
 1. **需求先建 Issue**：写清目标、范围与验收标准；Issue 是需求的唯一入口。
-2. **从 main 拉分支**：分支名用 `feat/…`、`fix/…`、`docs/…` 或 `release/…`；
-   不在 main 上直接开发。
-3. **PR 关联 Issue**：PR 描述写 `Closes #N`；CI 全绿、评审通过后合并。
-4. **不直接推 main、不打 tag、不发 Release**：除非用户明确要求。
-5. **发布**：更新版本号、`CHANGELOG.md` 与 `docs/releases/<tag>.md`；合并后打
-   annotated tag；Release workflow 构建 4 个 artifact；发布后核对 `SHA256SUMS`
-   与 release notes。
-6. **紧急修复**也走 PR；直接推 main 或改历史必须得到用户明确授权。
+2. **从 main 拉分支**：分支名用 `feat/…`、`fix/…`、`docs/…`、`chore/…` 或
+   `release/…`；不在 main 上直接开发。
+3. **PR 关联 Issue**：PR 描述写 `Closes #N`；CI 全绿、required checks 通过后合并。
+   main 由 ruleset 保护：必须 PR、禁 force push/删除、禁止直接 push；审批数为 0
+   （单人维护者可自我合并）；合并方式固定 **squash**，main 保持线性。
+4. **CI 只在 PR 跑**：`ci.yml` 只监听 `pull_request`（可手动 `workflow_dispatch`）；
+   main 合并后不再重复跑测试/构建；tag 的 Release workflow 负责 4 个 artifact。
+5. **不直接推 main、不打 tag、不发 Release**：除非用户明确要求。
+6. **发布节奏按需批量**：累计一组 feature/fix 后发 release PR，更新版本号、
+   `CHANGELOG.md` 与 `docs/releases/<tag>.md`；合并后打 annotated tag；Release
+   workflow 读取 notes 文件并核对 `SHA256SUMS`。不是每个 PR 都发版。
+7. **紧急修复**也走 PR；直接推 main 或改历史必须得到用户明确授权。
+
+## Agent skills
+
+### Issue tracker
+
+GitHub Issues in this repo. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Five canonical roles: `needs-triage` / `needs-info` / `ready-for-agent` /
+`ready-for-human` / `wontfix`. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: root `GLOSSARY.md` + `docs/architecture/adr/`. See
+`docs/agents/domain.md`.
 
 ## 规格来源
 

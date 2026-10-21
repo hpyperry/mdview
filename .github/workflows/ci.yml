@@ -1,9 +1,12 @@
 name: CI
 
 on:
-  push:
-    branches: [main, refactor/new-md-view-server]
   pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read

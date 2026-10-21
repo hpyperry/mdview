@@ -84,6 +84,7 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           pattern: mdview-*
@@ -96,7 +97,23 @@ jobs:
             -printf '%f\n' | LC_ALL=C sort | xargs sha256sum > SHA256SUMS
           sha256sum -c SHA256SUMS
           cat SHA256SUMS
-      - name: Publish
+      - name: Resolve release notes
+        id: notes
+        run: |
+          file="docs/releases/${GITHUB_REF_NAME}.md"
+          if [ ! -f "$file" ]; then file="docs/releases/${GITHUB_REF_NAME#v}.md"; fi
+          if [ -f "$file" ]; then echo "body_path=$file" >> "$GITHUB_OUTPUT"; fi
+      - name: Publish with notes
+        if: steps.notes.outputs.body_path != ''
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release/*.tar.gz
+            release/*.zip
+            release/SHA256SUMS
+          body_path: ${{ steps.notes.outputs.body_path }}
+      - name: Publish with generated notes
+        if: steps.notes.outputs.body_path == ''
         uses: softprops/action-gh-release@v2
         with:
           files: |
