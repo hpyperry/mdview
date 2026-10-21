@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HTML 测试页</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="hero">
+  <p class="eyebrow">mdview fixture</p>
+  <h1>HTML 测试页</h1>
+  <p>这个页面同时用来测 Trusted 原文、未信任沙箱、相对 CSS、脚本与链接。</p>
+</header>
+<section class="panel">
+  <h2>运行时探针</h2>
+  <pre id="probe">running…</pre>
+</section>
+<section class="panel">
+  <h2>链接</h2>
+  <p><a id="md" href="guide.md">打开 guide.md</a></p>
+  <p><a id="top" href="other.html" target="_top">target=_top 打开 other.html</a></p>
+  <p><a id="blank" href="other.html" target="_blank">target=_blank 打开 other.html</a></p>
+</section>
+<section class="panel">
+  <h2>搜索关键字</h2>
+  <p>htmlneedle 出现在这里，用来验证 HTML 搜索行跳到 ?raw=1#L。</p>
+</section>
+<script>
+(async () => {
+  const lines = [];
+  lines.push(`origin: ${location.origin}`);
+  try {
+    localStorage.setItem('mdview-fixture', 'ok');
+    lines.push(`localStorage: ok (${localStorage.getItem('mdview-fixture')})`);
+  } catch (error) {
+    lines.push(`localStorage: blocked (${error.name})`);
+  }
+  try {
+    const response = await fetch('/_nav');
+    lines.push(`fetch /_nav: ${response.status}`);
+  } catch (error) {
+    lines.push(`fetch /_nav: blocked (${error.name})`);
+  }
+  document.body.dataset.script = 'yes';
+  document.getElementById('probe').textContent = lines.join('\n');
+})();
+</script>
+</body>
+</html>

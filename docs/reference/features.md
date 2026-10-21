@@ -19,7 +19,7 @@
 | F-01 | 单文件二进制 | CSS、highlight.js、岛屿前端全部内嵌；运行时无外部请求 | `cargo build --release`、`smoke-artifact.sh`、浏览器探针外部请求检查 | ✅ 自动 |
 | F-02 | `--root` / 默认当前目录 | 根目录相对 URL 与路径夹紧正确 | CLI 单测、`selftest-rust.sh` | ✅ 自动 |
 | F-03 | `--host` / `--port` / `--port-tries` | 端口占用时按次数回退，日志显示实际端口 | 黑盒端口回退 | ✅ 自动 |
-| F-04 | `--safe` | 只放行 `.md` 与图片；文本/其他文件 404 | 黑盒 safe server | ✅ 自动 |
+| F-04 | `--safe` | 只放行 `.md`、图片与 HTML 源码；文本/其他文件 404 | 黑盒 safe server | ✅ 自动 |
 | F-05 | `--max-preview` | 超限强制下载；搜索跳过超限文件；`0` 表示不限制 | 黑盒 max-preview、服务端单测 | ✅ 自动 |
 | F-06 | `--no-search` | 关闭 `/search` 与搜索入口、岛清单省略 `search` | 黑盒 no-search | ✅ 自动 |
 | F-07 | `--trust` / `--untrusted` | 本次运行强制信任状态，不写配置 | `trust-tty.sh`、Trust 单测 | ✅ 自动 |
@@ -29,7 +29,7 @@
 
 | ID | 功能 | 验收要点 | 测试映射 | 状态 |
 |---|---|---|---|---|
-| F-09 | 目录索引 | 统一列表，目录在前；名称、大小、mtime、下载入口；无分组标题 | 黑盒目录断言、浏览器探针、视觉 | ✅ 自动 |
+| F-09 | 目录索引 | 统一列表，目录在前；名称/大小/mtime/操作固定列，HTML 源码入口不改变列宽；无分组标题 | 黑盒目录断言、浏览器探针、视觉 | ✅ 自动 |
 | F-10 | 目录 301 与 URL 编码 | 缺尾斜杠 301；空格/CJK 目录只编码一次 | 黑盒 301/编码断言 | ✅ 自动 |
 | F-11 | 面包屑 | 根目录、子目录、文档、源码、搜索页有完整路径；错误页/Trust 页目前没有面包屑 | 黑盒、浏览器探针 | ◐ 部分 |
 | F-12 | 文件下载 | `Content-Disposition`、原始字节、Markdown 类型 | 黑盒下载、artifact 冒烟 | ✅ 自动 |
@@ -104,9 +104,9 @@
 | ID | 功能 | 验收要点 | 测试映射 | 状态 |
 |---|---|---|---|---|
 | F-58 | Trust 拦截面 | 未信任目录一次性令牌，60 秒、路径绑定、消费一次；raw/download 绕过 | `trust-tty.sh`、黑盒 Trust | ✅ 自动 |
-| F-59 | CSP 四档 | Strict 默认；nonce-only `script-src`；`frame/base/object 'none'`；`form-action 'self'` | 服务端 CSP 单测、黑盒 | ✅ 自动 |
+| F-59 | CSP 四档 | Strict 默认；nonce-only `script-src`；`frame/base/object 'none'`（HTML 预览页仅放宽 `frame-src 'self'`）；`form-action 'self'` | 服务端 CSP 单测、黑盒 | ✅ 自动 |
 | F-60 | 路径安全 | NUL/反斜杠拒绝；canonicalize 后夹紧；symlink 逃逸 403；FIFO 不阻塞 | 黑盒文件系统边界 | ✅ 自动 |
-| F-61 | safe 模式 | 只服务 `.md` 与图片 | 黑盒 safe server | ✅ 自动 |
+| F-61 | safe 模式 | 只服务 `.md`、图片与 HTML 源码；压缩包/文本 404 | 黑盒 safe server | ✅ 自动 |
 | F-62 | 安全响应头 | `X-Content-Type-Options: nosniff`；无外部资源请求 | 黑盒、浏览器探针 | ✅ 自动 |
 | F-63 | 裸 HTML 信任边界 | raw HTML 透传但不执行未授权脚本 | `render_compat`、CSP 检查 | ✅ 自动 |
 
@@ -130,6 +130,23 @@
 | F-72 | 焦点与键盘 | 弹层焦点、Esc/外部关闭、焦点归还、修饰键不劫持 | 浏览器探针 | ✅ 自动 |
 | F-73 | 减少动态效果 | `prefers-reduced-motion` 时关闭过渡/动画 | 无专门断言 | ○ 待补 |
 | F-74 | 失败状态 | 复制失败、导航加载失败、搜索空结果有明确反馈 | 浏览器探针、视觉 | ◐ 部分 |
+
+
+## J. HTML 文件与压缩包
+
+| ID | 功能 | 验收要点 | 测试映射 | 状态 |
+|---|---|---|---|---|
+| F-75 | HTML 文件 Trust 门控 | trusted 根：原文顶层 `text/html`，无外壳/沙箱，脚本/localStorage/同源 fetch/下载正常；untrusted 根：外壳 + 沙箱 iframe；`?raw=1` 源码 | 服务端单测、黑盒、浏览器探针 | ✅ 自动 |
+| F-76 | HTML 子资源 MIME | 相对 CSS/JS/JSON 按 `Sec-Fetch-Dest`/`Accept` 返回真实 MIME；直接导航仍是源码页 | 服务端单测、黑盒、浏览器探针 | ✅ 自动 |
+| F-77 | HTML 沙箱安全（未信任） | 仅 untrusted 根；opaque origin；脚本可运行但 localStorage/parent/同源 fetch 被阻断；`--safe` 只给源码 | 浏览器探针、黑盒 | ✅ 自动 |
+| F-78 | SVG 直开 sandbox | `CSP: sandbox`；`<script>` 不执行；`<img>` 内嵌不受影响 | 服务端单测、黑盒、浏览器探针 | ✅ 自动 |
+| F-79 | HTML 搜索/目录入口 | 搜索正文行到 `?raw=1#L<n>`；目录行有源码入口 | 服务端单测、黑盒 | ✅ 自动 |
+| F-80 | 触屏下载可见性 | `@media (hover: none)` 下目录行动作常显 | CSS/视觉 | ◐ 部分 |
+| F-81 | 压缩包虚拟路径 | `/a.zip/docs/x.md`；真实目录优先；嵌套包不递归 | 黑盒、浏览器探针 | ○ 待做（ADR 0016） |
+| F-82 | 压缩包解压缓存 | 0700 临时根、单飞、mtime/size 失效、LRU 清理 | 单测、黑盒 | ○ 待做（ADR 0016） |
+| F-83 | 压缩包安全与上限 | 加密/多卷/穿越/软链/炸弹拒绝；200 MB / 1 GB / 2 万条 / 100 MB | 单测、黑盒 | ○ 待做（ADR 0016） |
+| F-84 | 压缩包文件名编码 | UTF-8 → GBK → CP437 回退 | 单测 | ○ 待做（ADR 0016） |
+| F-85 | 压缩包导航/搜索边界 | 导航只显示包文件；搜索不扫包内；`--safe` 不可见 | 黑盒 | ○ 待做（ADR 0016） |
 
 ## 变更规则
 

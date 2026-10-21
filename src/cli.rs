@@ -48,6 +48,10 @@ pub struct Cli {
     /// VS Code 预览安全级别：0 Strict / 1 HTTP / 2 Disable / 3 localhost HTTP
     #[arg(long = "security-level", value_parser = clap::value_parser!(u8).range(0..=3))]
     pub security_level: Option<u8>,
+
+    /// 把每个请求与耗时打到 stderr，用于诊断样式/导航等客户端问题
+    #[arg(long)]
+    pub verbose: bool,
 }
 
 impl Cli {
@@ -139,5 +143,6 @@ mod tests {
         assert!(!cli.trust);
         assert!(!cli.untrusted);
         assert!(cli.security_level.is_none());
+        assert!(!cli.verbose);
     }
 }

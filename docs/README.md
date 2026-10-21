@@ -11,7 +11,7 @@
 | `architecture/` | 设计方案、执行计划、ADR 决策记录 | [overview.md](architecture/overview.md) · [execution-plan.md](architecture/execution-plan.md) · [ADRs](architecture/adr/) |
 | `guides/` | 安装/运行/Trust、渲染边界、代码块专项 | [install.md](guides/install.md) · [advanced.md](guides/advanced.md) · [code-blocks.md](guides/code-blocks.md) |
 | `reference/` | 功能矩阵与追踪编号 | [features.md](reference/features.md) |
-| `testing/` | 自测记录、浏览器验收报告、agent 测试指南、截图证据 | [selftest.md](testing/selftest.md) · [browser-report-2026-10-20.md](testing/browser-report-2026-10-20.md) · [agent-guide.md](testing/agent-guide.md) |
+| `testing/` | 自测记录、浏览器验收报告、agent 测试指南、截图证据 | [selftest.md](testing/selftest.md) · [browser-report-2026-10-20.md](testing/browser-report-2026-10-20.md) · [browser-report-2026-10-21.md](testing/browser-report-2026-10-21.md) · [agent-guide.md](testing/agent-guide.md) |
 | `research/` | P0 comrak vs markdown-it 差分探针 | [comrak-vs-markdown-it.md](research/comrak-vs-markdown-it.md) |
 | `archive/` | 旧 Python 实现历史台账 | [selftest-python.md](archive/selftest-python.md) |
 | `index.md` + `preview/` | 作为服务根时使用的示例文档与夹具，不是产品文档 | [index.md](index.md) · [preview/](preview/) |

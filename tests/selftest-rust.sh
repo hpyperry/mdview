@@ -109,6 +109,11 @@ printf '关键词在这里\n' >"$ROOT/关键词.md"
 printf 'CaseNeedle body\n' >"$ROOT/CaseNeedle.md"
 printf 'HIDDENNEEDLE\n' >"$ROOT/.hidden/h.md"
 printf 'HIDDENNEEDLE\n' >"$ROOT/node_modules/n.md"
+cat >"$ROOT/page.html" <<'HTML'
+<!doctype html><html><head><meta charset="utf-8"><title>HTML Probe</title><link rel="stylesheet" href="style.css"></head><body><h1>HTML Probe</h1><p>htmlneedle</p><script>document.body.dataset.script='yes'</script></body></html>
+HTML
+printf 'body { color: rgb(1, 2, 3); }\n' >"$ROOT/style.css"
+printf '<svg xmlns="http://www.w3.org/2000/svg"><script>document.documentElement.dataset.x=1</script></svg>\n' >"$ROOT/evil.svg"
 cat >"$ROOT/links.md" <<'MD'
 ![a](img%20dir/nested%20pic.png)
 
@@ -141,8 +146,10 @@ HOME_HTML="$(curl -s "$BASE/")"
 chk "目录索引 200" "$(code "$BASE/")" "200"
 chk "目录列出 a.md" "$HOME_HTML" "a.md"
 chk "目录有搜索入口" "$HOME_HTML" 'class="search-wrap"'
-chk "目录显示文件大小" "$HOME_HTML" '<1 KB · '
+chk "目录显示文件大小" "$HOME_HTML" 'class="meta-size"><1 KB'
 nchk "目录不显示字节单位" "$HOME_HTML" ' B · '
+chk "目录有独立时间列" "$HOME_HTML" 'class="meta-time"'
+chk "目录有固定操作列" "$HOME_HTML" 'class="row-actions"'
 chk "目录统计用项目" "$HOME_HTML" '个项目'
 nchk "目录无只读文档库" "$HOME_HTML" '只读文档库'
 chk "文件带下载入口" "$HOME_HTML" 'a.md?download=1'
@@ -233,6 +240,23 @@ NAVJSON="$(curl -s "$BASE/_nav")"
 chk "导航 JSON" "$NAVJSON" '"type":"dir"'
 chk "导航含文件" "$NAVJSON" '"name":"a.md"'
 nchk "导航跳过隐藏目录" "$NAVJSON" '".hidden"'
+chk "HTML 信任目录直接原文" "$(curl -s "$BASE/page.html")" '<h1>HTML Probe</h1>'
+nchk "HTML 信任目录无外壳" "$(curl -s "$BASE/page.html")" 'html-toolbar'
+chk "HTML 信任目录 MIME" "$(ctype "$BASE/page.html")" "text/html"
+nchk "HTML 信任目录无 CSP" "$(header "$BASE/page.html" content-security-policy)" "sandbox"
+chk "HTML 信任目录 view=1 也是原文" "$(curl -s "$BASE/page.html?view=1")" '<h1>HTML Probe</h1>'
+chk "HTML 信任目录 iframe 请求也是原文" "$(curl -s -H 'Sec-Fetch-Dest: iframe' "$BASE/page.html")" '<h1>HTML Probe</h1>'
+chk "HTML 源码有 tabs" "$(curl -s "$BASE/page.html?raw=1")" 'html-toolbar'
+chk "HTML 源码行锚点" "$(curl -s "$BASE/page.html?raw=1")" 'id="L1"'
+nchk "HTML 源码无 iframe" "$(curl -s "$BASE/page.html?raw=1")" '<iframe'
+chk "CSS 子资源 MIME" "$(curl -s -o /dev/null -w '%{content_type}' -H 'Sec-Fetch-Dest: style' "$BASE/style.css")" "text/css; charset=utf-8"
+chk "CSS 子资源原文" "$(curl -s -H 'Sec-Fetch-Dest: style' "$BASE/style.css")" "body { color: rgb(1, 2, 3); }"
+chk "CSS 直接访问是源码页" "$(curl -s "$BASE/style.css")" '<h1>style.css</h1>'
+chk "SVG 直开 CSP sandbox" "$(header "$BASE/evil.svg" content-security-policy)" "sandbox allow-top-navigation-by-user-activation"
+chk "HTML 搜索行跳源码" "$(curl -s "$BASE/search?q=htmlneedle")" 'href="/page.html?raw=1#L1"'
+chk "HTML 目录行有源码入口" "$HOME_HTML" 'href="/page.html?raw=1"'
+chk "目录下载图标有悬浮文案" "$HOME_HTML" 'title="下载 page.html"'
+chk "目录源码图标有悬浮文案" "$HOME_HTML" 'title="查看 page.html 源码"'
 chk "CSP connect-src" "$(header "$BASE/a.md" content-security-policy)" "connect-src 'self'"
 chk "搜索正文结果" "$SEARCH" "result-group"
 chk "搜索摘要用结果" "$SEARCH" '条结果'
@@ -310,6 +334,10 @@ chk "--safe 拦截文本" "$(code "$SAFE/b.txt")" "404"
 chk "--safe 放行 md" "$(code "$SAFE/a.md")" "200"
 chk "--safe 放行图片" "$(code "$SAFE/img.png")" "200"
 chk "--safe 拦截 Makefile" "$(code "$SAFE/Makefile")" "404"
+chk "--safe 放行 HTML 源码" "$(code "$SAFE/page.html")" "200"
+nchk "--safe HTML 无 iframe" "$(curl -s "$SAFE/page.html")" '<iframe'
+nchk "--safe view 不渲染" "$(curl -s "$SAFE/page.html?view=1")" '<iframe'
+chk "--safe CSS 拦截" "$(code "$SAFE/style.css")" "404"
 
 echo "== no-search server =="
 NOS_PORT="$((BASE_PORT + 2))"
@@ -368,6 +396,16 @@ REUSED="$(curl -s "$UNTRUST/a.md?open=$TOKEN")"
 chk "令牌复用再次拦截" "$REUSED" "仍要打开"
 chk "raw 绕过拦截" "$(curl -s "$UNTRUST/a.md?raw=1")" "<h1>a.md</h1>"
 chk "download 绕过拦截" "$(curl -s "$UNTRUST/a.md?download=1")" "# Hello"
+UNTRUST_HTML="$(curl -s "$UNTRUST/page.html")"
+chk "未信任 HTML 是沙箱外壳" "$UNTRUST_HTML" 'data-page="html"'
+chk "未信任 HTML 有 tabs" "$UNTRUST_HTML" 'html-toolbar'
+chk "未信任 HTML iframe" "$UNTRUST_HTML" 'src="/page.html?view=1"'
+chk "未信任 HTML sandbox" "$UNTRUST_HTML" 'sandbox="allow-scripts allow-forms allow-modals allow-popups"'
+chk "未信任 HTML frame-src self" "$(header "$UNTRUST/page.html" content-security-policy)" "frame-src 'self'"
+chk "未信任裸页原文" "$(curl -s "$UNTRUST/page.html?view=1")" '<h1>HTML Probe</h1>'
+chk "未信任裸页 CSP sandbox" "$(header "$UNTRUST/page.html?view=1" content-security-policy)" "sandbox allow-scripts"
+chk "未信任裸页 Referrer-Policy" "$(header "$UNTRUST/page.html?view=1" referrer-policy)" "no-referrer"
+chk "未信任 HTML 源码 tabs" "$(curl -s "$UNTRUST/page.html?raw=1")" 'html-toolbar'
 
 echo "== filesystem edge cases =="
 SEC="$TMP/security"

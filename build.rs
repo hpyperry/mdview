@@ -1,7 +1,21 @@
 use std::env;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
+
+fn require_asset(path: &Path) {
+    let metadata = fs::metadata(path)
+        .unwrap_or_else(|error| panic!("web asset {} is missing: {error}", path.display()));
+    if !metadata.is_file() {
+        panic!("web asset {} is not a file", path.display());
+    }
+    if metadata.len() == 0 {
+        panic!(
+            "web asset {} is empty; run `npm --prefix web run build:web` or fix MDVIEW_WEB_PREBUILT",
+            path.display()
+        );
+    }
+}
 
 fn main() {
     for path in [
@@ -24,9 +38,7 @@ fn main() {
         let prebuilt = PathBuf::from(prebuilt);
         for asset in ["app.js", "app.css"] {
             let source = prebuilt.join(asset);
-            if !source.is_file() {
-                panic!("MDVIEW_WEB_PREBUILT is missing {}", source.display());
-            }
+            require_asset(&source);
             fs::copy(&source, out_dir.join(asset))
                 .unwrap_or_else(|error| panic!("copy {}: {error}", source.display()));
         }
@@ -55,8 +67,6 @@ fn main() {
         panic!("`npm run build:web` failed with {status}");
     }
     for asset in ["app.js", "app.css"] {
-        if !out_dir.join(asset).is_file() {
-            panic!("web build did not produce {asset}; check web/build.mjs");
-        }
+        require_asset(&out_dir.join(asset));
     }
 }

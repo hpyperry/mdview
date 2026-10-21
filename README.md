@@ -43,7 +43,9 @@ cargo build --release
 [0011](docs/architecture/adr/0011-chunked-source-viewer.md)（大源码全文分块）、
 [0012](docs/architecture/adr/0012-island-frontend-architecture.md)（岛屿前端与全宽外壳）、
 [0013](docs/architecture/adr/0013-full-site-navigation-island.md)（全站导航浮岛与默认收起）、
-[0014](docs/architecture/adr/0014-markdown-line-target.md)（Markdown 搜索结果行定位到渲染块）。
+[0014](docs/architecture/adr/0014-markdown-line-target.md)（Markdown 搜索结果行定位到渲染块）、
+[0015](docs/architecture/adr/0015-html-file-preview-and-sandbox.md)（HTML 文件双模式与沙箱预览）、
+[0016](docs/architecture/adr/0016-archive-virtual-paths.md)（压缩包虚拟路径与解压缓存）。
 
 ## 功能
 
@@ -88,19 +90,28 @@ cargo build --release
 
 | 请求 | 行为 |
 |------|------|
-| `GET /dir/` | 目录索引：无分组统一列表（目录在前）、大小/时间、下载按钮；上级导航在面包屑 |
+| `GET /dir/` | 目录索引：无分组统一列表（目录在前）、名称/大小/时间/操作固定列、下载按钮；上级导航在面包屑 |
 | `GET /x.md` | 渲染为 HTML（未信任目录先出现一次确认页） |
 | `GET /x.md?raw=1` | 源码查看页：文件名为标题，类型/大小/行数/时间标签、行号、`id="L<n>"` 行锚点、预览/下载入口 |
 | `GET /x.md?download=1` | 原始字节 + `Content-Disposition` |
+| `GET /x.html` | 已信任根：原字节 `text/html` 顶层返回，无外壳/沙箱；未信任根：外壳 + 沙箱 iframe（可切源码） |
+| `GET /x.html?raw=1` | HTML 源码页；可信/未信任都可用 |
+| `GET /x.html?view=1` | 裸页：已信任根是原文；未信任根是沙箱裸页（CSP `sandbox`） |
+| `GET /x.html?download=1` | 原始字节 + `Content-Disposition` |
 | 已知文本扩展名/文件名 | 源码查看页（文件名标题 + 类型/大小/行数/时间标签 + 行号与客户端高亮）；> 256 KB 全文分块 |
 | 无扩展名 | 前 512 字节无 NUL → 文本；有 NUL → 下载 |
-| 图片 / PDF | 按 MIME 内联 |
+| 图片 / PDF | 按 MIME 内联；SVG 直开带 CSP `sandbox`，脚本不执行 |
 | 其他 | `application/octet-stream` 下载 |
-| `GET /search?q=…` | 文件名搜所有文件；正文搜 Markdown/文本；按文件分组；每条结果整行可点击 |
+| `GET /search?q=…` | 文件名搜所有文件；正文搜 Markdown/文本；按文件分组；每条结果整行可点击；HTML 内容行到 `?raw=1#L<n>` |
 | `GET /_nav` | 全站导航树 JSON；包含所有可见目录与文件，供导航浮岛空闲预取 |
 | `HEAD` / `301` / `404` | 支持；目录缺尾斜杠返回 301 |
 
-超过 `--max-preview`（默认 20 MiB）的文件一律改为下载，`?raw=1` 也不例外。
+超过 `--max-preview`（默认 20 MiB）的**文档**改为下载，`?raw=1` 也不例外；
+HTML 文件内部的 CSS/JS/图片等子资源按真实 MIME 返回，不受该限制（否则大图或
+相对样式表会把页面弄坏）。已信任根的 HTML 是顶层同源原文：脚本、localStorage、
+同源 fetch、下载和顶层链接都正常，和 Python 版/静态服务器一致；它也能读到站点
+内的同源数据，所以只对可信目录开放。未信任根才使用 opaque-origin 沙箱，脚本
+读不到 `/_nav`、搜索、同源文件、localStorage 或父页面；`--safe` 下只提供源码。
 超过 **256 KB** 的文本源码页仍由服务端输出**全文**，按 500 行分块并用
 `content-visibility: auto` 跳过离屏布局与绘制；无 JS 时同样能读到全文。
 行锚点与语法高亮由脚本按可见分块懒加载。
@@ -114,11 +125,12 @@ cargo build --release
 | `--port` | `8000` | 起始端口 |
 | `--port-tries` | `10` | 端口占用时向后尝试次数 |
 | `--root` | 当前目录 | 服务根目录 |
-| `--safe` | 关 | 只放行 `.md` 与图片 |
+| `--safe` | 关 | 只放行 `.md`、图片与 HTML 源码；不渲染 HTML 预览 |
 | `--max-preview` | `20M` | 超过则下载；`0` 不限制 |
 | `--no-search` | 关 | 关闭搜索路由与搜索框 |
 | `--trust` / `--untrusted` | — | 本次运行强制信任/不信任，不写配置 |
 | `--security-level` | 配置或 `0` | CSP 级别 0–3 |
+| `--verbose` | 关 | 把每个请求、状态与耗时打到 stderr；用于诊断 CSS/导航等客户端问题 |
 
 ## Trust 与 CSP
 
@@ -130,10 +142,19 @@ cargo build --release
 - 首次启动在 TTY 里询问并持久化；非交互环境默认 untrusted。
 - 配置写在用户配置目录的 `trust.toml`（`directories` crate）。
 
+独立 `.html` 由 Trust 决定：**已信任根**直接以 `text/html` 顶层返回原字节，无
+mdview 外壳、无沙箱、无 CSP；脚本同源运行，链接、localStorage、同源 fetch 与
+下载都像 Python 版/静态服务器。**未信任根**才用外壳 + 沙箱 iframe（`?view=1`
+是沙箱裸页），脚本处于 opaque origin，读不到本站同源数据。`?raw=1` 始终是源码页；
+`--safe` 下只显示源码。独立 HTML 不走 Markdown 的一次性令牌拦截面。
+SVG 直开始终带 `CSP: sandbox`，`<script>` 不执行（`<img>` 内嵌不受影响）。
+
 CSP 四档：0 Strict（默认）、1 允许 HTTP、2 关闭（不推荐）、3 允许 localhost HTTP。
-所有响应带 `X-Content-Type-Options: nosniff`；`script-src` 只信任每个响应新生成的
-nonce，**没有 `'self'`**；`frame/base/object 'none'`；`form-action 'self'`
-（仅用于本站搜索表单）。
+所有 mdview 生成页面带 `X-Content-Type-Options: nosniff`；`script-src` 只信任每个
+响应新生成的 nonce，**没有 `'self'`**；`frame/base/object 'none'`（未信任 HTML
+外壳仅把 `frame-src` 放宽为 `'self'`，用于自己的沙箱 iframe）；`form-action 'self'`
+（仅用于本站搜索表单）。已信任 HTML 原文不套这条 CSP；未信任沙箱预览用自己的
+`sandbox` CSP。
 
 ## 与 VS Code 的一致性
 

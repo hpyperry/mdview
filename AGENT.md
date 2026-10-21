@@ -25,8 +25,8 @@ bash tests/run-all.sh
 `npm --prefix web ci`。跨平台 musl 构建用
 `npm --prefix web run build:web` + `MDVIEW_WEB_PREBUILT=web/dist`。
 
-必须全绿：`cargo test`（50 单元 + 134 渲染兼容 + 27 golden）、151 项黑盒 HTTP、
-9 项 pty 信任测试、163 项 headless Chrome 验收、4 项源码页性能预算。
+必须全绿：`cargo test`（56 单元 + 134 渲染兼容 + 27 golden）、183 项黑盒 HTTP、
+9 项 pty 信任测试、192 项 headless Chrome 验收、4 项源码页性能预算。
 
 ## 规格来源
 
@@ -38,6 +38,8 @@ bash tests/run-all.sh
 3. `docs/architecture/adr/0006-html-trust-and-csp.md`：裸 HTML 透传与 Trust/CSP；
    [ADR 0008](docs/architecture/adr/0008-docs-shell-and-reading-typography.md) 文档站外壳/排版，
    [ADR 0009](docs/architecture/adr/0009-search-scope-and-form-csp.md) 搜索与同源表单；
+   [ADR 0015](docs/architecture/adr/0015-html-file-preview-and-sandbox.md) HTML 文件双模式与沙箱，
+   [ADR 0016](docs/architecture/adr/0016-archive-virtual-paths.md) 压缩包虚拟路径（待实现）；
 4. `docs/architecture/overview.md` 与 `docs/architecture/execution-plan.md`；
 5. `docs/research/comrak-vs-markdown-it.md`：P0 差分证据。
 
@@ -98,7 +100,26 @@ bash tests/run-all.sh
 10. **全站导航**：`/_nav` 返回全站可见目录与所有文件；页面空闲时预取，目录行
     只展开、文件行才导航；每次加载默认收起，展开状态才存 localStorage。导航
     不挤压正文。不要恢复“当前目录侧栏”或“目录/文件”分组文字。
-11. 文档与提交信息用中文，提交前缀 `feat:` / `fix:` / `docs:` / `refactor:` /
+11. **HTML 文件（Trust 门控）**：`trusted` 根下 `/x.html` 直接以原字节
+    `text/html` 顶层返回，无 mdview 外壳、无 sandbox、无 CSP——这是 Python 版/
+    静态服务器的行为，脚本、localStorage、同源 fetch、下载与顶层链接都正常。
+    只有 `untrusted` 根才用外壳 + 沙箱 iframe；`?view=1` 在 untrusted 下是沙箱
+    裸页，在 trusted 下就是原文。`?raw=1` 始终源码；`--safe` 只给源码。
+    Trusted raw 是顶层同源，脚本能读站点数据；不要给未信任根 raw，也不要把
+    Markdown 的一次性令牌扩展成 HTML raw。
+12. **未信任 HTML 沙箱**：裸页必须带
+    `Content-Security-Policy: sandbox ...; object-src 'none'`，iframe 带
+    `sandbox="allow-scripts allow-forms allow-modals allow-popups"`。不要加
+    `allow-same-origin`。`<object>`/`<embed>` 按 frame 导航处理，不能退化成无 CSP
+    原始字节。外壳页只在 `PageKind::Html` 把 `frame-src` 放宽为 `'self'`；
+    其他页面保持 `'none'`。沙箱只用于未信任根，不是可信文档的默认路径。
+13. **HTML 子资源**：相对 CSS/JS/JSON 按 `Sec-Fetch-Dest`（退化看 `Accept`）返回
+    原字节与真实 MIME；直接导航仍是源码页。`--max-preview` 只限制文档，不限制
+    子资源。HTML 内容命中在搜索里必须链到 `?raw=1#L<n>`。
+14. **SVG 直开**：`image/svg+xml` 响应必须带
+    `Content-Security-Policy: sandbox allow-top-navigation-by-user-activation`；
+    `<img>` 内嵌不受影响。
+15. 文档与提交信息用中文，提交前缀 `feat:` / `fix:` / `docs:` / `refactor:` /
     `style:` / `test:`。
 
 ## 改哪里
@@ -110,11 +131,17 @@ bash tests/run-all.sh
 | URL 编码/相对路径 | `rewrite_target` + `%20/%2520/%23/%3F` 测试 |
 | 新路由/页面 | `src/server.rs` 的 `app`/`handle` 与 `Page` 外壳 |
 | 搜索范围/结果 | `search_files` / `render_search`；正文只扫文本文件 |
+| 目录行列对齐 | `list_dir` 的五列模板 + `web/src/styles/app.css` 的 `.dir-row` grid |
 | 搜索结果行定位 | `render_markdown_with_sourcepos` + `web/src/islands/linetarget.ts` |
 | 顶部栏/导航/页面 chrome/内容面 | `html_page`、`crumbs_html`、`nav.tsx` |
 | TOC/行定位/代码条/主题/导航/大源码分块 | `web/src/islands/*` |
 | 岛屿清单/水合策略 | `src/server.rs` 的 `data-islands` + `web/src/app.ts` |
 | 全站导航树/接口 | `src/server.rs` 的 `/_nav` + `web/src/islands/nav.tsx` |
+| HTML 文件路由 | `handle` 的 `Kind::Html`、`html_trusted_document`、`html_preview_page`、`html_preview_document` |
+| HTML 子资源 MIME | `fetch_kind` / `raw_mime`；直接导航仍走 `source_page` |
+| HTML 页面样式 | `web/src/styles/app.css` 的 `.html-toolbar` / `.html-frame` |
+| SVG 直开安全 | `serve_file` 的 `SVG_SANDBOX_CSP` |
+| 压缩包（待实现） | ADR 0016；新增 archive 模块 + `handle` 虚拟路径解析 |
 | CSP/安全级别 | `csp_header` + `csp_levels` 测试 |
 | Trust 配置 | `src/trust.rs` + 配置往返测试 |
 | 页面样式 | `web/src/styles/app.css`；VS Code 样式在 `assets/*.css` |
@@ -157,6 +184,21 @@ bash tests/run-all.sh
   操作是“预览/下载”。不要恢复 `查看渲染页` 或把参数重新堆成一行纯文本。
 - **H1 下划线**：`assets/markdown.css` 给全局 `h1` 加了 `border-bottom`；
   `web/src/styles/app.css` 的 `h1` 重置负责外壳标题。新增页面标题不要绕开它。
+- **HTML 信任目录**：`/x.html` 必须是原字节顶层原文，不能套外壳/沙箱/CSP；
+  这是 Python 版和静态服务器的行为。未信任根才走沙箱外壳。
+- **HTML 编码**：原文强制 `text/html` 但不加 charset，让文档自己的 BOM/meta
+  决定编码；不要恢复 Python 的强制 UTF-8。
+- **HTML 源码**：`?raw=1` 才是源码页；trusted 的源码页“预览”tab 指向 `/x.html`
+  原文，untrusted 指向沙箱外壳。
+- **HTML 子资源**：`style.css` 直接访问是源码页，只有 `Sec-Fetch-Dest: style`
+  之类请求才返回 `text/css`；不要把所有文本文件都改成原始 MIME。
+- **HTML 搜索行**：HTML 内容命中要到 `?raw=1#L<n>`；默认 `/x.html` 现在是预览页，
+  不带行锚点。
+- **SVG**：`serve_file` 对 SVG 加了 CSP sandbox；不要把它挪到所有二进制响应，
+  也不要删掉，否则直开 SVG 会恢复同源脚本执行。
+- **safe 模式**：`.html` 只给源码；压缩包与文本仍 404。不要把 HTML 预览放进 safe。
+- **触屏目录行**：`.dir-row .dl` 由 `@media (hover: none)` 常显；不要改回只靠 hover。目录操作只用图标，用 `title` + `aria-label` 提供悬浮/无障碍文本；每个图标点击区 36×36、间距 8，不要贴在一起；不要再加行内“下载”文字，否则会破坏固定列。
+- **目录行固定列**：桌面是 `图标 / 名称 / 大小 / 修改时间 / 操作` 五列；HTML 的源码图标不能挤动大小/时间列。`list_dir` 的行模板必须保持五个 grid 子项（目录行用 `row-kind` 跨 3–4 列），≤720px 才隐藏大小/时间。
 - **文件大小**统一走 `format_size`：1024 进制、KB 起步、1 位小数去尾零；
   不要直接输出 B/KiB。
 

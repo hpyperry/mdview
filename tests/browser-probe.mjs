@@ -187,6 +187,15 @@ async function writeFixture(root) {
     `# Probe\n\n中文 **粗体**。\n\n## Section A\n\n\`\`\`python\ndef f():\n    return 1\n\`\`\`\n\n\`\`\`\nplain fence text\n\`\`\`\n\n### Sub\n\n![图](img.png)\n\n[目录](/)\n\n## Section B\n\n末尾段落。\n\n${filler}\n`,
   );
   await writeFile(join(root, 'sub', 'page.md'), '# Sub\n\n[上级](/) · ![图](img.png)\n');
+  await writeFile(
+    join(root, 'page.html'),
+    '<!doctype html><html><head><meta charset="utf-8"><title>HTML Probe</title><link rel="stylesheet" href="probe.css"></head><body><h1>HTML Probe</h1><p>htmlneedle</p><script>document.body.dataset.script="yes"</script></body></html>\n',
+  );
+  await writeFile(join(root, 'probe.css'), 'body { background-color: rgb(1, 2, 3); }\n');
+  await writeFile(
+    join(root, 'evil.svg'),
+    '<svg xmlns="http://www.w3.org/2000/svg"><script>document.documentElement.dataset.x=1</script></svg>\n',
+  );
   await writeFile(join(root, 'plain.txt'), 'plain text without a language\nsecond line\n');
   await writeFile(join(root, 'small.rs'), 'fn main() {\n    let x = 1;\n    println!("{}", x);\n}\n');
   await writeFile(join(root, 'single.md'), '# Single\n\nOnly a heading.\n');
@@ -227,11 +236,24 @@ async function main() {
   let serverErr = '';
   server.stderr.on('data', (chunk) => { serverErr += chunk.toString(); });
 
+  const untrustedPort = await freePort();
+  const untrustedBase = `http://127.0.0.1:${untrustedPort}`;
+  const untrustedServer = spawn(
+    binary,
+    ['--root', root, '--host', '127.0.0.1', '--port', String(untrustedPort), '--port-tries', '0', '--untrusted'],
+    { stdio: ['ignore', 'ignore', 'pipe'] },
+  );
+  let untrustedErr = '';
+  untrustedServer.stderr.on('data', (chunk) => { untrustedErr += chunk.toString(); });
+
   const { child: chromeChild, wsUrl } = launchChrome(chrome, profile);
   let browser;
   try {
     if (!(await waitHttp(`${base}/`))) {
       throw new Error(`server did not start: ${serverErr}`);
+    }
+    if (!(await waitHttp(`${untrustedBase}/`))) {
+      throw new Error(`untrusted server did not start: ${untrustedErr}`);
     }
     browser = await CDP.connect(await wsUrl);
     const { targetId } = await browser.send('Target.createTarget', { url: 'about:blank' });
@@ -489,7 +511,7 @@ async function main() {
     await waitFor('document.querySelectorAll("#nav-panel .nav-file").length > 0', 3000);
     check('展开状态记忆', await waitFor('(() => { const row = [...document.querySelectorAll("#nav-panel .nav-dir > .nav-row")].find((b) => b.textContent.includes("sub")); return row?.getAttribute("aria-expanded") === "true"; })()', 2000));
     await evaluate(`Array.from(document.querySelectorAll('#nav-panel a.nav-file')).find((a) => a.getAttribute('href') === '/sub/page.md').click()`);
-    check('点击文件导航', await waitFor('document.body.dataset.currentPath === "sub/page.md"', 5000));
+    check('点击文件导航', await waitFor('document.body?.dataset.currentPath === "sub/page.md"', 5000));
     check('文件导航后导航收起', (await evaluate('document.documentElement.dataset.navOpen !== "1"')) === true);
     check('新页面导航空闲预取', await waitFor('performance.getEntriesByType("resource").some((entry) => entry.name.endsWith("/_nav") && entry.responseEnd > 0)', 3000));
     await evaluate('document.getElementById("nav-toggle").click()');
@@ -562,7 +584,7 @@ async function main() {
       type: 'keyUp', key: 'Enter', code: 'Enter',
       windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13,
     });
-    check('搜索 Enter 提交', await waitFor('document.body.dataset.page === "search"', 5000));
+    check('搜索 Enter 提交', await waitFor('document.body?.dataset.page === "search"', 5000));
     check('搜索命中分组', (await evaluate('document.querySelectorAll(".result-group").length')) > 0);
     check('搜索词高亮', await waitFor('document.querySelectorAll(".hit-snippet mark").length > 0', 3000));
     check('搜索页有独立表单', (await evaluate('!!document.querySelector(".search-page-form input")')) === true);
@@ -610,7 +632,7 @@ async function main() {
     await page.send('Emulation.setDeviceMetricsOverride', { width: 800, height: 600, deviceScaleFactor: 1, mobile: false });
     await goto('/page.md');
     await evaluate('document.getElementById("search-open").click()');
-    check('窄屏搜索直达搜索页', await waitFor('document.body.dataset.page === "search"', 5000));
+    check('窄屏搜索直达搜索页', await waitFor('document.body?.dataset.page === "search"', 5000));
     check('窄屏搜索页头紧凑', (await evaluate(`(() => {
       const title = document.querySelector('.search-head h1').getBoundingClientRect();
       const form = document.querySelector('.search-page-form').getBoundingClientRect();
@@ -619,6 +641,26 @@ async function main() {
     await page.send('Emulation.setDeviceMetricsOverride', { width: 1200, height: 320, deviceScaleFactor: 1, mobile: false });
 
     console.log('== directory and raw pages ==');
+    await goto('/');
+    const align = await evaluate(`(() => {
+      const rects = (selector) => [...document.querySelectorAll(selector)].map((el) => Math.round(el.getBoundingClientRect().x));
+      const width = (selector) => [...document.querySelectorAll(selector)].map((el) => Math.round(el.getBoundingClientRect().width));
+      const sizes = rects('.dir-row .meta-size');
+      const times = rects('.dir-row .meta-time');
+      const actions = width('.dir-row .row-actions');
+      const targetSizes = [...document.querySelectorAll('.dir-row .row-actions .dl')].map((el) => Math.round(el.getBoundingClientRect().width));
+      return {
+        sizes, times, actions, targetSizes,
+        sizesAligned: sizes.length > 1 && sizes.every((x) => x === sizes[0]),
+        timesAligned: times.length > 1 && times.every((x) => x === times[0]),
+        actionsAligned: actions.length > 1 && actions.every((x) => x === actions[0]),
+        targetsBig: targetSizes.length > 0 && targetSizes.every((x) => x >= 36),
+      };
+    })()`);
+    check('目录大小列对齐', align.sizesAligned, JSON.stringify(align));
+    check('目录时间列对齐', align.timesAligned, JSON.stringify(align));
+    check('目录操作列等宽', align.actionsAligned, JSON.stringify(align));
+    check('目录操作点击区足够大', align.targetsBig, JSON.stringify(align));
     await goto('/sub/');
     check('目录页回到顶部按钮', (await evaluate('document.querySelectorAll(".totop").length')) === 1);
     check('目录页无分组标题', (await evaluate('!document.querySelector(".dir-section h2") && !!document.querySelector(".dir-list")')) === true);
@@ -653,6 +695,69 @@ async function main() {
     check('源码页原始内容', (await evaluate('document.querySelector(".source code").textContent')).startsWith('# Probe'));
     check('源码页面包屑完整', await crumbsComplete('.page-head .crumbs', 'page.md'));
 
+    console.log('== html trusted ==');
+    await goto('/page.html');
+    check('HTML 信任目录是原文', (await evaluate('document.querySelector("h1")?.textContent')) === 'HTML Probe');
+    check('HTML 信任目录无外壳', (await evaluate('!document.querySelector(".html-toolbar") && !document.querySelector("iframe")')) === true);
+    check('HTML 信任目录不是 mdview 页', (await evaluate('document.body.dataset.page === undefined')) === true);
+    check('HTML 信任目录脚本同源运行', (await evaluate('document.body.dataset.script')) === 'yes');
+    check(
+      'HTML 信任目录 localStorage 可用',
+      (await evaluate('(() => { try { localStorage.setItem("mdv", "1"); return localStorage.getItem("mdv") === "1"; } catch { return false; } })()')) === true,
+    );
+    check(
+      'HTML 信任目录同源 fetch 可用',
+      (await evaluate('fetch("/page.md").then((response) => response.status).catch(() => 0)')) === 200,
+    );
+    await goto('/page.html?view=1');
+    check('HTML 信任目录 view=1 也是原文', (await evaluate('document.querySelector("h1")?.textContent')) === 'HTML Probe');
+    check('HTML 信任目录 view=1 无外壳', (await evaluate('!document.querySelector(".html-toolbar") && !document.querySelector("iframe")')) === true);
+    await goto('/page.html?raw=1');
+    check('HTML 源码页 tabs', (await evaluate('document.querySelectorAll(".html-toolbar .seg").length')) === 2);
+    check('HTML 源码页无 iframe', (await evaluate('!document.querySelector("iframe")')) === true);
+    check('HTML 源码行锚点', (await evaluate('document.querySelector("#L1")?.textContent')) === '1');
+
+    console.log('== html untrusted sandbox ==');
+    const gotoUntrusted = async (path) => {
+      requests.length = 0;
+      await page.send('Page.navigate', { url: `${untrustedBase}${path}` });
+      const deadline = Date.now() + 8000;
+      while (Date.now() < deadline) {
+        if ((await evaluate('document.readyState')) === 'complete') break;
+        await sleep(50);
+      }
+      await sleep(500);
+    };
+    await gotoUntrusted('/page.html');
+    check('未信任 HTML 页外壳', (await evaluate('document.body.dataset.page')) === 'html');
+    check('未信任 HTML 预览页 tabs', (await evaluate('document.querySelectorAll(".html-toolbar .seg").length')) === 2);
+    check('未信任 HTML iframe 存在', (await evaluate('document.querySelector("iframe.html-frame")?.getAttribute("src")')) === '/page.html?view=1');
+    check('未信任 HTML iframe sandbox', (await evaluate('document.querySelector("iframe.html-frame")?.getAttribute("sandbox")')) === 'allow-scripts allow-forms allow-modals allow-popups');
+    check('未信任 HTML 预览页无 TOC', (await evaluate('!document.querySelector(".toc-rail")')) === true);
+    await sleep(1200);
+    const htmlTargets = await browser.send('Target.getTargets');
+    const iframeTarget = htmlTargets.targetInfos.find((target) => target.type === 'iframe' && target.url.startsWith(untrustedBase) && target.url.includes('/page.html?view=1'));
+    check('未信任 HTML 沙箱 iframe 已加载', !!iframeTarget, JSON.stringify(htmlTargets.targetInfos.map((target) => target.url)));
+    if (iframeTarget) {
+      const attached = await browser.send('Target.attachToTarget', { targetId: iframeTarget.targetId, flatten: true });
+      await browser.send('Runtime.enable', {}, attached.sessionId);
+      const childEval = async (expression) => {
+        const result = await browser.send('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true }, attached.sessionId);
+        if (result.exceptionDetails) throw new Error(result.exceptionDetails.exception?.description || 'child eval failed');
+        return result.result.value;
+      };
+      check('未信任 HTML 脚本在沙箱运行', (await childEval('document.body.dataset.script')) === 'yes');
+      check('未信任 HTML 相对 CSS 生效', (await childEval('getComputedStyle(document.body).backgroundColor')) === 'rgb(1, 2, 3)');
+      check('未信任 HTML 沙箱屏蔽 localStorage', (await childEval('(() => { try { localStorage.getItem("x"); return false } catch { return true } })()')) === true);
+      check('未信任 HTML 沙箱屏蔽同源 fetch', (await childEval('fetch("/_nav").then(() => false).catch(() => true)')) === true);
+    }
+    await gotoUntrusted('/page.html?raw=1');
+    check('未信任 HTML 源码页 tabs', (await evaluate('document.querySelectorAll(".html-toolbar .seg").length')) === 2);
+    check('未信任 HTML 源码页无 iframe', (await evaluate('!document.querySelector("iframe")')) === true);
+    check('未信任 HTML 源码行锚点', (await evaluate('document.querySelector("#L1")?.textContent')) === '1');
+    await gotoUntrusted('/evil.svg');
+    check('SVG 直开脚本不执行', (await evaluate('document.documentElement.getAttribute("data-x") === null')) === true);
+
     console.log('== no-JS baseline ==');
     await page.send('Emulation.setScriptExecutionDisabled', { value: true });
     await goto('/page.md');
@@ -681,6 +786,7 @@ async function main() {
     });
     chromeChild.kill('SIGKILL');
     server.kill('SIGKILL');
+    untrustedServer.kill('SIGKILL');
     await Promise.race([chromeExited, sleep(2000)]);
     // Chrome may still be flushing its profile; retry instead of failing the
     // probe after every assertion has already passed.

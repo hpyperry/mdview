@@ -1,0 +1,19 @@
+:root { color-scheme: light dark; --bg: light-dark(#ffffff, #0f1720); --fg: light-dark(#1c2733, #e8eef5); --muted: light-dark(#627083, #93a4b8); --border: light-dark(#dfe5ec, #263241); --soft: light-dark(#f3f7fb, #16202b); --accent: light-dark(#0b6bcb, #6cb6ff); }
+* { box-sizing: border-box; }
+body { margin: 0; padding: 28px 32px 40px; background: var(--bg); color: var(--fg); font-family: Georgia, "Songti SC", "Noto Serif SC", serif; }
+.report-head .eyebrow { margin: 0 0 6px; color: var(--accent); font: 11px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; letter-spacing: .12em; text-transform: uppercase; }
+h1 { margin: 0; font-size: 30px; line-height: 1.2; letter-spacing: -.01em; }
+.lede { margin: 6px 0 20px; color: var(--muted); font-size: 14px; }
+.metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-bottom: 22px; }
+.metric { border: 1px solid var(--border); border-radius: 8px; padding: 11px 13px; background: var(--soft); }
+.metric .label { color: var(--muted); font: 11px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+.metric .value { margin-top: 3px; font: 600 24px/1.2 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+.metric .delta { color: light-dark(#1a7f37, #56d364); font: 11px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+h2 { margin: 0 0 10px; font: 600 15px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+.chart { display: flex; align-items: flex-end; gap: 9px; height: 130px; padding: 12px 14px 0; border: 1px solid var(--border); border-radius: 8px; background: linear-gradient(to top, var(--soft), transparent); }
+.bar { flex: 1; min-width: 10px; height: var(--h); background: var(--accent); border-radius: 3px 3px 0 0; opacity: .85; }
+.axis { display: flex; justify-content: space-between; margin: 5px 2px 22px; color: var(--muted); font: 10px/1.2 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+table { width: 100%; border-collapse: collapse; font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+th, td { padding: 8px 9px; border-bottom: 1px solid var(--border); text-align: left; }
+th { color: var(--muted); font-weight: 500; }
+.num { text-align: right; font-variant-numeric: tabular-nums; }
