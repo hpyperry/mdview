@@ -10,7 +10,7 @@
 用户报告 `![x](data:image/png;base64,…)` 不渲染。复现结果：行内式退化成字面文本，
 引用式退化成 `![x][r]`，尖括号形式同样退化。根因不是解析器不认识 `data:`，而是
 `SAFE_SCHEMES` 把它挡在**协议白名单**外：`safe_href()` 返回空串，图片装配于是放弃
-整条图片。这条拒绝是 SELFTEST §18.1 修掉存储型 XSS 时加上的，README 与 AGENT.md
+整条图片。这条拒绝是 SELFTEST §18.1 修掉存储型 XSS 时加上的，README 与 AGENTS.md
 都把它写成硬约束。所以这是**安全策略的有意变更**，不是补一个解析分支。
 
 ## 决定
@@ -59,7 +59,7 @@
   里产属性；同样的串在 `[x](…)` 里不产 `href`；`data:text/html` 在图片里也拒绝；
   大小写混写、引用式、尖括号、缺逗号 / 缺 `;base64` / `;base64` 不在末位各一条。
   旧断言 `test_rejected_protocol_stays_literal` 里 `data:text/html` 那条保持不变。
-- 文档要同步：README 的 XSS 小节不能再说「`data:` 一律不产出属性」；AGENT.md
+- 文档要同步：README 的 XSS 小节不能再说「`data:` 一律不产出属性」；AGENTS.md
   硬约束 3 要写清「按消费方开口」；GLOSSARY 增加协议白名单与数据 URI 图片。
 - 实现收尾仍走仓库纪律：两套测试 → `tools/minify.py` 重新生成 `dist/` →
   同步 README / tests/README.md / docs/testing/selftest.md 的计数与描述。

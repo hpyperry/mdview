@@ -9,7 +9,7 @@
    已有测试映射。测试计划从这里的编号取，不重新发明需求。
 2. [`../../tests/README.md`](../../tests/README.md)：现有自动套件怎么跑、各自覆盖什么。
 3. [`selftest.md`](selftest.md)：最近一次自动套件结果。
-4. [`../../AGENT.md`](../../AGENT.md)：代码边界与硬约束；测试时不要改产品代码，
+4. [`../../AGENTS.md`](../../AGENTS.md)：代码边界与硬约束；测试时不要改产品代码，
    除非本轮任务明确要求修复。
 5. `browser-use` 的 `control-browser` 与 `web-gui-tester` skill：真实浏览器操作的
    工具规则和黑盒测试方法。
