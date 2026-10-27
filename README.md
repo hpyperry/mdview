@@ -47,7 +47,9 @@ cargo build --release
 [0013](docs/architecture/adr/0013-full-site-navigation-island.md)（全站导航浮岛与默认收起）、
 [0014](docs/architecture/adr/0014-markdown-line-target.md)（Markdown 搜索结果行定位到渲染块）、
 [0015](docs/architecture/adr/0015-html-file-preview-and-sandbox.md)（HTML 文件双模式与沙箱预览）、
-[0016](docs/architecture/adr/0016-archive-virtual-paths.md)（压缩包虚拟路径与解压缓存）。
+[0016](docs/architecture/adr/0016-archive-virtual-paths.md)（压缩包虚拟路径与解压缓存）、
+[0017](docs/architecture/adr/0017-internal-url-query-disambiguation.md)（内部 URL 查询参数消歧）、
+[0018](docs/architecture/adr/0018-markdown-extension-scope.md)（Markdown 扩展名口径）。
 
 ## 功能
 
@@ -76,6 +78,8 @@ cargo build --release
 
 ### Markdown 渲染
 
+- Markdown 文档指 `.md` / `.markdown`（大小写不敏感）；`.mdx` 是源码文本，不按
+  Markdown 渲染；
 - CommonMark + GFM 表格 / 删除线 / 自动链接；`~~x~~` 输出 `<s>`；
 - Markdown 语义与代码高亮对齐 VS Code；正文采用文档阅读排版：阅读行上限 1000px、
   16px、1.7 行高；渲染页带 `data-sourcepos`，供搜索结果行定位到对应块；
@@ -92,7 +96,7 @@ cargo build --release
 
 | 请求 | 行为 |
 |------|------|
-| `GET /dir/` | 目录索引：无分组统一列表（目录在前）、名称/大小/时间/操作固定列、下载按钮；上级导航在面包屑 |
+| `GET /dir/` | 目录索引：无分组统一列表（目录在前）、名称/大小/时间/操作固定列、下载按钮；上级导航在面包屑；不自动寻找 `index.html`/`index.htm` |
 | `GET /x.md` | 渲染为 HTML（未信任目录先出现一次确认页） |
 | `GET /x.md?raw=1` | 源码查看页：文件名为标题，类型/大小/行数/时间标签、行号、`id="L<n>"` 行锚点、预览/下载入口 |
 | `GET /x.md?download=1` | 原始字节 + `Content-Disposition` |
@@ -108,21 +112,27 @@ cargo build --release
 | 无扩展名 | 前 512 字节无 NUL → 文本；有 NUL → 下载 |
 | 图片 / PDF | 按 MIME 内联；SVG 直开带 CSP `sandbox`，脚本不执行 |
 | 其他 | `application/octet-stream` 下载 |
-| `GET /search?q=…` | 文件名搜所有文件；正文搜 Markdown/文本；按文件分组；每条结果整行可点击；HTML 内容行到 `?raw=1#L<n>` |
-| `GET /_nav` | 全站导航树 JSON；包含所有可见目录与文件；读不了的子树跳过并标记 `partial`，供导航浮岛空闲预取 |
-| `HEAD` / `301` / `404` | 支持；目录缺尾斜杠返回 301 |
+| `GET /search?__mdview=search&q=…` | 文件名搜所有文件；正文搜 Markdown 文档与文本；按文件分组；每条结果整行可点击；HTML 内容行到 `?raw=1#L<n>` |
+| `GET /_nav?__mdview=nav` | 全站导航树 JSON；包含所有可见目录与文件；读不了的子树跳过并标记 `partial`，供导航浮岛空闲预取 |
+| `HEAD` / `301` / `404` | 支持；目录缺尾斜杠返回 301；文件带尾斜杠（字面 `/` 或 `%2f`）返回 404 |
 
 压缩包支持 `.zip`、`.tar.gz`/`.tgz`、`.7z`；嵌套包按普通文件下载，不递归解压。
 解压到进程私有临时缓存（0700），按包路径/mtime/size 复用；安全上限为包 200 MB、
 解压总量 1 GB、2 万条、单条 100 MB；加密包、多卷包、绝对路径、`..`、软链/硬链、
 设备文件、重复路径整包拒绝。`--safe` 下压缩包不可见。
 
+内部 URL（搜索页、导航 JSON、内嵌 CSS/JS）必须带 `?__mdview=search|nav|asset`。
+不带标记的同路径是普通文件路径：磁盘上有同名文件/目录就服务它，缺失即 404；
+旧的不带标记内部 URL 不再作为别名。目录始终列目录，不自动寻找 `index.html`/
+`index.htm`。
+
 超过 `--max-preview`（默认 20 MiB）的**文档**改为下载，`?raw=1` 也不例外；
 HTML 文件内部的 CSS/JS/图片等子资源按真实 MIME 返回，不受该限制（否则大图或
 相对样式表会把页面弄坏）。已信任根的 HTML 是顶层同源原文：脚本、localStorage、
 同源 fetch、下载和顶层链接都正常，和 Python 版/静态服务器一致；它也能读到站点
 内的同源数据，所以只对可信目录开放。未信任根才使用 opaque-origin 沙箱，脚本
-读不到 `/_nav`、搜索、同源文件、localStorage 或父页面；`--safe` 下只提供源码。
+读不到 `/_nav?__mdview=nav`、搜索、同源文件、localStorage 或父页面；`--safe`
+下只提供源码。
 超过 **256 KB** 的文本源码页仍由服务端输出**全文**，按 500 行分块并用
 `content-visibility: auto` 跳过离屏布局与绘制；无 JS 时同样能读到全文。
 行锚点与语法高亮由脚本按可见分块懒加载。
@@ -136,7 +146,7 @@ HTML 文件内部的 CSS/JS/图片等子资源按真实 MIME 返回，不受该�
 | `--port` | `8000` | 起始端口 |
 | `--port-tries` | `10` | 端口占用时向后尝试次数 |
 | `--root` | 当前目录 | 服务根目录 |
-| `--safe` | 关 | 只放行 `.md`、图片与 HTML 源码；不渲染 HTML 预览；压缩包不可见 |
+| `--safe` | 关 | 只放行 `.md`/`.markdown`、图片与 HTML 源码；不渲染 HTML 预览；压缩包与文本不可见，搜索也只覆盖放行类型 |
 | `--max-preview` | `20M` | 超过则下载；`0` 不限制 |
 | `--no-search` | 关 | 关闭搜索路由与搜索框 |
 | `--trust` / `--untrusted` | — | 本次运行强制信任/不信任，不写配置 |
@@ -207,10 +217,10 @@ macOS / Linux / Windows 三平台跑 `cargo test` 与黑盒 HTTP 套件。
 ```bash
 npm --prefix web ci
 npm --prefix web run typecheck
-cargo test                      # 50 单元 + 134 渲染兼容 + 27 golden
+cargo test                      # 73 单元 + 134 渲染兼容 + 27 golden
 cargo clippy --all-targets -- -D warnings
-bash tests/selftest-rust.sh     # 151 项真二进制 HTTP 断言
-node tests/browser-probe.mjs      # 163 项 headless Chrome 验收
+bash tests/selftest-rust.sh     # 223 项真二进制 HTTP 断言
+node tests/browser-probe.mjs      # 203 项 headless Chrome 验收
 node tests/perf-source.mjs        # 4 项源码页性能预算
 bash tests/trust-tty.sh           # 9 项真实 pty 信任测试
 ```
@@ -254,7 +264,7 @@ md-preview/
 - 引用定义的尖括号目标（`[r]: <a b.md>`）在文件末尾没有换行时可能解析失败（EOF quirk）；正常以换行结尾的文件可解析。
 - front matter 被消费，不渲染成 VS Code 的表格。
 - 文件名里字面含 `%xx` 的文件不能通过相对 Markdown 目标到达（双重解码的代价）。
-- 搜索每次实时扫盘：文件名覆盖所有文件，正文覆盖 Markdown/文本；无索引、无编辑保存。
+- 搜索每次实时扫盘：文件名覆盖所有文件，正文覆盖 Markdown 文档/文本；无索引、无编辑保存。
 - 超过 256 KB 的源码页全文输出并按 500 行分块渐进绘制；无 JS 可读全文，但精确
   行号深链与懒高亮需要 JS。首次响应会携带完整源码，网络传输量随文件增大。
 - Trust 判定按根目录路径字符串保存；移动目录后需要重新确认。

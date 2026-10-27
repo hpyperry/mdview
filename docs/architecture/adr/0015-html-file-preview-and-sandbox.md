@@ -34,7 +34,7 @@ Python 版把独立 `.html` 当静态文件：`text/html` 顶层返回，无 mdv
 
 ### 2. Trusted raw 的安全含义
 
-- 顶层同源文档：脚本可 `fetch('/_nav')`、读搜索页与其他文件，`localStorage`、
+- 顶层同源文档：脚本可 `fetch('/_nav?__mdview=nav')`、读搜索页与其他文件，`localStorage`、
   cookie、下载、链接顶层导航都正常。这就是 Python 版的行为，也是它接近 `file://`
   的原因。
 - 只在根目录已信任时启用。未信任根**不提供 raw**，即使有 Markdown 的一次性令牌；
@@ -54,8 +54,8 @@ Cache-Control: no-store
 ```
 
 iframe 同时带 `sandbox="allow-scripts allow-forms allow-modals allow-popups"`，
-没有 `allow-same-origin`，所以文档是 opaque origin：脚本可运行，但读不到 `/_nav`、
-搜索、同源文件、localStorage 与父页面。`object-src 'none'` 阻止
+没有 `allow-same-origin`，所以文档是 opaque origin：脚本可运行，但读不到
+`/_nav?__mdview=nav`、搜索、同源文件、localStorage 与父页面。`object-src 'none'` 阻止
 `<object>`/`<embed>`；这两类请求也按 frame 导航处理，不能退化成无 CSP 原始字节。
 外壳页只在 `PageKind::Html` 把 `frame-src` 放宽为 `'self'`。
 

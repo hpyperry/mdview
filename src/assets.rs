@@ -9,9 +9,10 @@ pub const MARKDOWN_CSS: &str = include_str!("../assets/markdown.css");
 pub const APP_JS: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/app.js"));
 pub const APP_CSS: &str = include_str!(concat!(env!("OUT_DIR"), "/app.css"));
 
-/// FNV-1a over all cacheable assets. The query string on `/_assets/...` carries
-/// this value and the responses are `immutable`, so a rebuilt bundle gets a new
-/// URL without restarting config or clearing browser caches.
+/// FNV-1a over all cacheable assets. The query string on
+/// `/_assets/...?__mdview=asset` carries this value and the responses are
+/// `immutable`, so a rebuilt bundle gets a new URL without restarting config or
+/// clearing browser caches.
 pub fn asset_version() -> &'static str {
     use std::sync::OnceLock;
     static VERSION: OnceLock<String> = OnceLock::new();

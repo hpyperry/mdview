@@ -54,7 +54,7 @@ export function mountSearch(): void {
     if (event.key === '/' && !typing && !event.metaKey && !event.ctrlKey && !event.altKey) {
       event.preventDefault();
       if (isNarrow()) {
-        window.location.assign('/search');
+        window.location.assign('/search?__mdview=search');
         return;
       }
       setOpen(true);
