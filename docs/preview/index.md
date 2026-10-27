@@ -13,7 +13,10 @@
 | 5 | 命中内置 MIME 表（图片、PDF 等） | 按表里的类型 → **浏览器内联显示** |
 | 6 | 其余一切 | `application/octet-stream` → **浏览器下载** |
 
-> 样例文件由 [`make_preview_samples.py`](make_preview_samples.py) 就地生成；
+> 压缩包格式优先于上述大小/类型判断：`.zip`/`.tar`/`.7z` 等可识别的归档进入虚拟包目录，
+> 包内条目再按上面的规则处理。
+
+> 样例文件由 [`tools/preview/make_samples.py`](../../tools/preview/make_samples.py) 生成到本目录；
 > 它是开发夹具工具，不是运行时依赖。图片都是真文件，可随时重跑重建。
 
 ---
@@ -43,7 +46,7 @@
 - [reStructuredText](text/sample.rst) `.rst`（按纯文本显示，不做 RST 渲染）
 - [diff](text/sample.diff) `.diff`　[patch](text/sample.patch) `.patch`
 - [空文件](text/empty.txt) ← 0 字节，应当显示空白页而不是报错
-- [**GBK 编码的文本**](text/gbk-encoded.txt) ← 非 UTF-8，按 UTF-8 lossy 显示（可能乱码，但不下载）
+- [**GBK 编码的文本**](text/gbk-encoded.txt) ← 非 UTF-8，按检测编码解码后显示（GBK 应正常显示，不下载）
 
 ## 4. 无扩展名、按文件名判定
 
@@ -71,8 +74,9 @@
 
 ## 6. 会**下载**的
 
-`.zip` `.docx` `.xlsx` `.pptx` `.tar` `.gz` 以及未知扩展名 → 下载。
-这类文件不适合放在文档目录里，所以这里不放样例。
+`.docx` `.xlsx` `.pptx` `.gz` 以及未知扩展名 → 下载。
+`.zip` `.tar` `.tar.gz` `.7z` 等可识别的归档 → 虚拟包目录（`/a.zip/` 形式）。
+单文件 `.gz`/`.bz2`/`.xz`/`.zst` 不在归档范围，仍按普通文件下载。
 
 ---
 

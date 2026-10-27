@@ -107,7 +107,7 @@ HTML 文件 Trust 门控、压缩包虚拟目录、目录行布局与导航容�
 ## 2.0.0（2026-10-20）
 
 Rust 重写。旧 Python 单文件实现已删除，历史台账见
-[`docs/archive/selftest-python.md`](docs/archive/selftest-python.md)。
+[`docs/archive/python/selftest-python.md`](docs/archive/python/selftest-python.md)。
 
 ### 新增
 

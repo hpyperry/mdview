@@ -18,20 +18,20 @@
 | trusted 服务 | `http://127.0.0.1:18143`，`--root /tmp/mdv-evidence-root --trust` |
 | untrusted 服务 | `http://127.0.0.1:18144`，同一 root，`--untrusted` |
 | 视口 | 1280×1000 桌面、390×900 移动 |
-| 证据 | [`evidence/2026-10-21/`](evidence/2026-10-21/) |
+| 证据 | [`evidence/`](evidence/) |
 
 ## 覆盖结果
 
 | 编号 | 功能 / 页面 | 操作与预期 | 结果 | 证据 |
 |---|---|---|---|---|
-| V1 | F-75 trusted 原文 | 打开 `report.html`：只有报告本身，无 mdview 外壳/iframe/沙箱；脚本、localStorage、同源 fetch 正常 | 通过 | [F-75 dark](evidence/2026-10-21/F-75_html-trusted-raw-dark.png) |
-| V2 | F-75 trusted 浅色 | 报告自己的 `light-dark()` 随 `prefers-color-scheme` 生效 | 通过 | [F-75 light](evidence/2026-10-21/F-75_html-trusted-raw-light.png) |
-| V3 | F-75 trusted 移动端 | 390×900 只有报告，无横向溢出 | 通过 | [F-75 mobile](evidence/2026-10-21/F-75_html-trusted-raw-mobile.png) |
-| V4 | F-76 源码切换 | `?raw=1` 进源码页；顶部 `预览 / 源码` tabs；行锚点；无 iframe | 通过 | [F-76](evidence/2026-10-21/F-76_html-source.png) |
-| V5 | F-77 untrusted 沙箱 | 同一 `.html` 在未信任根：外壳 + 沙箱 iframe；脚本运行、相对 CSS 生效 | 通过 | [沙箱 dark](evidence/2026-10-21/F-77_html-sandbox-dark.png) · [light](evidence/2026-10-21/F-77_html-sandbox-light.png) · [mobile](evidence/2026-10-21/F-77_html-sandbox-mobile.png) |
+| V1 | F-75 trusted 原文 | 打开 `report.html`：只有报告本身，无 mdview 外壳/iframe/沙箱；脚本、localStorage、同源 fetch 正常 | 通过 | [F-75 dark](evidence/F-75_html-trusted-raw-dark.png) |
+| V2 | F-75 trusted 浅色 | 报告自己的 `light-dark()` 随 `prefers-color-scheme` 生效 | 通过 | [F-75 light](evidence/F-75_html-trusted-raw-light.png) |
+| V3 | F-75 trusted 移动端 | 390×900 只有报告，无横向溢出 | 通过 | [F-75 mobile](evidence/F-75_html-trusted-raw-mobile.png) |
+| V4 | F-76 源码切换 | `?raw=1` 进源码页；顶部 `预览 / 源码` tabs；行锚点；无 iframe | 通过 | [F-76](evidence/F-76_html-source.png) |
+| V5 | F-77 untrusted 沙箱 | 同一 `.html` 在未信任根：外壳 + 沙箱 iframe；脚本运行、相对 CSS 生效 | 通过 | [沙箱 dark](evidence/F-77_html-sandbox-dark.png) · [light](evidence/F-77_html-sandbox-light.png) · [mobile](evidence/F-77_html-sandbox-mobile.png) |
 | V6 | F-77 沙箱隔离 | iframe 内 localStorage、父页面、同源 fetch 被阻断 | 通过（自动） | `tests/browser-probe.mjs` |
 | V7 | F-78 SVG 直开 | 带 `<script>` 的 SVG 直开不执行脚本；`<img>` 内嵌不受影响 | 通过（自动） | `tests/browser-probe.mjs` |
-| V8 | F-09 / F-79 目录入口 | `report.html` 用 file-code 图标；大小/时间/操作固定列；悬停出现源码与下载图标（36px 点击区） | 通过 | [F-79](evidence/2026-10-21/F-79_html-directory.png) |
+| V8 | F-09 / F-79 目录入口 | `report.html` 用 file-code 图标；大小/时间/操作固定列；悬停出现源码与下载图标（36px 点击区） | 通过 | [F-79](evidence/F-79_html-directory.png) |
 
 ## 自动断言
 

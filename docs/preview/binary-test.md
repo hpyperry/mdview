@@ -12,6 +12,8 @@
 | 4 | **无扩展名** | 看开头 **512 字节**有无 NUL：有→下载，无→按文本预览 |
 | 5 | 其余 | `application/octet-stream` → 下载 |
 
+> 可识别的压缩包优先进入虚拟包目录；包内条目再按上述大小/类型规则处理。
+
 ---
 
 ## 1. 无扩展名：512 字节嗅探边界
@@ -22,7 +24,7 @@
 |---|---|---|
 | [noext_text](binary/noext_text) | 纯中文文本，无 NUL | ✅ 预览 |
 | [noext_empty](binary/noext_empty) | 0 字节 | ✅ 预览（空白页，不报错） |
-| [noext_gbk](binary/noext_gbk) | GBK 编码，无 NUL | ✅ 预览（**可能乱码**，但不下载）|
+| [noext_gbk](binary/noext_gbk) | GBK 编码，无 NUL | ✅ 预览（按检测编码解码，GBK 正常显示）|
 | [noext_nul_at_0](binary/noext_nul_at_0) | NUL 在第 0 字节 | ⬇️ 下载 |
 | [**noext_nul_at_511**](binary/noext_nul_at_511) | NUL 在第 511 字节（**512 内**）| ⬇️ **下载** |
 | [**noext_nul_at_512**](binary/noext_nul_at_512) | NUL 在第 512 字节（**512 外**）| ⚠️ 服务端判**预览**，但 Chrome 自己也会下载 |
@@ -37,7 +39,7 @@
 |---|---|---|
 | [real.png](binary/real.png) | 合法 PNG（纯标准库构造）| ✅ **内联显示图片** |
 | [real.pdf](binary/real.pdf) | 合法最小 PDF | ✅ **内联显示**（浏览器 PDF 阅读器）|
-| [real.zip](binary/real.zip) | 真 ZIP（含中文条目）| ⬇️ 下载 |
+| [real.zip](binary/real.zip) | 真 ZIP（含中文条目）| 📦 虚拟包目录（`/binary/real.zip/`）|
 | [fake.elf](binary/fake.elf) | ELF 文件头 | ⬇️ 下载 |
 | [fake.macho](binary/fake.macho) | Mach-O 文件头 | ⬇️ 下载 |
 

@@ -8,13 +8,13 @@
 
 | 目录 | 内容 | 入口 |
 |---|---|---|
-| `architecture/` | 设计方案、执行计划、ADR 决策记录 | [overview.md](architecture/overview.md) · [execution-plan.md](architecture/execution-plan.md) · [ADRs](architecture/adr/) |
+| `architecture/` | 设计方案与 ADR 决策记录 | [overview.md](architecture/overview.md) · [ADRs](architecture/adr/README.md) |
 | `guides/` | 安装/运行/Trust、渲染边界、代码块专项 | [install.md](guides/install.md) · [advanced.md](guides/advanced.md) · [code-blocks.md](guides/code-blocks.md) |
 | `reference/` | 功能矩阵与追踪编号 | [features.md](reference/features.md) |
 | `../tests/` | 自动化套件、feature/fix 人工复测文档与夹具 | [tests/README.md](../tests/README.md) · [fixtures/README.md](../tests/fixtures/README.md) |
-| `testing/` | 自测记录、浏览器验收报告、agent 测试指南、截图证据 | [selftest.md](testing/selftest.md) · [browser-report-2026-10-26-archive-formats.md](testing/browser-report-2026-10-26-archive-formats.md) · [browser-report-2026-10-26-nav-lazy.md](testing/browser-report-2026-10-26-nav-lazy.md) · [browser-report-2026-10-27-encodings.md](testing/browser-report-2026-10-27-encodings.md) · [browser-report-2026-10-20.md](testing/browser-report-2026-10-20.md) · [browser-report-2026-10-21.md](testing/browser-report-2026-10-21.md) · [browser-report-2026-10-21-archives.md](testing/browser-report-2026-10-21-archives.md) · [agent-guide.md](testing/agent-guide.md) |
+| `testing/` | 当前自测记录、浏览器验收报告与截图证据 | [selftest.md](testing/selftest.md) · [reports/README.md](testing/reports/README.md) · [agent-guide.md](testing/agent-guide.md) |
 | `research/` | P0 comrak vs markdown-it 差分探针 | [comrak-vs-markdown-it.md](research/comrak-vs-markdown-it.md) |
-| `archive/` | 旧 Python 实现历史台账 | [selftest-python.md](archive/selftest-python.md) |
+| `archive/` | 历史 Python 台账、旧浏览器验收与已完成的重写计划 | [README.md](archive/README.md) |
 | `releases/` | 版本发布说明 | [2.1.0.md](releases/2.1.0.md) · [2.0.1.md](releases/2.0.1.md) |
 | `agents/` | Agent skills 配置：Issue tracker、triage 标签、domain docs | [issue-tracker.md](agents/issue-tracker.md) · [triage-labels.md](agents/triage-labels.md) · [domain.md](agents/domain.md) |
 | `index.md` + `preview/` | 作为服务根时使用的示例文档与夹具，不是产品文档 | [index.md](index.md) · [preview/](preview/) |

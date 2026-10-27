@@ -36,7 +36,7 @@
 预期：页面标签为 `EPUB`；根目录列出 `META-INF/`、`OEBPS/`、`mimetype`；有
 “下载压缩包”。实际与预期一致。
 
-![EPUB 包根](evidence/2026-10-26/F-92_epub-root.png)
+![EPUB 包根](../evidence/2026-10-26/F-92_epub-root.png)
 
 ### F-92 EPUB 章节源码页
 
@@ -45,7 +45,7 @@
 预期：进入文本源码页，标签为 `XHTML`，有行号、编码与行数；不渲染成电子书页面，
 也不套 HTML 预览/沙箱。实际与预期一致。
 
-![EPUB 章节源码页](evidence/2026-10-26/F-92_epub-chapter-source.png)
+![EPUB 章节源码页](../evidence/2026-10-26/F-92_epub-chapter-source.png)
 
 ### F-92 CBZ 包根
 
@@ -54,7 +54,7 @@
 预期：页面标签为 `CBZ`；列出 `info.md`、`page-01.png`、`page-02.png`；图片走普通
 图片预览。实际与预期一致。
 
-![CBZ 包根](evidence/2026-10-26/F-92_cbz-root.png)
+![CBZ 包根](../evidence/2026-10-26/F-92_cbz-root.png)
 
 ### F-92 tar.bz2 包根
 
@@ -63,7 +63,7 @@
 预期：页面标签为 `tar.bz2`；列出 `docs/` 与嵌套 `inner.zip`；嵌套包不展开。实际与
 预期一致。
 
-![tar.bz2 包根](evidence/2026-10-26/F-92_tar-bz2-root.png)
+![tar.bz2 包根](../evidence/2026-10-26/F-92_tar-bz2-root.png)
 
 ## 观察与限制
 

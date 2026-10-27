@@ -116,7 +116,7 @@ Agent 自主测试的 fixture、browser-use 流程、截图证据和报告格式
 ## 旧 Python 测试
 
 旧 `tests_render.py`（217 项）与 `tests/selftest.sh`（345 项）已随 Python 实现删除。
-它们的验证台账归档在 [`../docs/archive/selftest-python.md`](../docs/archive/selftest-python.md)，
+它们的验证台账归档在 [`../docs/archive/python/selftest-python.md`](../docs/archive/python/selftest-python.md)，
 行为参考（不是 oracle）仍在 git 历史里；新实现的判据是 ADR 0005/0007。
 
 ## 约定

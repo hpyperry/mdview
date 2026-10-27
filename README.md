@@ -24,7 +24,7 @@ cargo build --release
 ## 2.x 与旧 Python 版的关系
 
 - 旧实现（`mdview.py`、Python 测试、`dist/`）已删除；历史与缺陷台账归档在
-  [`docs/archive/selftest-python.md`](docs/archive/selftest-python.md)。
+  [`docs/archive/python/selftest-python.md`](docs/archive/python/selftest-python.md)。
 - 新实现是 Rust（edition 2024），允许成熟 crate，但产物仍是单文件。
 - **行为变化**（均为决策，不是回归）：
   - 裸 HTML **原样透传**，由 Trust + CSP 约束（旧实现一律转义）；
@@ -53,6 +53,7 @@ cargo build --release
 [0019](docs/architecture/adr/0019-file-encoding-detection.md)（文件编码检测与 UTF-8 预览）、
 [0020](docs/architecture/adr/0020-nav-layered-preload.md)（全站导航三层预载与按需展开）、
 [0021](docs/architecture/adr/0021-archive-format-expansion.md)（tar 家族与 ZIP 容器扩展）。
+完整索引见 [`docs/architecture/adr/README.md`](docs/architecture/adr/README.md)。
 
 ## 功能
 
@@ -258,7 +259,7 @@ bash tests/trust-tty.sh           # 9 项真实 pty 信任测试
 
 一次跑完用 `bash tests/run-all.sh`。测试说明见 [`tests/README.md`](tests/README.md)；
 最近一次浏览器验收见
-[`docs/testing/browser-report-2026-10-27-encodings.md`](docs/testing/browser-report-2026-10-27-encodings.md)，
+[`docs/testing/reports/browser-report-2026-10-27-encodings.md`](docs/testing/reports/browser-report-2026-10-27-encodings.md)，
 自主测试流程见 [`docs/testing/agent-guide.md`](docs/testing/agent-guide.md)。
 
 ## 目录结构

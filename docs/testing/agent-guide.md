@@ -94,7 +94,7 @@ bash tests/run-all.sh
 4. 用 `tab.playwright.domSnapshot()` 读页面结构；需要判断布局/视觉时才截图。
 5. 用 snapshot 提供的 role/name 构造 locator，真实点击、输入、按键、滚动。
 6. 每次动作后同时做 DOM 观察和必要截图；每个测试点至少保留一张已查看的截图。
-7. 截图保存到 `docs/testing/evidence/2026-10-20/`，文件名带功能编号，例如
+7. 截图保存到 `docs/testing/evidence/<YYYY-MM-DD>/`，文件名带功能编号，例如
    `F-39_file-header-link.png`。
 
 ### 5.2 黑盒边界
@@ -131,7 +131,7 @@ bash tests/run-all.sh
 
 - 每个测试点至少一张截图；瞬时状态（toast、抽屉、搜索结果跳转）用同一脚本先
   截图 → 操作 → 等待状态 → 再截图。
-- 报告用相对路径引用：`evidence/2026-10-20/F-39_file-header-link.png`。
+- 报告用相对路径引用：`evidence/<YYYY-MM-DD>/F-39_file-header-link.png`。
 - 截图必须真的被阅读/查看过；只生成不查看不算证据。
 - 完整日志放 `target/test-runs/`，不提交；只提交报告引用的关键截图。
 

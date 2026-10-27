@@ -10,7 +10,7 @@
 - **◐ 部分**：有自动断言，但仍有平台、视觉或人工检查缺口。
 - **○ 待补**：目前只有人工/文档结论，没有可直接执行的断言。
 - **视觉**：本轮 browser-use 可视化验收覆盖，证据见
-  [`../testing/browser-report-2026-10-20.md`](../testing/browser-report-2026-10-20.md)。
+  [`../testing/reports/README.md`](../testing/reports/README.md)。
 
 ## A. 交付与 CLI
 
@@ -182,4 +182,4 @@
   复测文档，并在“测试映射”列链接它；没有 `F-xx` 的纯修复至少在 Issue/PR 链接文档。
 - 新功能追加编号，不重排已有编号；删除功能保留编号并标记 `deprecated`。
 - 自动化套件数量变化时同步 `tests/README.md`、`docs/testing/selftest.md` 和
-  `docs/testing/browser-report-2026-10-20.md`。
+  `docs/testing/reports/README.md`。
