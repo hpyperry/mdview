@@ -10,8 +10,8 @@ GBK 正文可搜索；HTML 原文保持原字节。自动探针 `PASS=210 FAIL=0
 | 编号 | 页面 | 预期 | 结果 | 证据 |
 |---|---|---|---|---|
 | V1 | GBK Markdown | 正文“中文标题”正常；页头显示 `GBK` | 通过 | [截图](evidence/2026-10-27/encoding-gbk-markdown.png) |
-| V2 | GBK 源码页 | 正文正常；标签显示“编码 GBK” | 通过 | [截图](evidence/2026-10-27/encoding-gbk-source.png) |
-| V3 | UTF-16LE BOM 源码页 | 正文正常；标签显示“编码 UTF-16LE BOM” | 通过（自动） | `tests/browser-probe.mjs` |
+| V2 | GBK 源码页 | 正文正常；标签显示 `GBK` | 通过 | [截图](evidence/2026-10-27/encoding-gbk-source.png) |
+| V3 | UTF-16LE BOM 源码页 | 正文正常；标签显示 `UTF-16LE BOM` | 通过（自动） | `tests/browser-probe.mjs` |
 | V4 | GBK 搜索 | 搜索“中文”命中 `/gbk.md#L1` | 通过（自动） | `tests/browser-probe.mjs` |
 | V5 | HTML 原文/下载 | 原文不转码；下载 `text/html` 不带 charset | 通过（黑盒） | `tests/selftest-rust.sh` |
 

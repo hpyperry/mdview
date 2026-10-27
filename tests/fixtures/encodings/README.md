@@ -18,9 +18,9 @@ cargo build --release
 | 文件 | 预期 |
 |---|---|
 | `gbk.md` | Markdown 正常渲染“中文标题”；页头显示 `GBK` |
-| `gbk.txt` | 源码页正文正常；标签显示 `编码 GBK` |
+| `gbk.txt` | 源码页正文正常；标签显示 `GBK` |
 | `gbk.css` | 直接导航是源码页；`Sec-Fetch-Dest: style` 时返回原始字节与 `text/css; charset=gbk` |
-| `utf16le.txt` | 源码页正文正常；标签显示 `编码 UTF-16LE BOM` |
+| `utf16le.txt` | 源码页正文正常；标签显示 `UTF-16LE BOM` |
 | `utf16.md` | Markdown 正常渲染“UTF-16 标题”；页头显示 `UTF-16LE BOM` |
 | `utf32le.txt` | 不进入源码页，按 `application/octet-stream` 下载原始字节 |
 
