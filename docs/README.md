@@ -1,6 +1,6 @@
 # mdview 文档地图
 
-这里是 2.0 文档的入口。根目录的 [`README.md`](../README.md) 是产品入口，
+这里是 2.1 文档的入口。根目录的 [`README.md`](../README.md) 是产品入口，
 [`AGENTS.md`](../AGENTS.md) 是改动指南，[`GLOSSARY.md`](../GLOSSARY.md) 是术语表，
 [`CHANGELOG.md`](../CHANGELOG.md) 记录版本变化。
 
@@ -14,7 +14,7 @@
 | `testing/` | 自测记录、浏览器验收报告、agent 测试指南、截图证据 | [selftest.md](testing/selftest.md) · [browser-report-2026-10-20.md](testing/browser-report-2026-10-20.md) · [browser-report-2026-10-21.md](testing/browser-report-2026-10-21.md) · [browser-report-2026-10-21-archives.md](testing/browser-report-2026-10-21-archives.md) · [agent-guide.md](testing/agent-guide.md) |
 | `research/` | P0 comrak vs markdown-it 差分探针 | [comrak-vs-markdown-it.md](research/comrak-vs-markdown-it.md) |
 | `archive/` | 旧 Python 实现历史台账 | [selftest-python.md](archive/selftest-python.md) |
-| `releases/` | 版本发布说明 | [2.0.1.md](releases/2.0.1.md) |
+| `releases/` | 版本发布说明 | [2.1.0.md](releases/2.1.0.md) · [2.0.1.md](releases/2.0.1.md) |
 | `agents/` | Agent skills 配置：Issue tracker、triage 标签、domain docs | [issue-tracker.md](agents/issue-tracker.md) · [triage-labels.md](agents/triage-labels.md) · [domain.md](agents/domain.md) |
 | `index.md` + `preview/` | 作为服务根时使用的示例文档与夹具，不是产品文档 | [index.md](index.md) · [preview/](preview/) |
 
