@@ -2,8 +2,8 @@
 
 > **历史文档**：本文件描述 2.0 之前的 Python 单文件实现，其中的命令、计数与行为
 > 不再适用于当前 Rust 实现。保留它仅为追溯缺陷与修复过程；当前测试见
-> [`tests/README.md`](../../tests/README.md) 与
-> [`docs/testing/selftest.md`](../testing/selftest.md)。文内出现的旧路径（如
+> [`tests/README.md`](../../../tests/README.md) 与
+> [`docs/testing/selftest.md`](../../testing/selftest.md)。文内出现的旧路径（如
 > `docs/legacy/`、根目录 `SELFTEST.md`）是历史写法，保留原文。
 
 本文件记录 `mdview.py` 的实际验证结果，**每条都能照着复现**。
@@ -146,9 +146,9 @@ PASS=274 FAIL=0
 
 截图存档（可直接打开核对）：
 
-- [`docs/media/screenshot-render.png`](docs/media/screenshot-render.png) —— `guide/advanced.md`：
+- [`docs/media/screenshot-render.png`](media/screenshot-render.png) —— `guide/advanced.md`：
   边界表格、转义写法、中文强调
-- [`docs/media/screenshot-index.png`](docs/media/screenshot-index.png) —— `index.md`：
+- [`docs/media/screenshot-index.png`](media/screenshot-index.png) —— `index.md`：
   目录、任务列表、嵌套列表、代码高亮
 
 代码块专项页（`docs/guide/code-blocks.md`）也用同样方式逐一核对过：12 种语言的
@@ -224,7 +224,7 @@ bash tests/selftest.sh             # 198 项（自动起停临时服务）
 
 `tests/selftest.sh` 支持 `PORT=9000 bash tests/selftest.sh` 换端口；结束时打印
 `PASS=.. FAIL=..`，非零退出码表示有失败项及失败清单。测试与开发工具全部隔离在
-[`tests/`](tests/README.md) 目录，仓库根只留 `mdview.py` 与文档。
+[`tests/`](../../../tests/README.md) 目录，仓库根只留 `mdview.py` 与文档。
 
 ---
 
@@ -438,7 +438,7 @@ padding:9px 14px`、复制按钮无边框、继承字色、悬停变蓝。本实
 
 ### 图片是纯标准库构造的真文件
 
-不提交"看起来像图片"的占位文本：`make_preview_samples.py` 用 struct/zlib 直接
+不提交"看起来像图片"的占位文本：`make_samples.py` 用 struct/zlib 直接
 拼出合法 PNG（IHDR+IDAT+IEND+CRC）、24 位 BMP、两帧 LZW 动画 GIF、含 AND 掩码的 ICO。
 **已在 Chrome 里验证解码**（`naturalWidth/naturalHeight` 全部正确：120×120、64×64），
 单元测试另校验魔数，端到端校验可访问性与 Content-Type。
@@ -1091,7 +1091,7 @@ B10 的断言里包含「渲染结果里没有 `%25`」，谁把解码改成 `un
 它的相对路径实际解码**两次**（`Uri.parse` 一次、资源宿主一次），因此文件名里真含 `%20`
 的文件在 VS Code 里用相对路径**打不开**。我们只解一次：`a%2520b.png` 命中字面
 `a%20b.png`。跟了它就是丢能力，所以不跟 —— 理由与其余边角记在
-[`docs/adr/0001`](docs/adr/0001-markdown-target-encoding.md) 与 README §9。
+[`docs/adr/0001`](../../architecture/adr/0001-markdown-target-encoding.md) 与 README §9。
 
 ---
 
@@ -1264,7 +1264,7 @@ README 与 SELFTEST §3.2 都写着「裸 HTML 全部转义」—— 在**段落
 
 **需求**：正文图片点一下能放大看。禁用 JS 时也不能退化成「点了没反应」。
 
-**形态**（都是定下来的，理由见 [`docs/adr/0002`](docs/adr/0002-image-zoom.md)）：
+**形态**（都是定下来的，理由见 [`docs/adr/0002`](../../architecture/adr/0002-image-zoom.md)）：
 点开是一层遮罩、原图按视口缩放居中；Esc / 点遮罩空白 / 右上角 × 关闭；遮罩里显示
 图片的 `alt` 作为说明。**不做**相册、滚轮缩放、双指手势、1:1 切换。
 
@@ -1328,7 +1328,7 @@ closed_by_backdrop: true    still_one_dialog: 1      active_element_after_close:
 
 真实页面上的放大视图（`docs/preview/index.md`，遮罩 + 按视口缩放 + alt 说明 + 右上角关闭键）：
 
-![放大视图截图](docs/media/screenshot-zoom.png)
+![放大视图截图](media/screenshot-zoom.png)
 
 ### 示例语料与测试
 
@@ -1397,7 +1397,7 @@ closed_by_backdrop: true    still_one_dialog: 1      active_element_after_close:
   注释里会引用它，所以先剥掉 CSS 注释再断言；**§30 后改写为
   `test_close_icon_is_a_centred_svg_not_a_font_glyph`**）
 - 端到端 **320 -> 321 项**：新增「关闭按钮贴在图片上」
-- 截图重新生成 [`docs/media/screenshot-zoom.png`](docs/media/screenshot-zoom.png)
+- 截图重新生成 [`docs/media/screenshot-zoom.png`](media/screenshot-zoom.png)
   （按钮已贴在图片右上角，带那圈白色焦点环）
   （**§31 后再次重新生成**：初始焦点不再落在按钮上，白环只在按 Tab 走到它时出现）
 - 压缩版同步重新生成，两套检查对 `dist/mdview.min.py` 各跑一遍
@@ -1615,7 +1615,7 @@ dialog.zoomdlg:focus{outline:none}   /* 遮罩是容器不是控件，别套一�
   聚焦盖回去；遮罩自身 `outline:none`；同时钉住 × 的 `:focus-visible` 白环不许被删）
 - 端到端 **332 -> 336 项**：新增「遮罩可作焦点落脚点 / 打开后焦点收回遮罩 /
   遮罩自身不画焦点环」，另加一条反向断言「键盘焦点环没被删掉」
-- 截图 [`docs/media/screenshot-zoom.png`](docs/media/screenshot-zoom.png) 重新生成 ——
+- 截图 [`docs/media/screenshot-zoom.png`](media/screenshot-zoom.png) 重新生成 ——
   旧图里那颗 × 正带着白圈，而现在是"打开不画环"，同框同尺寸（1200×820）
 - 压缩版同步重新生成，两套检查对 `dist/mdview.min.py` 各跑一遍
 

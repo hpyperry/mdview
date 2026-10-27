@@ -85,7 +85,8 @@ Single-context: root `GLOSSARY.md` + `docs/architecture/adr/`. See
    [ADR 0019](docs/architecture/adr/0019-file-encoding-detection.md) 文件编码检测与 UTF-8 预览，
    [ADR 0020](docs/architecture/adr/0020-nav-layered-preload.md) 导航分层预载，
    [ADR 0021](docs/architecture/adr/0021-archive-format-expansion.md) 压缩包格式扩展；
-4. `docs/architecture/overview.md` 与 `docs/architecture/execution-plan.md`；
+4. `docs/architecture/overview.md` 与 `docs/architecture/adr/README.md`；历史重写计划在
+   `docs/archive/rust-rewrite/execution-plan.md`；
 5. `docs/research/comrak-vs-markdown-it.md`：P0 差分证据。
 
 **不要“顺手修”记录在案的取舍。** 典型：标题无 id、任务列表字面量、全角句号进 URL、

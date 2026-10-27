@@ -1,8 +1,8 @@
 # SELFTEST —— Rust 实现验证记录
 
 本文件只记录**当前 Rust 实现**跑出来的结果。旧 Python 实现的 217 + 345 项台账
-已归档到 [`../archive/selftest-python.md`](../archive/selftest-python.md)。最近一次
-真实浏览器验收见 [`browser-report-2026-10-26-archive-formats.md`](browser-report-2026-10-26-archive-formats.md)；
+已归档到 [`../archive/python/selftest-python.md`](../archive/python/selftest-python.md)。
+当前浏览器验收报告索引见 [`reports/README.md`](reports/README.md)；
 自主测试流程见 [`agent-guide.md`](agent-guide.md)。
 
 ## 环境

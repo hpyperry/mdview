@@ -1,10 +1,11 @@
 # 执行计划：Rust 单文件 mdview
 
-**Status**: P0–P5 完成；P6 完成（CI 全绿，v2.0.0 Release）
+**Status**: completed（历史计划，2026-10-19 至 v2.0.0；当前架构见
+[overview.md](../../architecture/overview.md)）
 **Branch**: `refactor/new-md-view-server`
-**依据**: [设计方案](overview.md) · [ADR 0004](adr/0004-rust-rewrite-and-dependencies.md) ·
-[ADR 0005](adr/0005-vscode-1.142-as-oracle.md) · [ADR 0006](adr/0006-html-trust-and-csp.md) ·
-[ADR 0007](adr/0007-hard-edge-cases-use-comrak.md)
+**依据**: [设计方案](../../architecture/overview.md) · [ADR 0004](../../architecture/adr/0004-rust-rewrite-and-dependencies.md) ·
+[ADR 0005](../../architecture/adr/0005-vscode-1.142-as-oracle.md) · [ADR 0006](../../architecture/adr/0006-html-trust-and-csp.md) ·
+[ADR 0007](../../architecture/adr/0007-hard-edge-cases-use-comrak.md)
 
 这份计划把设计方案落成可执行的工作包。**P0 是决策门**：先量化 comrak 与
 markdown-it 的差异，再决定是否全速实现。P0 不通过时，停下来重选解析器，
@@ -12,10 +13,10 @@ markdown-it 的差异，再决定是否全速实现。P0 不通过时，停下�
 
 > **P0 结果（2026-10-19）**：1035 条计分语料 **1015 条精确匹配（98.07%）**，
 > **0 条未解释差异**；20 条计分差异 = 17 条 accepted + 3 条表格对齐待修。
-> 按 [ADR 0007](adr/0007-hard-edge-cases-use-comrak.md)，linkify、reference
+> 按 [ADR 0007](../../architecture/adr/0007-hard-edge-cases-use-comrak.md)，linkify、reference
 > definition、front matter、URL normalization、图像 alt 的 23 条差异接受 comrak
 > 行为；另有 2 条 `vscode:` 链接服务器偏差 accepted。P2 由 8–12 天下调到
-> **4–6 天**。详见 [差分报告](../research/comrak-vs-markdown-it.md)。
+> **4–6 天**。详见 [差分报告](../../research/comrak-vs-markdown-it.md)。
 
 ## 0. 原则
 
@@ -65,7 +66,7 @@ P2 的 URL/安全/表格对齐层；P1 可以先落骨架，P3 的资产准备�
 - [x] **P0-4 规范化 diff**：DOM 规范化；保留 `pre/code` 内空白；忽略 VS Code 私有
       `data-line`/`code-line`/`data-vscode-context` 与纯序列化差异。
 - [x] **P0-5 性能检查**：1 MB/10 MB、URL 密集、256 KB 长行；未发现平方级退化。
-- [x] **P0-6 报告**：[`docs/research/comrak-vs-markdown-it.md`](../research/comrak-vs-markdown-it.md)；
+- [x] **P0-6 报告**：[`docs/research/comrak-vs-markdown-it.md`](../../research/comrak-vs-markdown-it.md)；
       1015/1035 精确匹配，0 未解释差异，Gate A = 黄。
 
 ### 决策门
@@ -235,10 +236,10 @@ P2 的 URL/安全/表格对齐层；P1 可以先落骨架，P3 的资产准备�
       `%xx`、data URI、accepted deviations）。
 - [x] **P5-2 文档重写**：README、AGENT、tests/README、GLOSSARY、SELFTEST 已重写；
       含 Trust/CSP/构建/CI/测试说明。
-- [x] **P5-3 归档旧台账**：旧 Python 台账 → `docs/archive/selftest-python.md`；
+- [x] **P5-3 归档旧台账**：旧 Python 台账 → `docs/archive/python/selftest-python.md`；
       新台账在 `docs/testing/selftest.md` 记录 Rust 验证结果。
 - [x] **P5-4 删除 Python**：`mdview.py`、`dist/`、`tools/minify.py`、Python 测试、
-      `__pycache__` 已删除；`docs/preview/make_preview_samples.py` 作为夹具生成器保留。
+      `__pycache__` 已删除；`tools/preview/make_samples.py` 作为夹具生成器保留。
 - [x] **P5-5 许可证**：MIT `LICENSE` 已加入；`THIRD-PARTY-NOTICES` 列内嵌资产与直接依赖。
 - [x] **P5-6 ADR 回填**：ADR 0001/0003 加了新实现说明；ADR 0004 验收命令更新；
       ADR 0007 记录 comrak 硬边角。

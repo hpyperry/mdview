@@ -37,7 +37,7 @@
 预期：`level1`、`level2`、`level3` 目录节点可见；`level3` 是占位，`sibling.md` 与
 `level4/` 不出现。实际与预期一致。
 
-![三层预载边界](evidence/2026-10-26/F-91_nav-three-levels.png)
+![三层预载边界](../evidence/2026-10-26/F-91_nav-three-levels.png)
 
 ### F-47 按需展开第三层
 
@@ -46,7 +46,7 @@
 预期：只发一次 `/_nav?__mdview=nav&dir=level1/level2/level3`；出现同级
 `sibling.md` 与 `level4/` 占位，但 `deep.md` 仍不出现。实际与预期一致。
 
-![第三层按需展开](evidence/2026-10-26/F-91_nav-lazy-level3.png)
+![第三层按需展开](../evidence/2026-10-26/F-91_nav-lazy-level3.png)
 
 ### F-49 / F-46 深页当前路径脊柱
 
@@ -55,7 +55,7 @@
 预期：`level1`–`level4` 自动展开，`deep.md` 高亮；同级 `level5/`、`other/` 仍是
 占位；不需要逐级点击。实际与预期一致，且未产生 `dir=` 逐级请求。
 
-![深页当前路径定位](evidence/2026-10-26/F-91_nav-active-spine.png)
+![深页当前路径定位](../evidence/2026-10-26/F-91_nav-active-spine.png)
 
 ## 观察与限制
 

@@ -6,6 +6,9 @@
 
 > 2026-10-19 补充：页面外壳与阅读排版由 [ADR 0008](adr/0008-docs-shell-and-reading-typography.md)
 > 改为文档站风格；搜索范围与同源表单由 [ADR 0009](adr/0009-search-scope-and-form-csp.md) 决定。
+>
+> 本文写于 Rust 重写阶段；后续行为变更与当前决策见 [ADR 索引](adr/README.md)、
+> [README](../../README.md) 与 [功能矩阵](../reference/features.md)。
 
 这一页是本次重写的共同理解。实现以它为准；决策的理由与替代方案在
 [`docs/architecture/adr/`](adr/)。
@@ -290,14 +293,14 @@ security_level = 0
 ## 12. 迁移步骤
 
 可执行的工作包、决策门、依赖与粗估见
-[`execution-plan.md`](execution-plan.md)。生产顺序：
+[历史执行计划](../archive/rust-rewrite/execution-plan.md)。生产顺序：
 
 1. 建 Cargo 项目；先落 CLI、静态服务、trust/config 与测试骨架。
 2. 接 comrak 与自定义渲染器；golden 差分收敛。
 3. 嵌入 VS Code CSS + highlight.js；实现源码查看页与前端功能。
 4. 移植测试、重写为 `tests/selftest-rust.sh`；更新示例语料与 README/AGENT/GLOSSARY。
 5. 删除 `mdview.py`、`dist/`、`tools/minify.py`、Python 测试；旧 Python 台账作为
-   历史归档到 `docs/archive/selftest-python.md`，新台账在 `docs/testing/selftest.md`
+   历史归档到 `docs/archive/python/selftest-python.md`，新台账在 `docs/testing/selftest.md`
    重新开始。
 6. 建立跨平台 CI 与发布 artifact。
 

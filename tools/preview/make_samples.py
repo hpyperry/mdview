@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""make_preview_samples.py —— 生成 docs/preview/ 下的渲染样例文件。
+"""make_samples.py —— 生成 docs/preview/ 下的渲染样例文件。
 
 这些样例用来在浏览器里逐一看「本服务支持内联渲染哪些文件」。全部用 Python
 标准库就地生成，因此**不需要把二进制图片提交进仓库** —— 想重建随时跑本脚本：
 
-    python3 docs/preview/make_preview_samples.py
+    python3 tools/preview/make_samples.py
 
 生成内容：
     code/     各种源码与配置（命中文本表 → 源码查看页）
@@ -20,6 +20,8 @@ import struct
 import zlib
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(os.path.dirname(HERE))
+OUT = os.path.join(ROOT, "docs", "preview")
 
 # --------------------------------------------------------------------------
 # 纯标准库生成合法图片（每种都已在 Chrome 里验证 naturalWidth/naturalHeight）
@@ -414,7 +416,7 @@ SVG = '''<svg xmlns="http://www.w3.org/2000/svg" width="160" height="120" viewBo
 
 
 def write_text(rel, text, encoding="utf-8"):
-    path = os.path.join(HERE, rel)
+    path = os.path.join(OUT, rel)
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "wb") as fh:
         fh.write(text.encode(encoding))
@@ -440,14 +442,14 @@ def main():
     # 图片（二进制，就地生成）
     write_text("media/sample.svg", SVG)
     count += 1
-    write_png(os.path.join(HERE, "media", "sample.png"))
-    write_png(os.path.join(HERE, "media", "sample-large.png"),
+    write_png(os.path.join(OUT, "media", "sample.png"))
+    write_png(os.path.join(OUT, "media", "sample-large.png"),
               size=(1600, 900), grid=160)
-    write_bmp(os.path.join(HERE, "media", "sample.bmp"))
-    write_gif(os.path.join(HERE, "media", "sample.gif"))
-    write_ico(os.path.join(HERE, "media", "sample.ico"))
+    write_bmp(os.path.join(OUT, "media", "sample.bmp"))
+    write_gif(os.path.join(OUT, "media", "sample.gif"))
+    write_ico(os.path.join(OUT, "media", "sample.ico"))
     count += 5
-    print("已生成 %d 个样例文件到 %s" % (count, HERE))
+    print("已生成 %d 个样例文件到 %s" % (count, OUT))
 
 
 if __name__ == "__main__":
