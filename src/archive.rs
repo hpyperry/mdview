@@ -6,6 +6,7 @@
 
 use std::collections::hash_map::DefaultHasher;
 use std::collections::{HashMap, HashSet};
+use std::ffi::OsStr;
 use std::fmt;
 use std::fs;
 use std::hash::{Hash, Hasher};
@@ -21,34 +22,72 @@ const MAX_ENTRIES: usize = 20_000;
 const MAX_ENTRY_BYTES: u64 = 100 * 1024 * 1024;
 const MAX_CACHE_BYTES: u64 = 4 * 1024 * 1024 * 1024;
 const STALE_AGE: Duration = Duration::from_secs(24 * 60 * 60);
+/// XZ blocks declare their own dictionary size. Cap the decoder allocation so
+/// a tiny archive cannot reserve gigabytes before the extracted-size budget is
+/// applied; 128 MiB still allows the common `xz -9` preset.
+const XZ_MEM_LIMIT_KB: u32 = 128 * 1024;
+
+/// ZIP-based containers exposed as virtual archives. They keep their own
+/// extension as the page label; extraction is always the ZIP path.
+const ZIP_CONTAINER_EXT: &[&str] = &[
+    "zip", "jar", "war", "ear", "apk", "aar", "whl", "nupkg", "vsix", "xpi", "ipa", "aab", "epub",
+    "cbz", "kmz",
+];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ArchiveKind {
     Zip,
+    Tar,
     TarGz,
+    TarBz2,
+    TarXz,
     SevenZ,
 }
 
 impl ArchiveKind {
     pub fn detect(path: &Path) -> Option<Self> {
         let name = path.file_name()?.to_str()?.to_ascii_lowercase();
-        if name.ends_with(".zip") {
-            Some(Self::Zip)
-        } else if name.ends_with(".tar.gz") || name.ends_with(".tgz") {
+        if name.ends_with(".tar.gz") || name.ends_with(".tgz") {
             Some(Self::TarGz)
+        } else if name.ends_with(".tar.bz2") || name.ends_with(".tbz2") || name.ends_with(".tbz") {
+            Some(Self::TarBz2)
+        } else if name.ends_with(".tar.xz") || name.ends_with(".txz") {
+            Some(Self::TarXz)
+        } else if name.ends_with(".tar") {
+            Some(Self::Tar)
         } else if name.ends_with(".7z") {
             Some(Self::SevenZ)
         } else {
-            None
+            let ext = path.extension()?.to_str()?.to_ascii_lowercase();
+            ZIP_CONTAINER_EXT
+                .contains(&ext.as_str())
+                .then_some(Self::Zip)
         }
     }
 
     pub fn label(self) -> &'static str {
         match self {
             Self::Zip => "ZIP",
+            Self::Tar => "tar",
             Self::TarGz => "tar.gz",
+            Self::TarBz2 => "tar.bz2",
+            Self::TarXz => "tar.xz",
             Self::SevenZ => "7Z",
         }
+    }
+
+    /// tar aliases normalize to their canonical compression label; ZIP
+    /// containers keep the container extension visible (JAR, EPUB, CBZ).
+    pub fn label_for(self, path: &Path) -> String {
+        if self != Self::Zip {
+            return self.label().to_string();
+        }
+        let ext = path
+            .extension()
+            .and_then(OsStr::to_str)
+            .unwrap_or("zip")
+            .to_ascii_uppercase();
+        if ext == "ZIP" { "ZIP".to_string() } else { ext }
     }
 }
 
@@ -381,7 +420,10 @@ fn extract_archive(request: &ArchiveRequest, dest: &Path) -> Result<ExtractedMet
     let mut budget = Budget::default();
     match request.kind {
         ArchiveKind::Zip => extract_zip(&request.path, dest, &mut budget)?,
+        ArchiveKind::Tar => extract_tar(&request.path, dest, &mut budget)?,
         ArchiveKind::TarGz => extract_tar_gz(&request.path, dest, &mut budget)?,
+        ArchiveKind::TarBz2 => extract_tar_bz2(&request.path, dest, &mut budget)?,
+        ArchiveKind::TarXz => extract_tar_xz(&request.path, dest, &mut budget)?,
         ArchiveKind::SevenZ => extract_7z(&request.path, dest, &mut budget)?,
     }
     Ok(ExtractedMeta {
@@ -525,17 +567,46 @@ fn extract_zip(path: &Path, dest: &Path, budget: &mut Budget) -> Result<(), Arch
     Ok(())
 }
 
+fn extract_tar(path: &Path, dest: &Path, budget: &mut Budget) -> Result<(), ArchiveError> {
+    let file = fs::File::open(path)
+        .map_err(|error| ArchiveError::new(format!("无法打开 tar: {error}")))?;
+    extract_tar_reader(file, "tar", dest, budget)
+}
+
 fn extract_tar_gz(path: &Path, dest: &Path, budget: &mut Budget) -> Result<(), ArchiveError> {
     let file = fs::File::open(path)
         .map_err(|error| ArchiveError::new(format!("无法打开 tar.gz: {error}")))?;
     let decoder = flate2::read::GzDecoder::new(file);
-    let mut archive = tar::Archive::new(decoder);
+    extract_tar_reader(decoder, "tar.gz", dest, budget)
+}
+
+fn extract_tar_bz2(path: &Path, dest: &Path, budget: &mut Budget) -> Result<(), ArchiveError> {
+    let file = fs::File::open(path)
+        .map_err(|error| ArchiveError::new(format!("无法打开 tar.bz2: {error}")))?;
+    let decoder = bzip2::read::MultiBzDecoder::new(file);
+    extract_tar_reader(decoder, "tar.bz2", dest, budget)
+}
+
+fn extract_tar_xz(path: &Path, dest: &Path, budget: &mut Budget) -> Result<(), ArchiveError> {
+    let file = fs::File::open(path)
+        .map_err(|error| ArchiveError::new(format!("无法打开 tar.xz: {error}")))?;
+    let decoder = lzma_rust2::XzReader::new_mem_limit(file, true, XZ_MEM_LIMIT_KB);
+    extract_tar_reader(decoder, "tar.xz", dest, budget)
+}
+
+fn extract_tar_reader<R: Read>(
+    reader: R,
+    label: &str,
+    dest: &Path,
+    budget: &mut Budget,
+) -> Result<(), ArchiveError> {
+    let mut archive = tar::Archive::new(reader);
     let entries = archive
         .entries()
-        .map_err(|error| ArchiveError::new(format!("tar.gz 格式错误: {error}")))?;
+        .map_err(|error| ArchiveError::new(format!("{label} 格式错误: {error}")))?;
     for entry in entries {
         let mut entry =
-            entry.map_err(|error| ArchiveError::new(format!("tar.gz 条目读取失败: {error}")))?;
+            entry.map_err(|error| ArchiveError::new(format!("{label} 条目读取失败: {error}")))?;
         let kind = entry.header().entry_type();
         if kind.is_symlink()
             || kind.is_hard_link()
@@ -668,24 +739,72 @@ mod tests {
     }
 
     #[test]
-    fn detects_supported_extensions() {
+    fn detects_tar_family_and_zip_containers() {
+        for name in ["a.tar", "a.TAR"] {
+            assert_eq!(
+                ArchiveKind::detect(Path::new(name)),
+                Some(ArchiveKind::Tar),
+                "{name}"
+            );
+        }
+        for name in ["a.tar.bz2", "a.tbz2", "a.tbz"] {
+            assert_eq!(
+                ArchiveKind::detect(Path::new(name)),
+                Some(ArchiveKind::TarBz2),
+                "{name}"
+            );
+        }
+        for name in ["a.tar.xz", "a.txz"] {
+            assert_eq!(
+                ArchiveKind::detect(Path::new(name)),
+                Some(ArchiveKind::TarXz),
+                "{name}"
+            );
+        }
+        for name in ["a.tar.gz", "a.tgz"] {
+            assert_eq!(
+                ArchiveKind::detect(Path::new(name)),
+                Some(ArchiveKind::TarGz),
+                "{name}"
+            );
+        }
+        for ext in ZIP_CONTAINER_EXT {
+            let name = format!("a.{ext}");
+            assert_eq!(
+                ArchiveKind::detect(Path::new(&name)),
+                Some(ArchiveKind::Zip),
+                "{name}"
+            );
+        }
+        for name in [
+            "a.tar.zst",
+            "a.tzst",
+            "a.tar.zstd",
+            "a.gz",
+            "a.bz2",
+            "a.xz",
+            "a.zst",
+            "a.rar",
+            "a.cbr",
+            "a.docx",
+            "a.zipx",
+            "a.txt",
+        ] {
+            assert_eq!(ArchiveKind::detect(Path::new(name)), None, "{name}");
+        }
+    }
+
+    #[test]
+    fn labels_normalize_tar_aliases_and_keep_zip_containers() {
+        assert_eq!(ArchiveKind::TarGz.label_for(Path::new("a.tgz")), "tar.gz");
         assert_eq!(
-            ArchiveKind::detect(Path::new("a.zip")),
-            Some(ArchiveKind::Zip)
+            ArchiveKind::TarBz2.label_for(Path::new("a.tbz2")),
+            "tar.bz2"
         );
-        assert_eq!(
-            ArchiveKind::detect(Path::new("a.tar.gz")),
-            Some(ArchiveKind::TarGz)
-        );
-        assert_eq!(
-            ArchiveKind::detect(Path::new("a.TGZ")),
-            Some(ArchiveKind::TarGz)
-        );
-        assert_eq!(
-            ArchiveKind::detect(Path::new("a.7z")),
-            Some(ArchiveKind::SevenZ)
-        );
-        assert_eq!(ArchiveKind::detect(Path::new("a.tar")), None);
-        assert_eq!(ArchiveKind::detect(Path::new("a.txt")), None);
+        assert_eq!(ArchiveKind::TarXz.label_for(Path::new("a.txz")), "tar.xz");
+        assert_eq!(ArchiveKind::Zip.label_for(Path::new("a.zip")), "ZIP");
+        assert_eq!(ArchiveKind::Zip.label_for(Path::new("a.jar")), "JAR");
+        assert_eq!(ArchiveKind::Zip.label_for(Path::new("a.epub")), "EPUB");
+        assert_eq!(ArchiveKind::Zip.label_for(Path::new("a.cbz")), "CBZ");
     }
 }

@@ -1,6 +1,9 @@
 # 压缩包预览：虚拟包路径 + 临时解压缓存
 
-**Status**: accepted（2026-10-21）
+**Status**: accepted（2026-10-21）；格式列表由
+[ADR 0021](0021-archive-format-expansion.md) 扩展（新增 `.tar`、`.tar.bz2`、`.tar.xz`
+与常见 ZIP 容器；RAR、`.tar.zst`、单文件压缩流与 Office/ODF 容器仍不支持）。
+虚拟包路径、解压缓存、安全上限与“不递归解包”的决策继续有效。
 
 ## 背景
 

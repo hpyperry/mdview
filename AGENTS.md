@@ -26,8 +26,8 @@ bash tests/run-all.sh
 `npm --prefix web ci`。跨平台 musl 构建用
 `npm --prefix web run build:web` + `MDVIEW_WEB_PREBUILT=web/dist`。
 
-必须全绿：`cargo test`（87 单元 + 134 渲染兼容 + 27 golden）、257 项黑盒 HTTP、
-9 项 pty 信任测试、224 项 headless Chrome 验收、4 项源码页性能预算。
+必须全绿：`cargo test`（88 单元 + 134 渲染兼容 + 27 golden）、274 项黑盒 HTTP、
+9 项 pty 信任测试、238 项 headless Chrome 验收、4 项源码页性能预算。
 
 ## 协作流程
 
@@ -82,7 +82,9 @@ Single-context: root `GLOSSARY.md` + `docs/architecture/adr/`. See
    [ADR 0016](docs/architecture/adr/0016-archive-virtual-paths.md) 压缩包虚拟路径与解压缓存，
    [ADR 0017](docs/architecture/adr/0017-internal-url-query-disambiguation.md) 内部 URL 查询参数消歧，
    [ADR 0018](docs/architecture/adr/0018-markdown-extension-scope.md) Markdown 扩展名口径，
-   [ADR 0019](docs/architecture/adr/0019-file-encoding-detection.md) 文件编码检测与 UTF-8 预览；
+   [ADR 0019](docs/architecture/adr/0019-file-encoding-detection.md) 文件编码检测与 UTF-8 预览，
+   [ADR 0020](docs/architecture/adr/0020-nav-layered-preload.md) 导航分层预载，
+   [ADR 0021](docs/architecture/adr/0021-archive-format-expansion.md) 压缩包格式扩展；
 4. `docs/architecture/overview.md` 与 `docs/architecture/execution-plan.md`；
 5. `docs/research/comrak-vs-markdown-it.md`：P0 差分证据。
 
@@ -100,7 +102,7 @@ Single-context: root `GLOSSARY.md` + `docs/architecture/adr/`. See
 | `src/encoding.rs` | BOM/UTF-8/UTF-16 启发式/chardetng 检测、UTF-32 拒绝、UTF-8 解码与编码标签 |
 | `src/render.rs` | comrak 配置 + 自定义 formatter（链接/图片/表格/删除线）+ URL 重写 |
 | `src/assets.rs` | 内嵌 vendor 资产与 `OUT_DIR` 的 `app.js`/`app.css` |
-| `src/archive.rs` | 压缩包检测、zip/tar.gz/7z 解压、路径/编码/上限、临时缓存与淘汰 |
+| `src/archive.rs` | 压缩包检测、ZIP/tar 家族/7z 解压、路径/编码/上限、临时缓存与淘汰 |
 | `build.rs` | 编译时执行 web 构建；支持 `MDVIEW_WEB_PREBUILT` |
 | `web/src/` | TypeScript/Preact 岛屿源码与应用 CSS |
 | `web/build.mjs` | esbuild 单入口 `app.ts` → `app.js` + `app.css` |
@@ -171,12 +173,16 @@ Single-context: root `GLOSSARY.md` + `docs/architecture/adr/`. See
     `Content-Security-Policy: sandbox allow-top-navigation-by-user-activation`；
     `<img>` 内嵌不受影响。
 15. **压缩包虚拟路径**：`/a.zip/docs/x.md`；真实目录优先；只有第一个压缩包段是容器，
-    嵌套包按普通文件下载，不递归。压缩包检测发生在 `--max-preview` 下载判断之前；
-    包内条目仍受 `--max-preview` 限制。
+    嵌套包按普通文件下载，不递归。支持 ZIP 容器（`.zip`/`.jar`/`.epub`/`.cbz` 等
+    自然归档扩展名）、tar 家族（`.tar`/`.tar.gz`/`.tar.bz2`/`.tar.xz`）与 `.7z`；
+    `.tar.zst`/RAR/单文件压缩流/Office 容器不在范围，按普通文件下载。压缩包检测发生
+    在 `--max-preview` 下载判断之前；包内条目仍受 `--max-preview` 限制。
 16. **压缩包解压缓存**：进程私有 0700 临时根；按 (路径, mtime, size) 复用；
     包 200 MB / 解压 1 GB / 2 万条 / 单条 100 MB；拒绝加密、多卷、绝对路径、
-    `..`、软链/硬链/设备、重复路径。`--safe` 下压缩包不可见。不要恢复“把临时目录
-    直接暴露成站点路径”或“每次请求重新解压”。
+    `..`、软链/硬链/设备、重复路径。新增格式沿用同一上限；`.tar.xz` 必须用
+    `XzReader::new_mem_limit` 限制 128 MiB 解码器内存，不要为 `.tar.zst` 引入第二套
+    zstd 解码器。`--safe` 下压缩包不可见。不要恢复“把临时目录直接暴露成站点路径”
+    或“每次请求重新解压”。
 17. 文档与提交信息用中文，提交前缀 `feat:` / `fix:` / `docs:` / `refactor:` /
     `style:` / `test:`。
 18. **内部 URL 必须带标记**：`/search?__mdview=search`、`/_nav?__mdview=nav`、
@@ -191,6 +197,8 @@ Single-context: root `GLOSSARY.md` + `docs/architecture/adr/`. See
     mdview 生成的预览/搜索。HTML 原文/沙箱 iframe 不转码、不强制 charset；非 HTML
     文本的 raw/下载 charset 用检测值，UTF-32 按二进制下载；不做手动编码覆盖。
     无 BOM 中文 UTF-16 可能识别失败，检测标签必须如实写“检测编码”。
+22. **`.xhtml`/`.xht`/`.mf` 是文本源码页**：包内 EPUB 章节与 JAR 清单只进源码页，
+    不扩展 HTML 的 Trust/MIME 路径；不要把 `.epub` 做成阅读器，也不执行 `.jar`/`.apk`。
 
 ## 改哪里
 
@@ -214,6 +222,8 @@ Single-context: root `GLOSSARY.md` + `docs/architecture/adr/`. See
 | HTML 页面样式 | `web/src/styles/app.css` 的 `.html-toolbar` / `.html-frame` |
 | SVG 直开安全 | `serve_file` 的 `SVG_SANDBOX_CSP` |
 | 压缩包虚拟路径/解压 | `src/archive.rs` + `handle`/`handle_archive`/`handle_file` |
+| 新压缩格式/扩展名 | `src/archive.rs` 的 `ArchiveKind`/`ZIP_CONTAINER_EXT`/`extract_*`；先补夹具与 xz 内存上限 |
+| .xhtml/.mf 源码页 | `src/server.rs` 的 `TEXT_EXT`/`source_language_label`/`highlight_language` |
 | 压缩包页面 | `ArchiveView` + `list_dir_with` 的包根页头 |
 | CSP/安全级别 | `csp_header` + `csp_levels` 测试 |
 | Trust 配置 | `src/trust.rs` + 配置往返测试 |
@@ -294,6 +304,13 @@ Single-context: root `GLOSSARY.md` + `docs/architecture/adr/`. See
 - **压缩包与 max-preview**：容器可以大于 `--max-preview` 仍可浏览；条目预览仍按
   `--max-preview` 下载。检测顺序不要反过来。
 - **嵌套压缩包**：只把第一个压缩包段当容器；包内 `.zip` 只当普通文件，不能再解压。
+- **压缩包格式识别**：tar 别名（`.tbz2`/`.tbz`/`.txz`）先于 `.tar` 判断；ZIP 容器
+  只认 `ZIP_CONTAINER_EXT` 白名单；`.tar.zst`、RAR、单文件流、Office 容器不要误加。
+  标签：tar 别名归一为 `tar.bz2`/`tar.xz`，ZIP 容器显示扩展名（`JAR`/`EPUB`/`CBZ`）。
+- **xz 解码内存**：`.tar.xz` 必须用 `XzReader::new_mem_limit`（128 MiB），不要退回
+  无上限的 `XzReader::new`；高字典包应整包拒绝。
+- **`.xhtml`/`.mf`**：只加入 `TEXT_EXT` 走源码页，不要加进 `is_html_path`；`.epub`
+  不是阅读器，`.jar`/`.apk` 不执行。
 - **文件大小**统一走 `format_size`：1024 进制、KB 起步、1 位小数去尾零；
   不要直接输出 B/KiB。
 

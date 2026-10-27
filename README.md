@@ -31,8 +31,8 @@ cargo build --release
   - 不生成标题 `id`，不渲染任务列表 checkbox；
   - 裸 URL / 引用定义 / front matter / URL 与 alt 的硬边角采用 comrak 行为；
   - 非 Markdown 文本统一进入**源码查看页**；
-  - 压缩包以虚拟目录预览（zip / tar.gz / 7z），包内条目复用 Markdown/HTML/源码/图片/下载管线；
-    嵌套包不递归解压；
+  - 压缩包以虚拟目录预览（ZIP、tar 家族、7z），包内条目复用 Markdown/HTML/源码/图片/下载管线；
+    ZIP 容器（`.jar`/`.epub`/`.cbz` 等）按归档浏览；嵌套包不递归解压；
   - 增加 Trust 拦截页、4 档 CSP、`vscode:` 链接拒绝与 data URI 策略。
 
 决策记录：[ADR 0004](docs/architecture/adr/0004-rust-rewrite-and-dependencies.md)（Rust 重写）、
@@ -51,7 +51,8 @@ cargo build --release
 [0017](docs/architecture/adr/0017-internal-url-query-disambiguation.md)（内部 URL 查询参数消歧）、
 [0018](docs/architecture/adr/0018-markdown-extension-scope.md)（Markdown 扩展名口径）、
 [0019](docs/architecture/adr/0019-file-encoding-detection.md)（文件编码检测与 UTF-8 预览）、
-[0020](docs/architecture/adr/0020-nav-layered-preload.md)（全站导航三层预载与按需展开）。
+[0020](docs/architecture/adr/0020-nav-layered-preload.md)（全站导航三层预载与按需展开）、
+[0021](docs/architecture/adr/0021-archive-format-expansion.md)（tar 家族与 ZIP 容器扩展）。
 
 ## 功能
 
@@ -133,10 +134,16 @@ cargo build --release
 | `GET /_nav?__mdview=nav&dir=<相对路径>` | 按需展开：只返回该目录的直接子项；`dir` 必须是根内真实目录，拒绝 `..`、绝对路径、反斜杠与 NUL |
 | `HEAD` / `301` / `404` | 支持；目录缺尾斜杠返回 301；文件带尾斜杠（字面 `/` 或 `%2f`）返回 404 |
 
-压缩包支持 `.zip`、`.tar.gz`/`.tgz`、`.7z`；嵌套包按普通文件下载，不递归解压。
+压缩包支持 `.zip`、`.jar`/`.war`/`.ear`/`.apk`/`.aar`/`.whl`/`.nupkg`/`.vsix`/
+`.xpi`/`.ipa`/`.aab`/`.epub`/`.cbz`/`.kmz`、`.tar`、`.tar.gz`/`.tgz`、
+`.tar.bz2`/`.tbz2`/`.tbz`、`.tar.xz`/`.txz` 与 `.7z`。ZIP 容器按归档浏览，
+`.epub` 不等同于电子书阅读器；`.xhtml`/`.mf` 按源码页打开。嵌套包按普通文件下载，
+不递归解压。
 解压到进程私有临时缓存（0700），按包路径/mtime/size 复用；安全上限为包 200 MB、
 解压总量 1 GB、2 万条、单条 100 MB；加密包、多卷包、绝对路径、`..`、软链/硬链、
-设备文件、重复路径整包拒绝。`--safe` 下压缩包不可见。
+设备文件、重复路径整包拒绝。`.tar.xz` 解码器额外限制 128 MiB 内存；`--safe` 下
+压缩包不可见。`.tar.zst`、RAR、单文件 `.gz/.bz2/.xz/.zst` 与 Office/ODF 容器
+（`.docx` 等）不在本轮范围，按普通文件下载。
 
 内部 URL（搜索页、导航 JSON、内嵌 CSS/JS）必须带 `?__mdview=search|nav|asset`。
 不带标记的同路径是普通文件路径：磁盘上有同名文件/目录就服务它，缺失即 404；
@@ -234,10 +241,10 @@ macOS / Linux / Windows 三平台跑 `cargo test` 与黑盒 HTTP 套件。
 ```bash
 npm --prefix web ci
 npm --prefix web run typecheck
-cargo test                      # 87 单元 + 134 渲染兼容 + 27 golden
+cargo test                      # 88 单元 + 134 渲染兼容 + 27 golden
 cargo clippy --all-targets -- -D warnings
-bash tests/selftest-rust.sh     # 257 项真二进制 HTTP 断言
-node tests/browser-probe.mjs      # 224 项 headless Chrome 验收
+bash tests/selftest-rust.sh     # 274 项真二进制 HTTP 断言
+node tests/browser-probe.mjs      # 238 项 headless Chrome 验收
 node tests/perf-source.mjs        # 4 项源码页性能预算
 bash tests/trust-tty.sh           # 9 项真实 pty 信任测试
 ```
@@ -293,6 +300,11 @@ md-preview/
 - Trust 判定按根目录路径字符串保存；移动目录后需要重新确认。
 - 从源码构建需要 Node 22 与 `web/` 的 npm 依赖；运行时不需要。
 - 导航默认收起；无 JS 时不显示导航。目录行只展开，不进入目录页。
+- 压缩包不递归解包；`.tar.zst`、RAR/RAR5、单文件压缩流与 Office/ODF 容器不在
+  本轮范围。ZIP 容器只做包内容浏览，不渲染 `.epub`/`.docx` 等原生格式；
+  `.xhtml` 按源码页显示，不扩展 HTML 预览。
+- `.tar.xz` 的字典/解码内存上限为 128 MiB；异常大字典的包会被拒绝。大型
+  `.apk`/`.jar` 仍受 2 万条目与 1 GB 解压总量限制。
 - 无 JS 时没有 TOC 细轨/浮层、代码工具条与图片放大；正文与搜索页仍可读。
 - 许可证为 MIT，见 [`LICENSE`](LICENSE)；第三方组件见 [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md)。
 

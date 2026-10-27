@@ -26,6 +26,7 @@ mdview 的源码是自有代码；交付二进制嵌入了以下第三方资产/
 |-------|--------|
 | `anyhow` | MIT OR Apache-2.0 |
 | `axum` | MIT |
+| `bzip2` | MIT OR Apache-2.0（内嵌 `libbz2-rs-sys` / bzip2-1.0.6） |
 | `chardetng` | Apache-2.0 OR MIT |
 | `clap` | MIT OR Apache-2.0 |
 | `comrak` | BSD-2-Clause |
@@ -33,6 +34,7 @@ mdview 的源码是自有代码；交付二进制嵌入了以下第三方资产/
 | `encoding_rs` | MIT OR Apache-2.0 |
 | `filetime` | MIT OR Apache-2.0 |
 | `flate2` | MIT OR Apache-2.0 |
+| `lzma-rust2` | Apache-2.0 |
 | `mime_guess` | MIT |
 | `percent-encoding` | MIT OR Apache-2.0 |
 | `rand` | MIT OR Apache-2.0 |
@@ -47,8 +49,9 @@ mdview 的源码是自有代码；交付二进制嵌入了以下第三方资产/
 | `walkdir` | MIT OR Unlicense |
 | `zip` | MIT |
 
-开发依赖：`tower`（MIT，仅测试）。压缩包传递依赖包含 `bzip2-1.0.6`
-（bzip2/libbzip2 License）与 `ppmd-rust`（CC0-1.0 OR MIT-0）等宽松许可证。
+开发依赖：`tower`（MIT，仅测试）。压缩包传递依赖包含
+`libbz2-rs-sys`（bzip2-1.0.6 License）与 `ppmd-rust`（CC0-1.0 OR MIT-0）等宽松
+许可证；`.tar.zst`/RAR 不在当前格式范围内。
 
 ## 许可证状态
 

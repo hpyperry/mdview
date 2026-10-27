@@ -357,8 +357,17 @@ HTML 预览里的 CSS/JS/JSON 等请求，按 `Sec-Fetch-Dest`（退化时 `Acce
 _Avoid_: 静态资源、资产请求
 
 **压缩包容器**：
-被当作虚拟目录浏览的 `.zip`/`.tar.gz`/`.tgz`/`.7z` 文件。
+被当作虚拟目录浏览的归档文件，包括 ZIP 容器、tar 家族与 7z。
 _Avoid_: 压缩文件、归档文件
+
+**ZIP 容器**：
+以 ZIP 结构承载的归档文件（如 `.zip`、`.jar`、`.epub`、`.cbz`）；按压缩包浏览，
+不表示把 `.jar` 当程序执行，也不把 `.epub` 渲染成电子书阅读器。
+_Avoid_: ZIP 文件、压缩包（仅指 `.zip` 时）
+
+**tar 家族**：
+`.tar` 及其 gzip/bzip2/xz 压缩形式；在 URL 里仍是一个压缩包容器段。
+_Avoid_: tar 包、tar 压缩包
 
 **虚拟包路径**：
 `/a.zip/docs/x.md` 这种把压缩包当目录的根相对路径；第一个压缩包段是容器，

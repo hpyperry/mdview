@@ -126,6 +126,11 @@ printf 'HIDDENNEEDLE\n' >"$ROOT/node_modules/n.md"
 cp "$REPO_ROOT/tests/fixtures/archives/sample.zip" "$ROOT/sample.zip"
 cp "$REPO_ROOT/tests/fixtures/archives/sample.tar.gz" "$ROOT/sample.tar.gz"
 cp "$REPO_ROOT/tests/fixtures/archives/sample.7z" "$ROOT/sample.7z"
+for name in sample.tar sample.tar.bz2 sample.tar.xz high-dict.tar.xz \
+  sample.jar sample.epub sample.cbz; do
+  cp "$REPO_ROOT/tests/fixtures/archives/$name" "$ROOT/$name"
+done
+cp "$REPO_ROOT/tests/fixtures/archives/docs/page.xhtml" "$ROOT/page.xhtml"
 cat >"$ROOT/page.html" <<'HTML'
 <!doctype html><html><head><meta charset="utf-8"><title>HTML Probe</title><link rel="stylesheet" href="style.css"></head><body><h1>HTML Probe</h1><p>htmlneedle</p><script>document.body.dataset.script='yes'</script></body></html>
 HTML
@@ -297,6 +302,28 @@ chk "整包下载" "$(header "$BASE/sample.zip?download=1" content-disposition)"
 chk "tar.gz 条目" "$(curl -s "$BASE/sample.tar.gz/docs/a.md")" "Archive A"
 chk "7z 条目" "$(curl -s "$BASE/sample.7z/docs/a.md")" "Archive A"
 chk "嵌套 zip 不递归" "$(header "$BASE/sample.zip/inner.zip" content-type)" "application/zip"
+chk "tar 页面标签" "$(curl -s "$BASE/sample.tar/")" "tar ·"
+chk "tar 条目" "$(curl -s "$BASE/sample.tar/docs/a.md")" "Archive A"
+chk "tar.bz2 页面标签" "$(curl -s "$BASE/sample.tar.bz2/")" "tar.bz2 ·"
+chk "tar.bz2 条目" "$(curl -s "$BASE/sample.tar.bz2/docs/a.md")" "Archive A"
+chk "tar.xz 页面标签" "$(curl -s "$BASE/sample.tar.xz/")" "tar.xz ·"
+chk "tar.xz 条目" "$(curl -s "$BASE/sample.tar.xz/docs/a.md")" "Archive A"
+chk "tar 嵌套 zip 不递归" "$(header "$BASE/sample.tar/inner.zip" content-type)" "application/zip"
+HIGH_DICT_CODE="$(code "$BASE/high-dict.tar.xz/")"
+if [ "$HIGH_DICT_CODE" = "400" ] || [ "$HIGH_DICT_CODE" = "413" ]; then
+  ok "xz 大字典拒绝"
+else
+  bad "xz 大字典拒绝 (got $HIGH_DICT_CODE)"
+fi
+chk "JAR 页面标签" "$(curl -s "$BASE/sample.jar/")" "JAR ·"
+chk "JAR 清单源码" "$(curl -s "$BASE/sample.jar/META-INF/MANIFEST.MF")" "Manifest-Version"
+chk "EPUB 页面标签" "$(curl -s "$BASE/sample.epub/")" "EPUB ·"
+chk "EPUB 章节源码" "$(curl -s "$BASE/sample.epub/OEBPS/chapter1.xhtml")" "xhtmlneedle"
+chk "EPUB 章节行锚点" "$(curl -s "$BASE/sample.epub/OEBPS/chapter1.xhtml")" 'id="L1"'
+chk "CBZ 页面标签" "$(curl -s "$BASE/sample.cbz/")" "CBZ ·"
+chk "CBZ 图片" "$(ctype "$BASE/sample.cbz/page-01.png")" "image/png"
+chk "xhtml 源码页" "$(curl -s "$BASE/page.xhtml")" "xhtmlneedle"
+chk "xhtml 源码标签" "$(curl -s "$BASE/page.xhtml")" "XHTML"
 chk "CSP connect-src" "$(header "$BASE/a.md" content-security-policy)" "connect-src 'self'"
 chk "搜索正文结果" "$SEARCH" "result-group"
 chk "搜索摘要用结果" "$SEARCH" '条结果'
