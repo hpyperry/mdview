@@ -8,6 +8,7 @@
 | `archives/` | 压缩包虚拟目录、包内 Markdown/HTML、嵌套包 |
 | `html-preview/` | HTML Trust 原文/沙箱、子资源、SVG |
 | `encodings/` | GBK/UTF-16/UTF-32、编码标签、搜索与 charset |
+| `nav-lazy/` | 三层预载、当前路径脊柱、`dir=` 按需展开、深层目录占位 |
 | `static-parity/` | 内部 URL 与同名文件、文件尾斜杠、Markdown 扩展名、目录 index 非目标 |
 
 通用启动方式：

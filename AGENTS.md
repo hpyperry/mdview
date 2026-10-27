@@ -26,8 +26,8 @@ bash tests/run-all.sh
 `npm --prefix web ci`。跨平台 musl 构建用
 `npm --prefix web run build:web` + `MDVIEW_WEB_PREBUILT=web/dist`。
 
-必须全绿：`cargo test`（82 单元 + 134 渲染兼容 + 27 golden）、238 项黑盒 HTTP、
-9 项 pty 信任测试、210 项 headless Chrome 验收、4 项源码页性能预算。
+必须全绿：`cargo test`（87 单元 + 134 渲染兼容 + 27 golden）、257 项黑盒 HTTP、
+9 项 pty 信任测试、224 项 headless Chrome 验收、4 项源码页性能预算。
 
 ## 协作流程
 
@@ -89,7 +89,7 @@ Single-context: root `GLOSSARY.md` + `docs/architecture/adr/`. See
 | `src/main.rs` / `src/lib.rs` | 二进制入口；`lib.rs` 暴露模块给集成测试 |
 | `src/cli.rs` | clap 参数与大小解析 |
 | `src/trust.rs` | Trust 配置读写、flag/存储/询问优先级 |
-| `src/server.rs` | axum 路由、目录索引、全站导航 JSON、源码页/大源码分块、搜索、下载、CSP、token、缓存 |
+| `src/server.rs` | axum 路由、目录索引、分层全站导航 JSON、源码页/大源码分块、搜索、下载、CSP、token、缓存 |
 | `src/encoding.rs` | BOM/UTF-8/UTF-16 启发式/chardetng 检测、UTF-32 拒绝、UTF-8 解码与编码标签 |
 | `src/render.rs` | comrak 配置 + 自定义 formatter（链接/图片/表格/删除线）+ URL 重写 |
 | `src/assets.rs` | 内嵌 vendor 资产与 `OUT_DIR` 的 `app.js`/`app.css` |
@@ -135,10 +135,15 @@ Single-context: root `GLOSSARY.md` + `docs/architecture/adr/`. See
 9. **岛屿边界**：9 个岛（theme/nav/search/totop/toc/linetarget/code/zoom/source）
    由 `body[data-islands]` 清单控制；岛只接管自己的控制区，服务端 HTML 是权威。
    新增交互先判断是否能归入现有岛，不要回到一个全局 DOMContentLoaded 初始化器。
-10. **全站导航**：`/_nav?__mdview=nav` 返回全站可见目录与所有文件；页面空闲时预取，
-    目录行只展开、文件行才导航；每次加载默认收起，展开状态才存 localStorage。导航
-    不挤压正文。读不了的目录/条目跳过并返回 `partial: true`，只有根目录本身
-    不可读才 500。不要恢复“当前目录侧栏”或“目录/文件”分组文字。
+10. **全站导航（分层预载）**：`/_nav?__mdview=nav` 只预载根 + 三层目录；第 3 层目录是
+    占位，展开未加载目录请求 `/_nav?__mdview=nav&dir=<相对路径>`，每次只取一层；带
+    `active=<当前路径>` 时额外返回祖先链脊柱，深页一次定位。客户端在本页缓存已加载
+    子树、合并同一目录的在途请求；桌面端悬停约 150ms 预热下一层。页面空闲预取只取
+    三层 + 脊柱，不跨页缓存。`dir` 必须是根内真实目录：拒绝 `..`、绝对路径、反斜杠与
+    NUL，逐段拒绝隐藏目录/`SKIP_DIRS`，canonicalize 后必须 `starts_with(root)`。不要
+    恢复整树递归或全量预取。目录行只展开、文件行才导航；每次加载默认收起，展开状态
+    才存 localStorage。导航不挤压正文。读不了的目录/条目跳过并返回 `partial: true`，
+    只有根目录本身不可读才 500。不要恢复“当前目录侧栏”或“目录/文件”分组文字。
 11. **HTML 文件（Trust 门控）**：`trusted` 根下 `/x.html` 直接以原字节
     `text/html` 顶层返回，无 mdview 外壳、无 sandbox、无 CSP——这是 Python 版/
     静态服务器的行为，脚本、localStorage、同源 fetch、下载与顶层链接都正常。
@@ -195,7 +200,7 @@ Single-context: root `GLOSSARY.md` + `docs/architecture/adr/`. See
 | 顶部栏/导航/页面 chrome/内容面 | `html_page`、`crumbs_html`、`nav.tsx` |
 | TOC/行定位/代码条/主题/导航/大源码分块 | `web/src/islands/*` |
 | 岛屿清单/水合策略 | `src/server.rs` 的 `data-islands` + `web/src/app.ts` |
-| 全站导航树/接口 | `src/server.rs` 的 `/_nav?__mdview=nav` + `web/src/islands/nav.tsx` |
+| 全站导航树/接口 | `src/server.rs` 的 `/_nav?__mdview=nav`、`nav_payload`/`nav_dir_payload` + `web/src/islands/nav.tsx` |
 | 内部 URL/搜索/资产路由 | `internal_marker` + `search`/`nav`/`asset_or_file`；表单用隐藏 `__mdview` 字段 |
 | HTML 文件路由 | `handle` 的 `Kind::Html`、`html_trusted_document`、`html_preview_page`、`html_preview_document` |
 | HTML 子资源 MIME | `fetch_kind` / `raw_mime`；直接导航仍走 `source_page` |
@@ -249,8 +254,11 @@ Single-context: root `GLOSSARY.md` + `docs/architecture/adr/`. See
   元素，定位是块级近似。
 - **主题切换**：模式以当前页面内存为准，localStorage 只负责持久化；写入失败不能
   卡住循环。按钮旁的状态提示是“看起来有没有生效”的反馈，不要删。
-- **导航不要回退**：`/_nav?__mdview=nav` 是页面空闲时预取的全站树，导航只导航文件；
-  目录行只展开。中间目录页是一张统一列表，没有“目录/文件”分组标题。
+- **导航不要回退**：`/_nav?__mdview=nav` 只预载三层 + 当前路径脊柱，展开走
+  `&dir=` 单层接口；`children` 缺失是“未加载”，`children: []` 才是空目录。`dir`
+  必须逐段校验（`..`/绝对路径/反斜杠/NUL/隐藏目录/`SKIP_DIRS`）并 canonicalize；
+  `active` 只用于选脊柱，无效就忽略。导航只导航文件；目录行只展开。中间目录页
+  是一张统一列表，没有“目录/文件”分组标题。
 - **源码页头**：H1 是文件名，不是“源码”；下方类型/大小/行数/修改时间用标签展示，
   操作是“预览/下载”。不要恢复 `查看渲染页` 或把参数重新堆成一行纯文本。
 - **H1 下划线**：`assets/markdown.css` 给全局 `h1` 加了 `border-bottom`；

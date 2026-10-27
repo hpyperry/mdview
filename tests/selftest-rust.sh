@@ -96,6 +96,7 @@ mkdir -p "$ROOT/_assets"
 cp "$REPO_ROOT/tests/fixtures/static-parity/_assets/app.css" "$ROOT/_assets/app.css"
 cp "$REPO_ROOT/tests/fixtures/static-parity/a.markdown" "$ROOT/a.markdown"
 cp "$REPO_ROOT/tests/fixtures/static-parity/a.mdx" "$ROOT/a.mdx"
+cp -R "$REPO_ROOT/tests/fixtures/nav-lazy/root/." "$ROOT/"
 for fixture in "$REPO_ROOT"/tests/fixtures/encodings/*; do
   case "$fixture" in
     */README.md) continue ;;
@@ -261,6 +262,9 @@ NAVJSON="$(curl -s "$BASE/_nav?__mdview=nav")"
 chk "导航 JSON" "$NAVJSON" '"type":"dir"'
 chk "导航含文件" "$NAVJSON" '"name":"a.md"'
 nchk "导航跳过隐藏目录" "$NAVJSON" '".hidden"'
+chk "导航含第三层目录" "$NAVJSON" '"name":"level3"'
+nchk "导航不预载第三层内容" "$NAVJSON" "sibling.md"
+nchk "导航不预载第四层" "$NAVJSON" "deep.md"
 chk "HTML 信任目录直接原文" "$(curl -s "$BASE/page.html")" '<h1>HTML Probe</h1>'
 nchk "HTML 信任目录无外壳" "$(curl -s "$BASE/page.html")" 'html-toolbar'
 chk "HTML 信任目录 MIME" "$(ctype "$BASE/page.html")" "text/html"
@@ -318,6 +322,27 @@ nchk "search 内部页面不返回同名文件" "$(curl -s "$BASE/search?__mdvie
 chk "_nav 同名文件优先" "$(curl -s "$BASE/_nav")" "a real nav file"
 chk "_nav 内部 JSON 需标记" "$(curl -s "$BASE/_nav?__mdview=nav")" '"tree"'
 nchk "_nav 内部 JSON 不返回同名文件" "$(curl -s "$BASE/_nav?__mdview=nav")" "a real nav file"
+
+# Layered navigation: three preload levels, one level per dir request,
+# current-path spine, and strict dir path validation.
+NAV_DIR="$(curl -s "$BASE/_nav?__mdview=nav&dir=level1/level2/level3")"
+chk "懒加载返回第四层目录" "$NAV_DIR" '"name":"level4"'
+chk "懒加载含同级文件" "$NAV_DIR" '"name":"sibling.md"'
+nchk "懒加载不含第四层文件" "$NAV_DIR" "deep.md"
+nchk "懒加载不含第五层" "$NAV_DIR" "deeper.md"
+chk "懒加载 no-store" "$(header "$BASE/_nav?__mdview=nav&dir=level1" cache-control)" "no-store"
+chk "深层懒加载" "$(curl -s "$BASE/_nav?__mdview=nav&dir=level1/level2/level3/level4")" '"name":"deep.md"'
+NAV_ACTIVE="$(curl -s "$BASE/_nav?__mdview=nav&active=level1/level2/level3/level4/deep.md")"
+chk "active 脊柱含当前文件" "$NAV_ACTIVE" "deep.md"
+nchk "active 不预载同级 other.md" "$NAV_ACTIVE" "other.md"
+nchk "active 不预载第五层 deeper.md" "$NAV_ACTIVE" "deeper.md"
+nchk "active 无效路径不泄漏" "$(curl -s "$BASE/_nav?__mdview=nav&active=../../outside.md")" "outside.md"
+chk "懒加载拒绝 .." "$(code "$BASE/_nav?__mdview=nav&dir=../")" "404"
+chk "懒加载拒绝绝对路径" "$(code "$BASE/_nav?__mdview=nav&dir=/etc")" "404"
+chk "懒加载拒绝文件" "$(code "$BASE/_nav?__mdview=nav&dir=a.md")" "404"
+chk "懒加载拒绝隐藏目录" "$(code "$BASE/_nav?__mdview=nav&dir=.hidden")" "404"
+chk "懒加载拒绝 node_modules" "$(code "$BASE/_nav?__mdview=nav&dir=node_modules")" "404"
+chk "懒加载目录名解码" "$(curl -s "$BASE/_nav?__mdview=nav&dir=my%20dir")" '"name":"a.md"'
 
 # Markdown extension scope: .md/.markdown render; .mdx stays source.
 chk ".markdown 渲染" "$(curl -s "$BASE/a.markdown")" 'class="markdown-body"'

@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::ffi::OsStr;
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
@@ -1250,11 +1250,26 @@ async fn search(
     .await
 }
 
+/// How many directory levels the initial navigation response contains. The
+/// root's direct children are level 1; a level-3 directory is a placeholder
+/// until the user expands it. The active path may extend one narrow spine
+/// beyond this limit so the current file stays visible in one request.
+const NAV_PRELOAD_DEPTH: usize = 3;
+const NAV_PATH_MAX_LEN: usize = 4096;
+
 #[derive(Serialize)]
 struct NavPayload {
     root: String,
     partial: bool,
     tree: Vec<NavNode>,
+}
+
+#[derive(Serialize)]
+struct NavDirPayload {
+    root: String,
+    dir: String,
+    partial: bool,
+    nodes: Vec<NavNode>,
 }
 
 #[derive(Serialize)]
@@ -1267,8 +1282,17 @@ struct NavNode {
     href: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     file_kind: Option<&'static str>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    children: Vec<NavNode>,
+    /// `None` means "not loaded yet"; `Some([])` is a loaded empty directory.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    children: Option<Vec<NavNode>>,
+}
+
+struct NavEntry {
+    is_dir: bool,
+    name: String,
+    path: PathBuf,
+    rel: String,
+    sort_key: String,
 }
 
 fn nav_file_kind(path: &Path) -> &'static str {
@@ -1291,25 +1315,76 @@ fn nav_file_kind(path: &Path) -> &'static str {
     }
 }
 
-fn nav_children(
+fn nav_root_name(root: &Path) -> String {
+    root.file_name()
+        .and_then(OsStr::to_str)
+        .filter(|name| !name.is_empty())
+        .unwrap_or("docs")
+        .to_string()
+}
+
+fn nav_rel_path(root: &Path, path: &Path) -> String {
+    path.strip_prefix(root)
+        .unwrap_or(path)
+        .to_string_lossy()
+        .replace('\\', "/")
+}
+
+/// Split an internal nav path into safe components. `dir` rejects hidden and
+/// skipped directories; `active` allows a hidden last segment (e.g. `.env`).
+fn nav_path_parts(raw: &str, allow_hidden: bool) -> Option<Vec<String>> {
+    if raw.is_empty() || raw.len() > NAV_PATH_MAX_LEN {
+        return None;
+    }
+    if raw.contains('\0') || raw.contains('\\') || raw.starts_with('/') {
+        return None;
+    }
+    let mut parts = Vec::new();
+    for segment in raw.split('/') {
+        match segment {
+            "" | "." => continue,
+            ".." => return None,
+            _ => {
+                if cfg!(windows) && segment.contains(':') {
+                    return None;
+                }
+                if !allow_hidden && (segment.starts_with('.') || SKIP_DIRS.contains(&segment)) {
+                    return None;
+                }
+                parts.push(segment.to_string());
+            }
+        }
+    }
+    if parts.is_empty() { None } else { Some(parts) }
+}
+
+fn nav_active_spine(raw: &str) -> Option<HashSet<String>> {
+    let parts = nav_path_parts(raw, true)?;
+    let mut spine = HashSet::new();
+    let mut prefix = String::new();
+    for part in parts {
+        if !prefix.is_empty() {
+            prefix.push('/');
+        }
+        prefix.push_str(&part);
+        spine.insert(prefix.clone());
+    }
+    Some(spine)
+}
+
+fn nav_dir_relative(raw: &str) -> Option<String> {
+    let parts = nav_path_parts(raw, false)?;
+    Some(parts.join("/"))
+}
+
+fn read_nav_entries(
     root: &Path,
     dir: &Path,
     safe: bool,
     partial: &mut bool,
-    is_root: bool,
-) -> std::io::Result<Vec<NavNode>> {
+) -> std::io::Result<Vec<NavEntry>> {
+    let read_dir = std::fs::read_dir(dir)?;
     let mut entries = Vec::new();
-    let read_dir = match std::fs::read_dir(dir) {
-        Ok(read_dir) => read_dir,
-        Err(error) => {
-            eprintln!("nav: 无法读取目录 {}: {error}", dir.display());
-            if is_root {
-                return Err(error);
-            }
-            *partial = true;
-            return Ok(Vec::new());
-        }
-    };
     for entry in read_dir {
         let entry = match entry {
             Ok(entry) => entry,
@@ -1331,66 +1406,141 @@ fn nav_children(
                 continue;
             }
         };
-        if file_type.is_dir() && (name.starts_with('.') || SKIP_DIRS.contains(&name.as_str())) {
+        let is_dir = file_type.is_dir();
+        if is_dir && (name.starts_with('.') || SKIP_DIRS.contains(&name.as_str())) {
             continue;
         }
-        if file_type.is_dir() || file_type.is_file() {
-            entries.push((file_type.is_dir(), name, entry.path()));
+        if !is_dir && !file_type.is_file() {
+            continue;
         }
+        if !is_dir && safe && !allowed_in_safe_mode(&entry.path()) {
+            continue;
+        }
+        entries.push(NavEntry {
+            is_dir,
+            rel: nav_rel_path(root, &entry.path()),
+            sort_key: name.to_lowercase(),
+            name,
+            path: entry.path(),
+        });
     }
     entries.sort_by(|a, b| {
-        b.0.cmp(&a.0)
-            .then_with(|| a.1.to_lowercase().cmp(&b.1.to_lowercase()))
+        b.is_dir
+            .cmp(&a.is_dir)
+            .then_with(|| a.sort_key.cmp(&b.sort_key))
     });
+    Ok(entries)
+}
 
-    let mut nodes = Vec::new();
-    for (is_dir, name, path) in entries {
-        let rel = path
-            .strip_prefix(root)
-            .unwrap_or(&path)
-            .to_string_lossy()
-            .replace('\\', "/");
-        if is_dir {
-            let children = nav_children(root, &path, safe, partial, false)?;
+fn nav_children(
+    root: &Path,
+    dir: &Path,
+    depth: usize,
+    max_depth: usize,
+    spine: &HashSet<String>,
+    safe: bool,
+    partial: &mut bool,
+) -> std::io::Result<Vec<NavNode>> {
+    let entries = read_nav_entries(root, dir, safe, partial)?;
+    let mut nodes = Vec::with_capacity(entries.len());
+    for entry in entries {
+        if entry.is_dir {
+            let load_children = depth + 1 < max_depth || spine.contains(&entry.rel);
+            let children = if load_children {
+                match nav_children(
+                    root,
+                    &entry.path,
+                    depth + 1,
+                    max_depth,
+                    spine,
+                    safe,
+                    partial,
+                ) {
+                    Ok(children) => Some(children),
+                    Err(error) => {
+                        eprintln!("nav: 无法读取目录 {}: {error}", entry.path.display());
+                        *partial = true;
+                        None
+                    }
+                }
+            } else {
+                None
+            };
             nodes.push(NavNode {
-                name,
-                path: rel,
+                name: entry.name,
+                path: entry.rel,
                 kind: "dir",
                 href: None,
                 file_kind: None,
                 children,
             });
         } else {
-            if safe && !allowed_in_safe_mode(&path) {
-                continue;
-            }
             nodes.push(NavNode {
-                name,
-                href: Some(format!("/{}", encode_path(&rel))),
-                path: rel,
+                name: entry.name,
+                href: Some(format!("/{}", encode_path(&entry.rel))),
+                path: entry.rel,
                 kind: "file",
-                file_kind: Some(nav_file_kind(&path)),
-                children: Vec::new(),
+                file_kind: Some(nav_file_kind(&entry.path)),
+                children: None,
             });
         }
     }
     Ok(nodes)
 }
 
-fn nav_payload(root: &Path, safe: bool) -> std::io::Result<NavPayload> {
-    let root_name = root
-        .file_name()
-        .and_then(OsStr::to_str)
-        .filter(|name| !name.is_empty())
-        .unwrap_or("docs")
-        .to_string();
+fn nav_payload(root: &Path, safe: bool, active: Option<&str>) -> std::io::Result<NavPayload> {
+    let spine = active.and_then(nav_active_spine).unwrap_or_default();
     let mut partial = false;
-    let tree = nav_children(root, root, safe, &mut partial, true)?;
+    let tree = nav_children(root, root, 0, NAV_PRELOAD_DEPTH, &spine, safe, &mut partial)?;
     Ok(NavPayload {
-        root: root_name,
+        root: nav_root_name(root),
         partial,
         tree,
     })
+}
+
+fn nav_dir_payload(root: &Path, raw: &str, safe: bool) -> Result<NavDirPayload, StatusCode> {
+    let rel = nav_dir_relative(raw).ok_or(StatusCode::NOT_FOUND)?;
+    let mut path = root.to_path_buf();
+    for part in rel.split('/') {
+        path.push(part);
+        let metadata = std::fs::symlink_metadata(&path).map_err(|_| StatusCode::NOT_FOUND)?;
+        if metadata.file_type().is_symlink() || !metadata.is_dir() {
+            return Err(StatusCode::NOT_FOUND);
+        }
+    }
+    let canonical = std::fs::canonicalize(&path).map_err(|_| StatusCode::NOT_FOUND)?;
+    if !canonical.starts_with(root) {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    let mut partial = false;
+    let nodes = nav_children(
+        root,
+        &canonical,
+        NAV_PRELOAD_DEPTH,
+        NAV_PRELOAD_DEPTH,
+        &HashSet::new(),
+        safe,
+        &mut partial,
+    )
+    .map_err(|error| {
+        eprintln!("nav: 无法读取目录 {}: {error}", canonical.display());
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+    Ok(NavDirPayload {
+        root: nav_root_name(root),
+        dir: rel,
+        partial,
+        nodes,
+    })
+}
+
+fn nav_dir_error_text(status: StatusCode) -> &'static str {
+    match status {
+        StatusCode::FORBIDDEN => "目录不可访问",
+        StatusCode::NOT_FOUND => "目录不存在",
+        _ => "导航加载失败",
+    }
 }
 
 async fn nav(
@@ -1406,7 +1556,29 @@ async fn nav(
     let root = state.root.clone();
     let root_label = root.display().to_string();
     let safe = state.safe;
-    match tokio::task::spawn_blocking(move || nav_payload(&root, safe)).await {
+    let dir = query.get("dir").cloned();
+    let active = query.get("active").cloned();
+
+    if let Some(dir) = dir {
+        return match tokio::task::spawn_blocking(move || nav_dir_payload(&root, &dir, safe)).await {
+            Ok(Ok(payload)) => {
+                if payload.partial {
+                    eprintln!("nav: 目录 {} 中部分条目无法读取", payload.dir);
+                }
+                ([(header::CACHE_CONTROL, "no-store")], Json(payload)).into_response()
+            }
+            Ok(Err(status)) => {
+                eprintln!("nav: 目录加载失败 root={root_label}: {status}");
+                (status, nav_dir_error_text(status)).into_response()
+            }
+            Err(error) => {
+                eprintln!("nav: 导航任务失败 root={root_label}: {error}");
+                (StatusCode::INTERNAL_SERVER_ERROR, "导航加载失败").into_response()
+            }
+        };
+    }
+
+    match tokio::task::spawn_blocking(move || nav_payload(&root, safe, active.as_deref())).await {
         Ok(Ok(payload)) => {
             if payload.partial {
                 eprintln!("nav: 部分目录无法读取，已返回不完整树");
@@ -3017,6 +3189,17 @@ mod tests {
         dir
     }
 
+    fn nav_find<'a>(nodes: &'a [serde_json::Value], name: &str) -> &'a serde_json::Value {
+        nodes
+            .iter()
+            .find(|node| node["name"] == name)
+            .unwrap_or_else(|| panic!("missing nav node {name}"))
+    }
+
+    fn nav_child<'a>(node: &'a serde_json::Value, name: &str) -> &'a serde_json::Value {
+        nav_find(node["children"].as_array().unwrap(), name)
+    }
+
     fn write_zip(path: &Path, entries: &[(&str, &[u8])]) {
         let file = std::fs::File::create(path).unwrap();
         let mut writer = zip::ZipWriter::new(file);
@@ -4289,7 +4472,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn nav_endpoint_lists_full_tree_without_hidden_dirs() {
+    async fn nav_endpoint_lists_preloaded_tree_without_hidden_dirs() {
         let dir = fixture();
         std::fs::create_dir(dir.path().join(".hidden")).unwrap();
         std::fs::write(dir.path().join(".hidden").join("h.md"), "# hidden\n").unwrap();
@@ -4334,6 +4517,192 @@ mod tests {
         assert_eq!(status, StatusCode::OK);
         assert!(!safe_body.windows(7).any(|window| window == b"bin.dat"));
         assert!(safe_body.windows(7).any(|window| window == b"img.png"));
+    }
+
+    #[tokio::test]
+    async fn nav_preloads_three_levels_and_lazy_loads_deeper() {
+        let dir = fixture();
+        let root = dir.path();
+        let level3 = root.join("l1/l2/l3");
+        std::fs::create_dir_all(level3.join("l4")).unwrap();
+        std::fs::write(level3.join("sibling.md"), "# sibling\n").unwrap();
+        std::fs::write(level3.join("l4").join("deep.md"), "# deep\n").unwrap();
+        let app = app(state(root, false, 0, 0));
+
+        let (status, headers, body) = call(app.clone(), Method::GET, "/_nav?__mdview=nav").await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(headers.get(header::CACHE_CONTROL).unwrap(), "no-store");
+        let payload: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let tree = payload["tree"].as_array().unwrap();
+        let l3 = nav_child(nav_child(nav_find(tree, "l1"), "l2"), "l3");
+        assert!(
+            l3.get("children").is_none(),
+            "level 3 must be a placeholder"
+        );
+        assert!(
+            !String::from_utf8_lossy(&body).contains("deep.md"),
+            "level 4 must not be preloaded"
+        );
+
+        let (status, _, body) =
+            call(app.clone(), Method::GET, "/_nav?__mdview=nav&dir=l1/l2/l3").await;
+        assert_eq!(status, StatusCode::OK);
+        let payload: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let nodes = payload["nodes"].as_array().unwrap();
+        let l4 = nav_find(nodes, "l4");
+        assert!(
+            l4.get("children").is_none(),
+            "lazy response is one level only"
+        );
+        assert!(nav_find(nodes, "sibling.md")["type"] == "file");
+        assert!(
+            !String::from_utf8_lossy(&body).contains("deep.md"),
+            "lazy response must not include grandchildren"
+        );
+
+        let (status, _, body) = call(app, Method::GET, "/_nav?__mdview=nav&dir=l1/l2/l3/l4").await;
+        assert_eq!(status, StatusCode::OK);
+        let payload: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let nodes = payload["nodes"].as_array().unwrap();
+        assert!(nav_find(nodes, "deep.md")["type"] == "file");
+    }
+
+    #[tokio::test]
+    async fn nav_active_spine_reveals_deep_current_file() {
+        let dir = fixture();
+        let root = dir.path();
+        let level4 = root.join("l1/l2/l3/l4");
+        std::fs::create_dir_all(level4.join("other")).unwrap();
+        std::fs::write(level4.join("deep.md"), "# deep\n").unwrap();
+        let app = app(state(root, false, 0, 0));
+
+        let (status, _, body) = call(
+            app.clone(),
+            Method::GET,
+            "/_nav?__mdview=nav&active=l1/l2/l3/l4/deep.md",
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let payload: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let tree = payload["tree"].as_array().unwrap();
+        let l4 = nav_child(nav_child(nav_child(nav_find(tree, "l1"), "l2"), "l3"), "l4");
+        let children = l4["children"].as_array().unwrap();
+        assert!(nav_find(children, "deep.md")["type"] == "file");
+        let other = nav_find(children, "other");
+        assert!(
+            other.get("children").is_none(),
+            "siblings off the active spine stay lazy"
+        );
+
+        let (status, _, body) = call(
+            app,
+            Method::GET,
+            "/_nav?__mdview=nav&active=../../outside.md",
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(!String::from_utf8_lossy(&body).contains("outside.md"));
+    }
+
+    #[tokio::test]
+    async fn nav_lazy_dir_rejects_unsafe_paths() {
+        let dir = fixture();
+        let root = dir.path();
+        std::fs::create_dir_all(root.join("l1/l2")).unwrap();
+        std::fs::write(root.join("l1/l2/x.md"), "# x\n").unwrap();
+        std::fs::create_dir_all(root.join(".hidden")).unwrap();
+        std::fs::create_dir_all(root.join("node_modules")).unwrap();
+        let app = app(state(root, false, 0, 0));
+
+        for uri in [
+            "/_nav?__mdview=nav&dir=..",
+            "/_nav?__mdview=nav&dir=../",
+            "/_nav?__mdview=nav&dir=l1/../../",
+            "/_nav?__mdview=nav&dir=/etc",
+            "/_nav?__mdview=nav&dir=a.md",
+            "/_nav?__mdview=nav&dir=.hidden",
+            "/_nav?__mdview=nav&dir=node_modules",
+            "/_nav?__mdview=nav&dir=l1%5C..",
+            "/_nav?__mdview=nav&dir=l1%00",
+        ] {
+            let (status, _, body) = call(app.clone(), Method::GET, uri).await;
+            assert_eq!(status, StatusCode::NOT_FOUND, "{uri}");
+            assert!(
+                !String::from_utf8_lossy(&body).contains("x.md"),
+                "{uri} leaked a child"
+            );
+        }
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::symlink;
+            let outside = tempfile::tempdir().unwrap();
+            std::fs::write(outside.path().join("secret.md"), "secret\n").unwrap();
+            symlink(outside.path(), root.join("outside")).unwrap();
+            symlink(root.join("l1"), root.join("link")).unwrap();
+            for uri in [
+                "/_nav?__mdview=nav&dir=outside",
+                "/_nav?__mdview=nav&dir=link",
+            ] {
+                let (status, _, _) = call(app.clone(), Method::GET, uri).await;
+                assert_eq!(status, StatusCode::NOT_FOUND, "{uri}");
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn nav_lazy_dir_keeps_safe_and_hidden_rules() {
+        let dir = fixture();
+        let root = dir.path();
+        let sub = root.join("sub");
+        std::fs::create_dir_all(sub.join(".hidden-dir")).unwrap();
+        std::fs::create_dir_all(sub.join("node_modules")).unwrap();
+        std::fs::write(sub.join("notes.txt"), "text\n").unwrap();
+        std::fs::write(sub.join(".hidden-dir/h.md"), "# h\n").unwrap();
+        std::fs::write(sub.join("node_modules/n.md"), "# n\n").unwrap();
+        std::fs::write(sub.join("pic.png"), b"\x89PNG\r\n\x1a\n").unwrap();
+
+        let safe_app = app(state(root, true, 0, 0));
+        let (status, _, body) = call(safe_app, Method::GET, "/_nav?__mdview=nav&dir=sub").await;
+        assert_eq!(status, StatusCode::OK);
+        let payload: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let names: Vec<&str> = payload["nodes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|node| node["name"].as_str().unwrap())
+            .collect();
+        assert!(names.contains(&"c.md"));
+        assert!(names.contains(&"pic.png"));
+        assert!(!names.contains(&"notes.txt"));
+        assert!(!names.contains(&".hidden-dir"));
+        assert!(!names.contains(&"node_modules"));
+
+        let full_app = app(state(root, false, 0, 0));
+        let (status, _, body) = call(full_app, Method::GET, "/_nav?__mdview=nav&dir=sub").await;
+        assert_eq!(status, StatusCode::OK);
+        let payload: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let names: Vec<&str> = payload["nodes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|node| node["name"].as_str().unwrap())
+            .collect();
+        assert!(names.contains(&"notes.txt"));
+        assert!(!names.contains(&".hidden-dir"));
+        assert!(!names.contains(&"node_modules"));
+    }
+
+    #[tokio::test]
+    async fn nav_lazy_dir_decodes_percent_encoded_names() {
+        let dir = fixture();
+        let root = dir.path();
+        std::fs::create_dir_all(root.join("my dir")).unwrap();
+        std::fs::write(root.join("my dir").join("中文.md"), "# 中文\n").unwrap();
+        let app = app(state(root, false, 0, 0));
+        let (status, _, body) = call(app, Method::GET, "/_nav?__mdview=nav&dir=my%20dir").await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(String::from_utf8_lossy(&body).contains("中文.md"));
     }
 
     #[tokio::test]

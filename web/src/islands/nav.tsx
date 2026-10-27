@@ -1,5 +1,5 @@
 import { render } from 'preact';
-import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import { Icon } from '../icons';
 
 interface NavNode {
@@ -17,6 +17,13 @@ interface NavPayload {
   tree: NavNode[];
 }
 
+interface NavDirPayload {
+  root: string;
+  dir: string;
+  partial?: boolean;
+  nodes: NavNode[];
+}
+
 interface NavProps {
   panel: HTMLElement;
   toggle: HTMLElement;
@@ -25,7 +32,17 @@ interface NavProps {
   currentIsDir: boolean;
 }
 
+interface DirStatus {
+  loading: boolean;
+  error: string;
+}
+
 const EXPANDED_KEY = 'mdview-nav-expanded';
+const HOVER_DELAY = 150;
+const HOVER_PREFETCH =
+  typeof window !== 'undefined' &&
+  ((typeof window.matchMedia === 'function' && window.matchMedia('(hover: hover)').matches) ||
+    !('ontouchstart' in window));
 
 type IdleWindow = Window & {
   requestIdleCallback?: (callback: () => void, options?: { timeout?: number }) => number;
@@ -69,19 +86,57 @@ function TreeNode({
   depth,
   expanded,
   currentPath,
+  loadedChildren,
+  dirStatus,
   onToggle,
+  onEnsure,
+  onRetry,
   onNavigate,
 }: {
   node: NavNode;
   depth: number;
   expanded: Set<string>;
   currentPath: string;
-  onToggle: (path: string) => void;
+  loadedChildren: Record<string, NavNode[]>;
+  dirStatus: Record<string, DirStatus>;
+  onToggle: (node: NavNode) => void;
+  onEnsure: (path: string) => void | Promise<void>;
+  onRetry: (path: string) => void;
   onNavigate: () => void;
 }) {
   const paddingLeft = `${8 + depth * 14}px`;
-  if (node.type === 'dir') {
-    const isOpen = expanded.has(node.path);
+  const childPaddingLeft = `${8 + (depth + 1) * 14 + 22}px`;
+  const isDir = node.type === 'dir';
+  const isOpen = isDir && expanded.has(node.path);
+  const children = node.children ?? loadedChildren[node.path];
+  const status = dirStatus[node.path];
+  const hoverTimer = useRef<number | null>(null);
+
+  const clearHover = useCallback(() => {
+    if (hoverTimer.current !== null) {
+      window.clearTimeout(hoverTimer.current);
+      hoverTimer.current = null;
+    }
+  }, []);
+
+  useEffect(() => clearHover, [clearHover]);
+
+  useEffect(() => {
+    if (!isDir || !isOpen || children !== undefined) return;
+    if (status?.loading || status?.error) return;
+    void onEnsure(node.path);
+  }, [isDir, isOpen, children, status?.loading, status?.error, node.path, onEnsure]);
+
+  if (isDir) {
+    function onEnter(): void {
+      if (!HOVER_PREFETCH || children !== undefined || status?.error) return;
+      clearHover();
+      hoverTimer.current = window.setTimeout(() => {
+        hoverTimer.current = null;
+        void onEnsure(node.path);
+      }, HOVER_DELAY);
+    }
+
     return (
       <div class={`nav-dir${isOpen ? ' is-open' : ''}`}>
         <button
@@ -89,30 +144,56 @@ function TreeNode({
           type="button"
           style={{ paddingLeft }}
           aria-expanded={isOpen}
-          onClick={() => onToggle(node.path)}
+          onClick={() => onToggle(node)}
+          onPointerEnter={onEnter}
+          onPointerLeave={clearHover}
         >
           <Icon name="chevron-right" class="nav-chevron" />
           <Icon name="folder" />
           <span>{node.name}</span>
         </button>
-        {isOpen && node.children?.length ? (
-          <div class="nav-children">
-            {node.children.map((child) => (
-              <TreeNode
-                key={child.path}
-                node={child}
-                depth={depth + 1}
-                expanded={expanded}
-                currentPath={currentPath}
-                onToggle={onToggle}
-                onNavigate={onNavigate}
-              />
-            ))}
-          </div>
+        {isOpen ? (
+          children === undefined ? (
+            status?.error ? (
+              <div class="nav-status" style={{ paddingLeft: childPaddingLeft }}>
+                <span>{status.error}</span>
+                <button class="nav-retry" type="button" onClick={() => onRetry(node.path)}>
+                  重试
+                </button>
+              </div>
+            ) : (
+              <div class="nav-status" style={{ paddingLeft: childPaddingLeft }}>
+                加载中…
+              </div>
+            )
+          ) : children.length ? (
+            <div class="nav-children">
+              {children.map((child) => (
+                <TreeNode
+                  key={child.path}
+                  node={child}
+                  depth={depth + 1}
+                  expanded={expanded}
+                  currentPath={currentPath}
+                  loadedChildren={loadedChildren}
+                  dirStatus={dirStatus}
+                  onToggle={onToggle}
+                  onEnsure={onEnsure}
+                  onRetry={onRetry}
+                  onNavigate={onNavigate}
+                />
+              ))}
+            </div>
+          ) : (
+            <div class="nav-empty" style={{ paddingLeft: childPaddingLeft }}>
+              空目录
+            </div>
+          )
         ) : null}
       </div>
     );
   }
+
   const active = node.path === currentPath;
   return (
     <a
@@ -134,11 +215,17 @@ function NavApp({ panel, toggle, rootName, currentPath, currentIsDir }: NavProps
   const [expanded, setExpanded] = useState<Set<string>>(() =>
     readExpanded(currentPath, currentIsDir),
   );
+  const [loadedChildren, setLoadedChildren] = useState<Record<string, NavNode[]>>({});
+  const [dirStatus, setDirStatus] = useState<Record<string, DirStatus>>({});
+  const [partial, setPartial] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const loadedRef = useRef(false);
   const loadingRef = useRef(false);
   const openRef = useRef(false);
+  const expandedRef = useRef(expanded);
+  const loadedChildrenRef = useRef<Record<string, NavNode[]>>({});
+  const pendingRef = useRef<Map<string, Promise<void>>>(new Map());
   const closeRef = useRef<HTMLButtonElement>(null);
 
   function applyOpen(next: boolean): void {
@@ -151,17 +238,81 @@ function NavApp({ panel, toggle, rootName, currentPath, currentIsDir }: NavProps
     else toggle.focus();
   }
 
+  function applyExpanded(next: Set<string>): void {
+    expandedRef.current = next;
+    setExpanded(next);
+  }
+
+  const storeChildren = useCallback((path: string, nodes: NavNode[]): void => {
+    const next = { ...loadedChildrenRef.current, [path]: nodes };
+    loadedChildrenRef.current = next;
+    setLoadedChildren(next);
+  }, []);
+
+  const ensureChildren = useCallback(
+    (path: string): Promise<void> => {
+      if (loadedChildrenRef.current[path] !== undefined) return Promise.resolve();
+      const pending = pendingRef.current.get(path);
+      if (pending) return pending;
+      setDirStatus((current) => ({ ...current, [path]: { loading: true, error: '' } }));
+      const promise = (async () => {
+        try {
+          const params = new URLSearchParams({ __mdview: 'nav', dir: path });
+          const response = await fetch(`/_nav?${params.toString()}`, {
+            headers: { Accept: 'application/json' },
+          });
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          const data = (await response.json()) as NavDirPayload;
+          storeChildren(path, Array.isArray(data.nodes) ? data.nodes : []);
+          if (data.partial) setPartial(true);
+          setDirStatus((current) => {
+            const next = { ...current };
+            delete next[path];
+            return next;
+          });
+        } catch {
+          setDirStatus((current) => ({
+            ...current,
+            [path]: { loading: false, error: '加载失败' },
+          }));
+        } finally {
+          pendingRef.current.delete(path);
+        }
+      })();
+      pendingRef.current.set(path, promise);
+      return promise;
+    },
+    [storeChildren],
+  );
+
+  const retryDir = useCallback(
+    (path: string): void => {
+      setDirStatus((current) => {
+        const next = { ...current };
+        delete next[path];
+        return next;
+      });
+      void ensureChildren(path);
+    },
+    [ensureChildren],
+  );
+
   async function load(): Promise<void> {
     if (loadedRef.current || loadingRef.current) return;
     loadingRef.current = true;
     setLoading(true);
     setError('');
     try {
-      const response = await fetch('/_nav?__mdview=nav', { headers: { Accept: 'application/json' } });
+      const params = new URLSearchParams({ __mdview: 'nav' });
+      if (currentPath) params.set('active', currentPath);
+      const response = await fetch(`/_nav?${params.toString()}`, {
+        headers: { Accept: 'application/json' },
+      });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const data = (await response.json()) as NavPayload;
       setPayload(data);
-      setExpanded(readExpanded(currentPath, currentIsDir));
+      setPartial(Boolean(data.partial));
+      applyExpanded(readExpanded(currentPath, currentIsDir));
       loadedRef.current = true;
     } catch {
       setError('导航加载失败');
@@ -237,25 +388,34 @@ function NavApp({ panel, toggle, rootName, currentPath, currentIsDir }: NavProps
         panel.scrollTop += activeRect.bottom - panelRect.bottom + 8;
       }
     });
-  }, [open, payload]);
+  }, [open, payload, loadedChildren]);
 
   function close(): void {
     applyOpen(false);
   }
 
-  function toggleDir(path: string): void {
-    setExpanded((current) => {
-      const next = new Set(current);
-      if (next.has(path)) next.delete(path);
-      else next.add(path);
-      saveExpanded(next);
-      return next;
-    });
+  function toggleDir(node: NavNode): void {
+    const next = new Set(expandedRef.current);
+    if (next.has(node.path)) {
+      next.delete(node.path);
+    } else {
+      next.add(node.path);
+      if (node.children === undefined && loadedChildrenRef.current[node.path] === undefined) {
+        void ensureChildren(node.path);
+      }
+    }
+    applyExpanded(next);
+    saveExpanded(next);
   }
 
   function retry(): void {
     loadedRef.current = false;
     setPayload(null);
+    setPartial(false);
+    loadedChildrenRef.current = {};
+    setLoadedChildren({});
+    setDirStatus({});
+    pendingRef.current.clear();
     void load();
   }
 
@@ -284,12 +444,16 @@ function NavApp({ panel, toggle, rootName, currentPath, currentIsDir }: NavProps
                 depth={0}
                 expanded={expanded}
                 currentPath={currentPath}
+                loadedChildren={loadedChildren}
+                dirStatus={dirStatus}
                 onToggle={toggleDir}
+                onEnsure={ensureChildren}
+                onRetry={retryDir}
                 onNavigate={close}
               />
             ))}
           </div>
-          {payload.partial ? <div class="nav-note">部分目录无法读取，内容未显示</div> : null}
+          {partial ? <div class="nav-note">部分目录无法读取，内容未显示</div> : null}
         </>
       ) : null}
     </>
