@@ -112,7 +112,7 @@ cargo build --release
 |------|------|
 | `GET /dir/` | 目录索引：无分组统一列表（目录在前）、名称/大小/时间/操作固定列、下载按钮；上级导航在面包屑；不自动寻找 `index.html`/`index.htm` |
 | `GET /x.md` | 渲染为 HTML（未信任目录先出现一次确认页）；页头显示检测编码 |
-| `GET /x.md?raw=1` | 源码查看页：文件名为标题，类型/大小/行数/编码/时间标签、行号、`id="L<n>"` 行锚点、预览/下载入口 |
+| `GET /x.md?raw=1` | 源码查看页：文件名为标题，类型/大小/行数/编码名/时间标签、行号、`id="L<n>"` 行锚点、预览/下载入口 |
 | `GET /x.md?download=1` | 原始字节 + `Content-Disposition`；非 HTML 文本 charset 用检测值 |
 | `GET /x.html` | 已信任根：原字节 `text/html` 顶层返回，无外壳/沙箱；未信任根：外壳 + 沙箱 iframe（可切源码） |
 | `GET /x.html?raw=1` | HTML 源码页；可信/未信任都可用 |
@@ -122,7 +122,7 @@ cargo build --release
 | `GET /a.zip/docs/x.md` | 包内条目；Markdown/源码/图片/PDF/HTML 走现有管线；相对链接保持在包内 |
 | `GET /a.zip?download=1` | 下载原压缩包 |
 | `GET /a.zip/docs/x?download=1` | 下载解包后的条目 |
-| 已知文本扩展名/文件名 | 源码查看页（文件名标题 + 类型/大小/行数/编码/时间标签 + 行号与客户端高亮）；> 256 KB 全文分块 |
+| 已知文本扩展名/文件名 | 源码查看页（文件名标题 + 类型/大小/行数/编码名/时间标签 + 行号与客户端高亮）；> 256 KB 全文分块 |
 | 无扩展名 | 前 512 字节无 NUL → 文本；有 NUL → 下载 |
 | 图片 / PDF | 按 MIME 内联；SVG 直开带 CSP `sandbox`，脚本不执行 |
 | 其他 | `application/octet-stream` 下载 |

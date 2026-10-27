@@ -1853,7 +1853,7 @@ async fn source_page(
          <div class=\"source-tags\">\
          <span class=\"badge source-kind\">{kind_icon}<span>{kind}</span></span>\
          <span class=\"badge\">{size}</span>\
-         <span class=\"badge source-encoding\" title=\"检测编码：{encoding}\">编码 {encoding}</span>\
+         <span class=\"badge source-encoding\" title=\"检测编码：{encoding}\">{encoding}</span>\
          <span class=\"badge\">{lines} 行</span>\
          <span class=\"badge\">更新于 {mtime}</span>\
          </div></div>\
@@ -3212,7 +3212,10 @@ mod tests {
         let html = String::from_utf8(body).unwrap();
         assert!(html.contains("<h1>b.txt</h1>"), "{html}");
         assert!(html.contains(">文本<"), "{html}");
-        assert!(html.contains("编码 UTF-8"), "{html}");
+        assert!(
+            html.contains("title=\"检测编码：UTF-8\">UTF-8</span>"),
+            "{html}"
+        );
         assert!(html.contains("3 行"), "{html}");
 
         let (status, headers, body) = call(app.clone(), Method::GET, "/b.txt?download=1").await;
@@ -3412,7 +3415,10 @@ mod tests {
         let (_, _, body) = call(app.clone(), Method::GET, "/gbk.md?raw=1").await;
         let html = String::from_utf8(body).unwrap();
         assert!(html.contains("source-encoding"), "{html}");
-        assert!(html.contains("编码 GBK"), "{html}");
+        assert!(
+            html.contains("title=\"检测编码：GBK\">GBK</span>"),
+            "{html}"
+        );
         assert!(html.contains("中文标题"), "{html}");
 
         let (_, _, body) = call(
@@ -3427,7 +3433,10 @@ mod tests {
 
         let (_, _, body) = call(app.clone(), Method::GET, "/gbk.txt").await;
         let html = String::from_utf8(body).unwrap();
-        assert!(html.contains("编码 GBK"), "{html}");
+        assert!(
+            html.contains("title=\"检测编码：GBK\">GBK</span>"),
+            "{html}"
+        );
         assert!(html.contains("编码测试 GBK 文本"), "{html}");
 
         let (_, headers, body) = call(app.clone(), Method::GET, "/gbk.md?download=1").await;
@@ -3460,7 +3469,10 @@ mod tests {
 
         let (_, _, body) = call(app.clone(), Method::GET, "/utf16.txt").await;
         let html = String::from_utf8(body).unwrap();
-        assert!(html.contains("编码 UTF-16LE BOM"), "{html}");
+        assert!(
+            html.contains("title=\"检测编码：UTF-16LE BOM\">UTF-16LE BOM</span>"),
+            "{html}"
+        );
         assert!(html.contains("UTF-16LE 文本"), "{html}");
 
         let (_, _, body) = call(app.clone(), Method::GET, "/utf16.md").await;

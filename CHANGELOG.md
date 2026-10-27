@@ -35,6 +35,8 @@
   `/search?__mdview=search`、`/_nav?__mdview=nav`、`/_assets/<name>?__mdview=asset`。
   不带标记的同路径按普通文件处理，同名文件/目录优先。
 - `.markdown` 按 Markdown 文档渲染并进入正文搜索；`.mdx` 保持源码页（MDX 标签）。
+- 源码页编码标签只显示编码名（如 `GBK`），与 Markdown 页头一致；`title` 仍为
+  “检测编码”。
 - 目录始终列目录，不自动寻找 `index.html`/`index.htm`（明确非目标）。
 
 ### 破坏性变更

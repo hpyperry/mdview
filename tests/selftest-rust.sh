@@ -330,13 +330,13 @@ chk ".markdown 搜索内容" "$(curl -s "$BASE/search?__mdview=search&q=markdown
 # and keep original bytes for downloads/raw.
 chk "GBK Markdown 预览" "$(curl -s "$BASE/gbk.md")" "中文标题"
 chk "GBK Markdown 编码标签" "$(curl -s "$BASE/gbk.md")" "GBK"
-chk "GBK 源码编码标签" "$(curl -s "$BASE/gbk.txt")" "编码 GBK"
+chk "GBK 源码编码标签" "$(curl -s "$BASE/gbk.txt")" 'title="检测编码：GBK">GBK</span>'
 chk "GBK 搜索正文" "$(curl -s "$BASE/search?__mdview=search&q=%E4%B8%AD%E6%96%87")" 'href="/gbk.md#L1"'
 chk "GBK 下载 charset" "$(header "$BASE/gbk.txt?download=1" content-type)" "charset=gbk"
 chk "GBK CSS raw charset" "$(curl -s -o /dev/null -w '%{content_type}' -H 'Sec-Fetch-Dest: style' "$BASE/gbk.css")" "text/css; charset=gbk"
 chk_num "GBK CSS 原始字节" "$(curl -s -H 'Sec-Fetch-Dest: style' "$BASE/gbk.css" | wc -c | tr -d ' ')" "$(wc -c <"$ROOT/gbk.css" | tr -d ' ')"
 chk "UTF-16 预览" "$(curl -s "$BASE/utf16le.txt")" "UTF-16LE 文本"
-chk "UTF-16 编码标签" "$(curl -s "$BASE/utf16le.txt")" "编码 UTF-16LE BOM"
+chk "UTF-16 编码标签" "$(curl -s "$BASE/utf16le.txt")" 'title="检测编码：UTF-16LE BOM">UTF-16LE BOM</span>'
 chk "UTF-16 Markdown 预览" "$(curl -s "$BASE/utf16.md")" "UTF-16 标题"
 chk "UTF-16 Markdown 标签" "$(curl -s "$BASE/utf16.md")" "UTF-16LE BOM"
 nchk "UTF-32 不进源码页" "$(curl -s "$BASE/utf32le.txt")" "source-encoding"
