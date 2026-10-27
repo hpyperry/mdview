@@ -25,7 +25,7 @@ pub struct Cli {
     #[arg(long)]
     pub root: Option<PathBuf>,
 
-    /// 只服务 .md 与图片
+    /// 只放行 .md/.markdown、图片与 HTML 源码；HTML 只给源码
     #[arg(long)]
     pub safe: bool,
 

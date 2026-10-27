@@ -86,9 +86,16 @@ cat >"$ROOT/a.md" <<'MD'
 | 1 | 2 |
 MD
 printf '# Child\n\nneedle in child\n' >"$ROOT/sub/c.md"
+printf '<h1>SUB INDEX</h1>\n' >"$ROOT/sub/index.html"
 printf 'hello\nworld\n' >"$ROOT/b.txt"
 awk 'BEGIN { for (i = 1; i <= 11999; i++) print "line with some text 0123456789"; printf "last line marker" }' >"$ROOT/big.txt"
 printf 'needle in text\n' >"$ROOT/search.md"
+printf 'a real search file\n' >"$ROOT/search"
+printf 'a real nav file\n' >"$ROOT/_nav"
+mkdir -p "$ROOT/_assets"
+printf 'a real app css\n' >"$ROOT/_assets/app.css"
+printf '# Markdown Ext\n\nmarkdownneedle\n' >"$ROOT/a.markdown"
+printf '# MDX\n\n<Component />\n' >"$ROOT/a.mdx"
 printf '\211PNG\r\n\032\n' >"$ROOT/img.png"
 printf 'abc\0def' >"$ROOT/bin.dat"
 printf '# in space dir\n' >"$ROOT/my dir/a.md"
@@ -167,6 +174,11 @@ chk "子目录面包屑" "$SUB_HTML" 'aria-label="面包屑"'
 chk "子目录文件链接正确" "$SUB_HTML" 'href="/sub/c.md"'
 nchk "子目录无双重斜杠" "$SUB_HTML" '/sub//'
 nchk "上级链接不是 //" "$SUB_HTML" 'href="//"'
+nchk "目录不自动 index" "$SUB_HTML" "<h1>SUB INDEX</h1>"
+chk "目录列出 index.html" "$SUB_HTML" "index.html"
+chk "文件尾斜杠 404" "$(code "$BASE/b.txt/")" "404"
+chk "编码尾斜杠 404" "$(code "$BASE/b.txt%2f")" "404"
+chk "目录尾斜杠仍 200" "$(code "$BASE/sub/")" "200"
 
 LOC="$(header "$BASE/sub" location)"
 chk "目录 301" "$(code "$BASE/sub")" "301"
@@ -237,9 +249,9 @@ chk "下载 Markdown 类型" "$DL" "text/markdown"
 chk "下载原始字节" "$(cat "$TMP/dl.md")" "# Hello"
 chk "文本下载" "$(curl -s "$BASE/b.txt?download=1")" "hello"
 
-SEARCH="$(curl -s --get --data-urlencode 'q=needle' "$BASE/search")"
+SEARCH="$(curl -s --get --data-urlencode 'q=needle' "$BASE/search?__mdview=search")"
 chk "搜索页岛清单" "$SEARCH" 'data-islands="theme nav search totop"'
-NAVJSON="$(curl -s "$BASE/_nav")"
+NAVJSON="$(curl -s "$BASE/_nav?__mdview=nav")"
 chk "导航 JSON" "$NAVJSON" '"type":"dir"'
 chk "导航含文件" "$NAVJSON" '"name":"a.md"'
 nchk "导航跳过隐藏目录" "$NAVJSON" '".hidden"'
@@ -256,7 +268,7 @@ chk "CSS 子资源 MIME" "$(curl -s -o /dev/null -w '%{content_type}' -H 'Sec-Fe
 chk "CSS 子资源原文" "$(curl -s -H 'Sec-Fetch-Dest: style' "$BASE/style.css")" "body { color: rgb(1, 2, 3); }"
 chk "CSS 直接访问是源码页" "$(curl -s "$BASE/style.css")" '<h1>style.css</h1>'
 chk "SVG 直开 CSP sandbox" "$(header "$BASE/evil.svg" content-security-policy)" "sandbox allow-top-navigation-by-user-activation"
-chk "HTML 搜索行跳源码" "$(curl -s "$BASE/search?q=htmlneedle")" 'href="/page.html?raw=1#L1"'
+chk "HTML 搜索行跳源码" "$(curl -s "$BASE/search?__mdview=search&q=htmlneedle")" 'href="/page.html?raw=1#L1"'
 chk "HTML 目录行有源码入口" "$HOME_HTML" 'href="/page.html?raw=1"'
 chk "目录下载图标有悬浮文案" "$HOME_HTML" 'title="下载 page.html"'
 chk "目录源码图标有悬浮文案" "$HOME_HTML" 'title="查看 page.html 源码"'
@@ -282,16 +294,32 @@ nchk "搜索无命中字样" "$SEARCH" '命中'
 nchk "搜索无扫描耗时" "$SEARCH" '实时扫描'
 chk "搜索结果条目可点击" "$SEARCH" 'class="hit" href='
 chk "Markdown 命中跳渲染行" "$SEARCH" 'href="/search.md#L1"'
-chk "搜索文本命中跳行" "$(curl -s "$BASE/search?q=hello")" 'href="/b.txt#L1"'
+chk "搜索文本命中跳行" "$(curl -s "$BASE/search?__mdview=search&q=hello")" 'href="/b.txt#L1"'
 nchk "搜索不再出现源码 Ln" "$SEARCH" "源码 Ln"
 nchk "搜索不再出现打开文档" "$SEARCH" '打开文档'
 chk "搜索文件名命中" "$SEARCH" "search.md"
-chk "搜索大小写不敏感" "$(curl -s "$BASE/search?q=CASENEEDLE")" "CaseNeedle.md"
-chk "搜索文件标题可点击" "$(curl -s "$BASE/search?q=CaseNeedle")" 'class="result-head" href="/CaseNeedle.md"'
-chk "搜索中文查询" "$(curl -s "$BASE/search?q=%E5%85%B3%E9%94%AE%E8%AF%8D")" "关键词.md"
-HIDDEN_SEARCH="$(curl -s "$BASE/search?q=HIDDENNEEDLE")"
+chk "搜索大小写不敏感" "$(curl -s "$BASE/search?__mdview=search&q=CASENEEDLE")" "CaseNeedle.md"
+chk "搜索文件标题可点击" "$(curl -s "$BASE/search?__mdview=search&q=CaseNeedle")" 'class="result-head" href="/CaseNeedle.md"'
+chk "搜索中文查询" "$(curl -s "$BASE/search?__mdview=search&q=%E5%85%B3%E9%94%AE%E8%AF%8D")" "关键词.md"
+HIDDEN_SEARCH="$(curl -s "$BASE/search?__mdview=search&q=HIDDENNEEDLE")"
 nchk "搜索跳过隐藏目录" "$HIDDEN_SEARCH" ".hidden/h.md"
 nchk "搜索跳过 node_modules" "$HIDDEN_SEARCH" "node_modules/n.md"
+
+# Internal URLs are marked; unmarked paths belong to the file system.
+chk "search 同名文件优先" "$(curl -s "$BASE/search")" "a real search file"
+chk "search 内部页面需标记" "$(curl -s "$BASE/search?__mdview=search&q=hello")" 'class="search-page-form"'
+nchk "search 内部页面不返回同名文件" "$(curl -s "$BASE/search?__mdview=search&q=hello")" "a real search file"
+chk "_nav 同名文件优先" "$(curl -s "$BASE/_nav")" "a real nav file"
+chk "_nav 内部 JSON 需标记" "$(curl -s "$BASE/_nav?__mdview=nav")" '"tree"'
+nchk "_nav 内部 JSON 不返回同名文件" "$(curl -s "$BASE/_nav?__mdview=nav")" "a real nav file"
+
+# Markdown extension scope: .md/.markdown render; .mdx stays source.
+chk ".markdown 渲染" "$(curl -s "$BASE/a.markdown")" 'class="markdown-body"'
+chk ".markdown 内容" "$(curl -s "$BASE/a.markdown")" ">Markdown Ext</h1>"
+chk ".mdx 源码页" "$(curl -s "$BASE/a.mdx")" 'class="source-wrap"'
+chk ".mdx 标签" "$(curl -s "$BASE/a.mdx")" ">MDX<"
+chk ".markdown 搜索内容" "$(curl -s "$BASE/search?__mdview=search&q=markdownneedle")" 'href="/a.markdown#L3"'
+chk "压缩包条目尾斜杠 404" "$(code "$BASE/sample.zip/docs/a.md/")" "404"
 
 chk "图片 MIME" "$(ctype "$BASE/img.png")" "image/png"
 chk "二进制 MIME" "$(ctype "$BASE/bin.dat")" "application/octet-stream"
@@ -328,15 +356,19 @@ chk "404 返回首页" "$ERR" "返回首页"
 TRAVERSAL_CODE="$(code "$BASE/..%2F..%2Fetc%2Fpasswd")"
 if [ "$TRAVERSAL_CODE" = "403" ] || [ "$TRAVERSAL_CODE" = "404" ]; then ok "路径穿越拒绝"; else bad "路径穿越拒绝 ($TRAVERSAL_CODE)"; fi
 
-chk "资产 highlight.js" "$(code "$BASE/_assets/highlight.js")" "200"
-chk "资产 highlight.css" "$(code "$BASE/_assets/highlight.css")" "200"
-chk "资产 markdown.css" "$(code "$BASE/_assets/markdown.css")" "200"
-chk "资产 app.css" "$(code "$BASE/_assets/app.css")" "200"
-chk "资产 app.js" "$(code "$BASE/_assets/app.js")" "200"
+chk "资产 highlight.js" "$(code "$BASE/_assets/highlight.js?__mdview=asset")" "200"
+chk "资产 highlight.css" "$(code "$BASE/_assets/highlight.css?__mdview=asset")" "200"
+chk "资产 markdown.css" "$(code "$BASE/_assets/markdown.css?__mdview=asset")" "200"
+chk "资产 app.css" "$(code "$BASE/_assets/app.css?__mdview=asset")" "200"
+chk "资产 app.js" "$(code "$BASE/_assets/app.js?__mdview=asset")" "200"
+chk "资产 app.css 是内嵌 CSS" "$(ctype "$BASE/_assets/app.css?__mdview=asset")" "text/css; charset=utf-8"
+chk "同名 _assets/app.css 文件优先" "$(ctype "$BASE/_assets/app.css")" "text/html; charset=utf-8"
+chk "同名 _assets/app.css 内容" "$(curl -s "$BASE/_assets/app.css")" "a real app css"
+chk "无同名文件的内部路径 404" "$(code "$BASE/_assets/highlight.js")" "404"
 ASSET_HTML="$(curl -s "$BASE/a.md")"
-chk "页面引用 highlight.js" "$ASSET_HTML" "/_assets/highlight.js"
-chk "页面引用 app.css" "$ASSET_HTML" "/_assets/app.css"
-chk "页面引用 app.js" "$ASSET_HTML" "/_assets/app.js"
+chk "页面引用 highlight.js" "$ASSET_HTML" "/_assets/highlight.js?__mdview=asset"
+chk "页面引用 app.css" "$ASSET_HTML" "/_assets/app.css?__mdview=asset"
+chk "页面引用 app.js" "$ASSET_HTML" "/_assets/app.js?__mdview=asset"
 
 HEADERS="$(curl -s -I "$BASE/img.png" | tr -d '\r' | tr '[:upper:]' '[:lower:]')"
 chk "HEAD 200" "$HEADERS" "200"
@@ -350,19 +382,24 @@ wait_http "$SAFE_PORT" || { echo "safe server failed"; exit 2; }
 SAFE="http://127.0.0.1:$SAFE_PORT"
 chk "--safe 拦截文本" "$(code "$SAFE/b.txt")" "404"
 chk "--safe 放行 md" "$(code "$SAFE/a.md")" "200"
+chk "--safe 放行 .markdown" "$(code "$SAFE/a.markdown")" "200"
 chk "--safe 放行图片" "$(code "$SAFE/img.png")" "200"
 chk "--safe 拦截 Makefile" "$(code "$SAFE/Makefile")" "404"
 chk "--safe 放行 HTML 源码" "$(code "$SAFE/page.html")" "200"
 nchk "--safe HTML 无 iframe" "$(curl -s "$SAFE/page.html")" '<iframe'
 nchk "--safe view 不渲染" "$(curl -s "$SAFE/page.html?view=1")" '<iframe'
 chk "--safe CSS 拦截" "$(code "$SAFE/style.css")" "404"
+SAFE_SEARCH="$(curl -s "$SAFE/search?__mdview=search&q=hello")"
+chk "--safe 搜索扫 Markdown" "$SAFE_SEARCH" "a.md"
+nchk "--safe 搜索不扫文本" "$SAFE_SEARCH" "b.txt"
 
 echo "== no-search server =="
 NOS_PORT="$((BASE_PORT + 2))"
 start_server "$NOS_PORT" --trust --no-search --port-tries 0
 wait_http "$NOS_PORT" || { echo "no-search server failed"; exit 2; }
 NOS="http://127.0.0.1:$NOS_PORT"
-chk "--no-search 关闭路由" "$(code "$NOS/search?q=x")" "404"
+chk "--no-search 关闭路由" "$(code "$NOS/search?__mdview=search&q=x")" "404"
+chk "--no-search 同名文件仍可取" "$(code "$NOS/search")" "200"
 NOS_HTML="$(curl -s "$NOS/")"
 nchk "--no-search 无搜索入口" "$NOS_HTML" 'id="search-open"'
 chk "--no-search 岛清单省略 search" "$NOS_HTML" 'data-islands="theme nav totop"'
@@ -379,7 +416,7 @@ MPB="http://127.0.0.1:$MP_PORT"
 chk "上限内仍渲染" "$(curl -s "$MPB/small.md")" "small big hit"
 chk "超限强制下载" "$(header "$MPB/huge.md" content-disposition)" "attachment"
 chk "超限内容完整" "$(curl -s -o /dev/null -w '%{size_download}' "$MPB/huge.md")" "$(wc -c <"$MP/huge.md" | tr -d ' ')"
-MP_SEARCH="$(curl -s "$MPB/search?q=big" | sed 's#.*<main class="main">##' | sed 's#</main>.*##')"
+MP_SEARCH="$(curl -s "$MPB/search?__mdview=search&q=big" | sed 's#.*<main class="main">##' | sed 's#</main>.*##')"
 chk "搜索仍命中上限内文件" "$MP_SEARCH" "small.md"
 nchk "搜索跳过超限文件" "$MP_SEARCH" "huge.md"
 

@@ -323,24 +323,120 @@ fn loggable_uri(uri: &Uri) -> String {
     format!("{}?{}", uri.path(), parts.join("&"))
 }
 
-async fn asset_highlight_js() -> Response {
-    asset_response(HIGHLIGHT_JS, "text/javascript; charset=utf-8")
+const INTERNAL_QUERY_KEY: &str = "__mdview";
+
+fn internal_marker(query: &HashMap<String, String>) -> Option<&str> {
+    query.get(INTERNAL_QUERY_KEY).map(String::as_str)
 }
 
-async fn asset_highlight_css() -> Response {
-    asset_response(HIGHLIGHT_CSS.as_bytes(), "text/css; charset=utf-8")
+async fn asset_highlight_js(
+    State(state): State<AppState>,
+    method: Method,
+    uri: Uri,
+    headers: HeaderMap,
+    Query(query): Query<HashMap<String, String>>,
+) -> Response {
+    asset_or_file(
+        state,
+        method,
+        uri,
+        headers,
+        query,
+        HIGHLIGHT_JS,
+        "text/javascript; charset=utf-8",
+    )
+    .await
 }
 
-async fn asset_markdown_css() -> Response {
-    asset_response(MARKDOWN_CSS.as_bytes(), "text/css; charset=utf-8")
+async fn asset_highlight_css(
+    State(state): State<AppState>,
+    method: Method,
+    uri: Uri,
+    headers: HeaderMap,
+    Query(query): Query<HashMap<String, String>>,
+) -> Response {
+    asset_or_file(
+        state,
+        method,
+        uri,
+        headers,
+        query,
+        HIGHLIGHT_CSS.as_bytes(),
+        "text/css; charset=utf-8",
+    )
+    .await
 }
 
-async fn asset_app_css() -> Response {
-    asset_response(APP_CSS.as_bytes(), "text/css; charset=utf-8")
+async fn asset_markdown_css(
+    State(state): State<AppState>,
+    method: Method,
+    uri: Uri,
+    headers: HeaderMap,
+    Query(query): Query<HashMap<String, String>>,
+) -> Response {
+    asset_or_file(
+        state,
+        method,
+        uri,
+        headers,
+        query,
+        MARKDOWN_CSS.as_bytes(),
+        "text/css; charset=utf-8",
+    )
+    .await
 }
 
-async fn asset_app_js() -> Response {
-    asset_response(APP_JS, "text/javascript; charset=utf-8")
+async fn asset_app_css(
+    State(state): State<AppState>,
+    method: Method,
+    uri: Uri,
+    headers: HeaderMap,
+    Query(query): Query<HashMap<String, String>>,
+) -> Response {
+    asset_or_file(
+        state,
+        method,
+        uri,
+        headers,
+        query,
+        APP_CSS.as_bytes(),
+        "text/css; charset=utf-8",
+    )
+    .await
+}
+
+async fn asset_app_js(
+    State(state): State<AppState>,
+    method: Method,
+    uri: Uri,
+    headers: HeaderMap,
+    Query(query): Query<HashMap<String, String>>,
+) -> Response {
+    asset_or_file(
+        state,
+        method,
+        uri,
+        headers,
+        query,
+        APP_JS,
+        "text/javascript; charset=utf-8",
+    )
+    .await
+}
+
+async fn asset_or_file(
+    state: AppState,
+    method: Method,
+    uri: Uri,
+    headers: HeaderMap,
+    query: HashMap<String, String>,
+    bytes: &'static [u8],
+    content_type: &'static str,
+) -> Response {
+    if internal_marker(&query) == Some("asset") {
+        return asset_response(bytes, content_type);
+    }
+    handle(State(state), method, uri, headers, Query(query)).await
 }
 
 fn asset_response(bytes: &'static [u8], content_type: &'static str) -> Response {
@@ -556,6 +652,18 @@ async fn handle(
 
     if !metadata.is_file() {
         return error_page(&state, StatusCode::NOT_FOUND, "这个文件无法预览", is_head).await;
+    }
+
+    // A file path ending in `/` (literal or encoded `%2f`) names a collection,
+    // not the file. Python's static server and our archive entries both 404 it.
+    if decoded.ends_with('/') {
+        return error_page(
+            &state,
+            StatusCode::NOT_FOUND,
+            "这个文件不存在，或已被移动",
+            is_head,
+        )
+        .await;
     }
 
     if state.safe && !allowed_in_safe_mode(&target) {
@@ -784,7 +892,7 @@ async fn handle_archive(
         }
         return list_dir_with(state, &canonical, &virtual_rel, is_head, None).await;
     }
-    if !metadata.is_file() || raw_path.ends_with('/') {
+    if !metadata.is_file() || decoded_path_ends_with_slash(raw_path) {
         return error_page(
             state,
             StatusCode::NOT_FOUND,
@@ -854,6 +962,15 @@ fn is_html_path(path: &Path) -> bool {
 
 fn is_html_rel(rel: &str) -> bool {
     is_html_path(Path::new(rel))
+}
+
+/// Whether the raw request path ends in `/` after percent-decoding. This also
+/// catches `%2f`, which the router keeps distinct from a literal slash.
+fn decoded_path_ends_with_slash(raw_path: &str) -> bool {
+    percent_decode_str(raw_path)
+        .decode_utf8()
+        .map(|value| value.ends_with('/'))
+        .unwrap_or(false)
 }
 
 async fn resolve_path(root: &Path, rel: &str) -> Result<PathBuf, StatusCode> {
@@ -1073,8 +1190,13 @@ async fn list_dir_with(
 async fn search(
     State(state): State<AppState>,
     method: Method,
+    uri: Uri,
+    headers: HeaderMap,
     Query(query): Query<HashMap<String, String>>,
 ) -> Response {
+    if internal_marker(&query) != Some("search") {
+        return handle(State(state), method, uri, headers, Query(query)).await;
+    }
     let is_head = method == Method::HEAD;
     if method != Method::GET && method != Method::HEAD {
         return error_page(
@@ -1100,7 +1222,8 @@ async fn search(
         let root = state.root.clone();
         let needle = q.clone();
         let max_preview = state.max_preview;
-        tokio::task::spawn_blocking(move || search_files(&root, &needle, max_preview))
+        let safe = state.safe;
+        tokio::task::spawn_blocking(move || search_files(&root, &needle, max_preview, safe))
             .await
             .unwrap_or_default()
     };
@@ -1153,7 +1276,7 @@ fn nav_file_kind(path: &Path) -> &'static str {
         .and_then(OsStr::to_str)
         .unwrap_or("")
         .to_ascii_lowercase();
-    if ext == "md" || ext == "markdown" || ext == "mdx" {
+    if ext == "md" || ext == "markdown" {
         "doc"
     } else if IMAGE_EXT.contains(&ext.as_str()) {
         "image"
@@ -1268,7 +1391,16 @@ fn nav_payload(root: &Path, safe: bool) -> std::io::Result<NavPayload> {
     })
 }
 
-async fn nav(State(state): State<AppState>) -> Response {
+async fn nav(
+    State(state): State<AppState>,
+    method: Method,
+    uri: Uri,
+    headers: HeaderMap,
+    Query(query): Query<HashMap<String, String>>,
+) -> Response {
+    if internal_marker(&query) != Some("nav") {
+        return handle(State(state), method, uri, headers, Query(query)).await;
+    }
     let root = state.root.clone();
     let root_label = root.display().to_string();
     let safe = state.safe;
@@ -1346,6 +1478,7 @@ impl SearchKind {
 fn search_page_form(q: &str) -> String {
     format!(
         "<form class=\"search-page-form\" action=\"/search\" method=\"get\" role=\"search\">\
+         <input type=\"hidden\" name=\"__mdview\" value=\"search\">\
          <input type=\"search\" name=\"q\" value=\"{}\" placeholder=\"搜索文件名和内容\" \
          aria-label=\"搜索文件名和内容\" autocomplete=\"off\">\
          <button class=\"action primary\" type=\"submit\">{}<span>搜索</span></button></form>",
@@ -1437,7 +1570,7 @@ fn render_search(q: &str, results: &SearchResults, crumbs: &str) -> String {
     body
 }
 
-fn search_files(root: &Path, needle: &str, max_preview: u64) -> SearchResults {
+fn search_files(root: &Path, needle: &str, max_preview: u64, safe: bool) -> SearchResults {
     let needle = needle.to_lowercase();
     let mut groups: Vec<SearchGroup> = Vec::new();
     let mut total_hits = 0usize;
@@ -1448,6 +1581,9 @@ fn search_files(root: &Path, needle: &str, max_preview: u64) -> SearchResults {
         .filter_entry(|entry| !skipped_search_entry(entry));
     for entry in walker.flatten() {
         if !entry.file_type().is_file() {
+            continue;
+        }
+        if safe && !allowed_in_safe_mode(entry.path()) {
             continue;
         }
         let rel = entry
@@ -1462,7 +1598,7 @@ fn search_files(root: &Path, needle: &str, max_preview: u64) -> SearchResults {
             .and_then(OsStr::to_str)
             .unwrap_or("")
             .to_ascii_lowercase();
-        let kind = if ext == "md" {
+        let kind = if ext == "md" || ext == "markdown" {
             SearchKind::Doc
         } else if is_search_text(entry.path()) {
             SearchKind::Text
@@ -1958,7 +2094,8 @@ fn source_language_label(path: &Path, info: &FileInfo) -> String {
         .unwrap_or("")
         .to_ascii_lowercase();
     let label = match ext.as_str() {
-        "md" | "markdown" | "mdx" => "Markdown",
+        "md" | "markdown" => "Markdown",
+        "mdx" => "MDX",
         "html" | "htm" => "HTML",
         "xml" => "XML",
         "toml" => "TOML",
@@ -2309,10 +2446,11 @@ fn page_crumbs(state: &AppState, rel: &str, kind: PageKind) -> String {
 fn topbar_search(query: &str) -> String {
     format!(
         "<div class=\"search-wrap\">\
-         <a class=\"icon-btn search-open\" id=\"search-open\" href=\"/search\" \
+         <a class=\"icon-btn search-open\" id=\"search-open\" href=\"/search?__mdview=search\" \
          aria-label=\"搜索\" title=\"搜索（/）\" aria-expanded=\"false\">{search}</a>\
          <div class=\"search-pop\" id=\"search-pop\" hidden>\
          <form class=\"search-form\" id=\"search-form\" action=\"/search\" method=\"get\" role=\"search\">\
+         <input type=\"hidden\" name=\"__mdview\" value=\"search\">\
          {search}<input id=\"search-input\" type=\"search\" name=\"q\" value=\"{query}\" \
          placeholder=\"搜索文件名和内容\" aria-label=\"搜索文件名和内容\" autocomplete=\"off\">\
          <button class=\"search-submit\" type=\"submit\">搜索</button></form>\
@@ -2372,11 +2510,11 @@ async fn html_page(state: &AppState, status: StatusCode, page: Page, is_head: bo
          if(t==='light'||t==='dark'){{document.documentElement.dataset.theme=t;document.documentElement.dataset.themeMode=t;}}\
          else if(t==='system'){{document.documentElement.dataset.themeMode='system';}}\
          }}catch(e){{}}}})();</script>\
-         <link rel=\"stylesheet\" href=\"/_assets/markdown.css?v={version}\">\
-         <link rel=\"stylesheet\" href=\"/_assets/highlight.css?v={version}\">\
-         <link rel=\"stylesheet\" href=\"/_assets/app.css?v={version}\">\
-         <script nonce=\"{nonce}\" src=\"/_assets/highlight.js?v={version}\" defer></script>\
-         <script nonce=\"{nonce}\" src=\"/_assets/app.js?v={version}\" defer></script>\
+         <link rel=\"stylesheet\" href=\"/_assets/markdown.css?__mdview=asset&v={version}\">\
+         <link rel=\"stylesheet\" href=\"/_assets/highlight.css?__mdview=asset&v={version}\">\
+         <link rel=\"stylesheet\" href=\"/_assets/app.css?__mdview=asset&v={version}\">\
+         <script nonce=\"{nonce}\" src=\"/_assets/highlight.js?__mdview=asset&v={version}\" defer></script>\
+         <script nonce=\"{nonce}\" src=\"/_assets/app.js?__mdview=asset&v={version}\" defer></script>\
          </head><body data-totop=\"1\" data-page=\"{page_class}\" data-islands=\"{islands}\" \
          data-current-path=\"{current_path}\" data-current-dir=\"{current_is_dir}\">\
          <div class=\"app\"><header class=\"topbar\">\
@@ -2470,7 +2608,7 @@ async fn classify(path: &Path) -> FileInfo {
         .to_ascii_lowercase();
     let name = path.file_name().and_then(OsStr::to_str).unwrap_or("");
 
-    if ext == "md" {
+    if ext == "md" || ext == "markdown" {
         return FileInfo {
             kind: Kind::Markdown,
             mime: "text/markdown; charset=utf-8".to_string(),
@@ -2537,7 +2675,11 @@ fn allowed_in_safe_mode(path: &Path) -> bool {
         .and_then(OsStr::to_str)
         .unwrap_or("")
         .to_ascii_lowercase();
-    ext == "md" || ext == "html" || ext == "htm" || IMAGE_EXT.contains(&ext.as_str())
+    ext == "md"
+        || ext == "markdown"
+        || ext == "html"
+        || ext == "htm"
+        || IMAGE_EXT.contains(&ext.as_str())
 }
 
 fn is_text_ext(ext: &str) -> bool {
@@ -2924,6 +3066,37 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn file_trailing_slash_is_not_found() {
+        let dir = fixture();
+        let app = app(state(dir.path(), false, 0, 0));
+        for uri in ["/b.txt/", "/b.txt%2f", "/b.txt%2F", "/sub/../b.txt/"] {
+            let (status, _, _) = call(app.clone(), Method::GET, uri).await;
+            assert_eq!(status, StatusCode::NOT_FOUND, "{uri}");
+        }
+        let (status, _, _) = call(app.clone(), Method::HEAD, "/b.txt/").await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        let (status, _, _) = call(app, Method::GET, "/sub/").await;
+        assert_eq!(status, StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn directory_index_is_listed_not_served() {
+        let dir = fixture();
+        std::fs::write(
+            dir.path().join("sub").join("index.html"),
+            "<h1>INDEX</h1>\n",
+        )
+        .unwrap();
+        let app = app(state(dir.path(), false, 0, 0));
+        let (status, _, body) = call(app, Method::GET, "/sub/").await;
+        assert_eq!(status, StatusCode::OK);
+        let html = String::from_utf8(body).unwrap();
+        assert!(html.contains("index.html"), "{html}");
+        assert!(html.contains("c.md"), "{html}");
+        assert!(!html.contains("<h1>INDEX</h1>"), "{html}");
+    }
+
+    #[tokio::test]
     async fn source_and_download() {
         let dir = fixture();
         let app = app(state(dir.path(), false, 0, 0));
@@ -3028,6 +3201,73 @@ mod tests {
         assert!(html.contains("<h1>a.md</h1>"));
         assert!(!html.contains("<h1>源码</h1>"));
         assert!(html.contains("id=\"L1\""));
+    }
+
+    #[tokio::test]
+    async fn markdown_extension_scope_matches_adr_0018() {
+        let dir = fixture();
+        std::fs::write(
+            dir.path().join("a.markdown"),
+            "# Markdown Ext\n\nunique_markdown_body\n",
+        )
+        .unwrap();
+        std::fs::write(dir.path().join("a.mdx"), "# MDX\n\n<Component />\n").unwrap();
+        let app = app(state(dir.path(), false, 0, 0));
+
+        let (status, _, body) = call(app.clone(), Method::GET, "/a.markdown").await;
+        assert_eq!(status, StatusCode::OK);
+        let html = String::from_utf8(body).unwrap();
+        assert!(html.contains("class=\"markdown-body\""), "{html}");
+        assert!(html.contains(">Markdown Ext</h1>"), "{html}");
+
+        let (status, _, body) = call(app.clone(), Method::GET, "/a.markdown?raw=1").await;
+        assert_eq!(status, StatusCode::OK);
+        let html = String::from_utf8(body).unwrap();
+        assert!(html.contains("<h1>a.markdown</h1>"), "{html}");
+        assert!(html.contains("id=\"L1\""), "{html}");
+
+        let (status, _, body) = call(app.clone(), Method::GET, "/a.mdx").await;
+        assert_eq!(status, StatusCode::OK);
+        let html = String::from_utf8(body).unwrap();
+        assert!(html.contains("class=\"source-wrap\""), "{html}");
+        assert!(html.contains("<h1>a.mdx</h1>"), "{html}");
+        assert!(html.contains(">MDX<"), "{html}");
+        assert!(!html.contains("class=\"markdown-body\""), "{html}");
+
+        let (_, _, body) = call(
+            app.clone(),
+            Method::GET,
+            "/search?__mdview=search&q=unique_markdown_body",
+        )
+        .await;
+        let html = String::from_utf8(body).unwrap();
+        assert!(html.contains("href=\"/a.markdown#L3\""), "{html}");
+
+        let (_, _, body) = call(
+            app.clone(),
+            Method::GET,
+            "/search?__mdview=search&q=Component",
+        )
+        .await;
+        let html = String::from_utf8(body).unwrap();
+        assert!(html.contains("href=\"/a.mdx#L3\""), "{html}");
+
+        let (_, _, body) = call(app, Method::GET, "/_nav?__mdview=nav").await;
+        let payload: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let tree = payload["tree"].as_array().unwrap();
+        let markdown = tree
+            .iter()
+            .find(|node| node["name"] == "a.markdown")
+            .unwrap();
+        assert_eq!(markdown["file_kind"], "doc");
+        let mdx = tree.iter().find(|node| node["name"] == "a.mdx").unwrap();
+        assert_eq!(mdx["file_kind"], "text");
+
+        let safe_app = super::app(state(dir.path(), true, 0, 0));
+        let (status, _, _) = call(safe_app.clone(), Method::GET, "/a.markdown").await;
+        assert_eq!(status, StatusCode::OK);
+        let (status, _, _) = call(safe_app, Method::GET, "/a.mdx").await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
     }
 
     #[tokio::test]
@@ -3293,7 +3533,7 @@ mod tests {
     async fn html_search_hits_open_source_lines() {
         let dir = fixture();
         let app = app(state(dir.path(), false, 0, 0));
-        let (status, _, body) = call(app, Method::GET, "/search?q=HTML").await;
+        let (status, _, body) = call(app, Method::GET, "/search?__mdview=search&q=HTML").await;
         assert_eq!(status, StatusCode::OK);
         let html = String::from_utf8(body).unwrap();
         assert!(html.contains("href=\"/page.html?raw=1#L1\""), "{html}");
@@ -3434,6 +3674,11 @@ mod tests {
         let html = String::from_utf8(body).unwrap();
         assert!(html.contains("<h1>a.md</h1>"), "{html}");
         assert!(html.contains("id=\"L1\""), "{html}");
+
+        for uri in ["/sample.zip/docs/a.md/", "/sample.zip/docs/a.md%2f"] {
+            let (status, _, _) = call(app.clone(), Method::GET, uri).await;
+            assert_eq!(status, StatusCode::NOT_FOUND, "{uri}");
+        }
 
         let (status, headers, body) =
             call(app.clone(), Method::GET, "/sample.zip/docs/a.md?download=1").await;
@@ -3799,7 +4044,7 @@ mod tests {
         std::fs::write(locked.join("secret.md"), "secret\n").unwrap();
         std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
         let app = app(state(dir.path(), false, 0, 0));
-        let (status, _, body) = call(app, Method::GET, "/_nav").await;
+        let (status, _, body) = call(app, Method::GET, "/_nav?__mdview=nav").await;
         std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o700)).unwrap();
         assert_eq!(status, StatusCode::OK);
         let payload: serde_json::Value = serde_json::from_slice(&body).unwrap();
@@ -3825,7 +4070,7 @@ mod tests {
         std::fs::create_dir(dir.path().join(".hidden")).unwrap();
         std::fs::write(dir.path().join(".hidden").join("h.md"), "# hidden\n").unwrap();
         let app = app(state(dir.path(), false, 0, 0));
-        let (status, headers, body) = call(app, Method::GET, "/_nav").await;
+        let (status, headers, body) = call(app, Method::GET, "/_nav?__mdview=nav").await;
         assert_eq!(status, StatusCode::OK);
         assert!(
             headers
@@ -3861,7 +4106,7 @@ mod tests {
         assert!(!body.windows(8).any(|window| window == b".hidden"));
 
         let safe_app = super::app(state(dir.path(), true, 0, 0));
-        let (status, _, safe_body) = call(safe_app, Method::GET, "/_nav").await;
+        let (status, _, safe_body) = call(safe_app, Method::GET, "/_nav?__mdview=nav").await;
         assert_eq!(status, StatusCode::OK);
         assert!(!safe_body.windows(7).any(|window| window == b"bin.dat"));
         assert!(safe_body.windows(7).any(|window| window == b"img.png"));
@@ -3925,7 +4170,8 @@ mod tests {
     async fn search_groups_docs_text_and_files() {
         let dir = fixture();
         let app = app(state(dir.path(), false, 0, 0));
-        let (status, _, body) = call(app.clone(), Method::GET, "/search?q=second").await;
+        let (status, _, body) =
+            call(app.clone(), Method::GET, "/search?__mdview=search&q=second").await;
         assert_eq!(status, StatusCode::OK);
         let html = String::from_utf8(body).unwrap();
         assert!(html.contains("a.md"), "{html}");
@@ -3941,19 +4187,29 @@ mod tests {
         assert!(!html.contains("实时扫描"), "{html}");
         assert!(!html.contains("?raw=1#L3"), "{html}");
 
-        let (_, _, body) = call(app.clone(), Method::GET, "/search?q=hello").await;
+        let (_, _, body) = call(app.clone(), Method::GET, "/search?__mdview=search&q=hello").await;
         let html = String::from_utf8(body).unwrap();
         assert!(html.contains("b.txt"), "{html}");
         assert!(html.contains("href=\"/b.txt#L1\""), "{html}");
         assert!(!html.contains("源码 Ln"), "{html}");
 
-        let (_, _, body) = call(app.clone(), Method::GET, "/search?q=fn%20main").await;
+        let (_, _, body) = call(
+            app.clone(),
+            Method::GET,
+            "/search?__mdview=search&q=fn%20main",
+        )
+        .await;
         let html = String::from_utf8(body).unwrap();
         assert!(html.contains("code.rs"), "{html}");
         assert!(html.contains("href=\"/code.rs#L1\""), "{html}");
         assert!(!html.contains("源码 Ln"), "{html}");
 
-        let (_, _, body) = call(app.clone(), Method::GET, "/search?q=img.png").await;
+        let (_, _, body) = call(
+            app.clone(),
+            Method::GET,
+            "/search?__mdview=search&q=img.png",
+        )
+        .await;
         let html = String::from_utf8(body).unwrap();
         assert!(html.contains("img.png"), "{html}");
         assert!(
@@ -3962,12 +4218,26 @@ mod tests {
         );
         assert!(!html.contains("文件名命中"), "{html}");
 
-        let (_, _, body) = call(app.clone(), Method::GET, "/search?q=zzz").await;
+        let (_, _, body) = call(app.clone(), Method::GET, "/search?__mdview=search&q=zzz").await;
         let html = String::from_utf8(body).unwrap();
         assert!(html.contains("没有找到相关内容"), "{html}");
 
-        let (status, _, _) = call(app, Method::GET, "/search").await;
+        let (status, _, _) = call(app, Method::GET, "/search?__mdview=search").await;
         assert_eq!(status, StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn safe_search_skips_blocked_files() {
+        let dir = fixture();
+        let app = app(state(dir.path(), true, 0, 0));
+        let (_, _, body) = call(app.clone(), Method::GET, "/search?__mdview=search&q=hello").await;
+        let html = String::from_utf8(body).unwrap();
+        assert!(!html.contains("b.txt"), "{html}");
+        assert!(html.contains("0 个文件 · 0 条结果"), "{html}");
+
+        let (_, _, body) = call(app, Method::GET, "/search?__mdview=search&q=second").await;
+        let html = String::from_utf8(body).unwrap();
+        assert!(html.contains("a.md"), "{html}");
     }
 
     #[test]
@@ -4000,6 +4270,7 @@ mod tests {
             source_language_label(Path::new("a.markdown"), &text),
             "Markdown"
         );
+        assert_eq!(source_language_label(Path::new("a.mdx"), &text), "MDX");
         assert_eq!(source_language_label(Path::new("a.rs"), &text), "Rust");
         assert_eq!(
             source_language_label(Path::new("a.ts"), &text),
@@ -4022,7 +4293,8 @@ mod tests {
             0,
             TrustState::new(true, 0),
         ));
-        let (status, _, _) = call(app.clone(), Method::GET, "/search?q=second").await;
+        let (status, _, _) =
+            call(app.clone(), Method::GET, "/search?__mdview=search&q=second").await;
         assert_eq!(status, StatusCode::NOT_FOUND);
         let (_, _, body) = call(app, Method::GET, "/").await;
         let html = String::from_utf8(body).unwrap();
@@ -4047,10 +4319,88 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn internal_routes_require_marker_and_real_files_win() {
+        let dir = fixture();
+        std::fs::write(dir.path().join("search"), "a real search file\n").unwrap();
+        std::fs::write(dir.path().join("_nav"), "a real nav file\n").unwrap();
+        std::fs::create_dir(dir.path().join("_assets")).unwrap();
+        std::fs::write(
+            dir.path().join("_assets").join("app.css"),
+            "a real app css\n",
+        )
+        .unwrap();
+        let app = app(state(dir.path(), false, 0, 0));
+
+        let (status, _, body) = call(app.clone(), Method::GET, "/search").await;
+        assert_eq!(status, StatusCode::OK);
+        let html = String::from_utf8(body).unwrap();
+        assert!(html.contains("a real search file"), "{html}");
+        assert!(html.contains("<h1>search</h1>"), "{html}");
+
+        let (status, _, body) =
+            call(app.clone(), Method::GET, "/search?__mdview=search&q=hello").await;
+        assert_eq!(status, StatusCode::OK);
+        let html = String::from_utf8(body).unwrap();
+        assert!(html.contains("class=\"search-page-form\""), "{html}");
+        assert!(!html.contains("a real search file"), "{html}");
+
+        let (status, _, body) = call(app.clone(), Method::GET, "/_nav").await;
+        assert_eq!(status, StatusCode::OK);
+        let html = String::from_utf8(body).unwrap();
+        assert!(html.contains("a real nav file"), "{html}");
+
+        let (status, headers, body) = call(app.clone(), Method::GET, "/_nav?__mdview=nav").await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            headers
+                .get(header::CONTENT_TYPE)
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .starts_with("application/json")
+        );
+        assert!(String::from_utf8(body).unwrap().contains("\"tree\""));
+
+        let (status, headers, body) = call(app.clone(), Method::GET, "/_assets/app.css").await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            headers
+                .get(header::CONTENT_TYPE)
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .starts_with("text/html")
+        );
+        let html = String::from_utf8(body).unwrap();
+        assert!(html.contains("a real app css"), "{html}");
+
+        let (status, headers, body) =
+            call(app.clone(), Method::GET, "/_assets/app.css?__mdview=asset").await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            headers
+                .get(header::CONTENT_TYPE)
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .starts_with("text/css")
+        );
+        assert!(!String::from_utf8(body).unwrap().contains("a real app css"));
+
+        let (status, _, _) = call(app, Method::GET, "/_assets/highlight.js").await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
     async fn assets_and_source_highlight_class() {
         let dir = fixture();
         let app = app(state(dir.path(), false, 0, 0));
-        let (status, headers, body) = call(app.clone(), Method::GET, "/_assets/highlight.js").await;
+        let (status, headers, body) = call(
+            app.clone(),
+            Method::GET,
+            "/_assets/highlight.js?__mdview=asset",
+        )
+        .await;
         assert_eq!(status, StatusCode::OK);
         assert!(
             headers
@@ -4062,13 +4412,25 @@ mod tests {
         );
         assert!(body.len() > 1000);
 
-        let (status, _, _) = call(app.clone(), Method::GET, "/_assets/highlight.css").await;
+        let (status, _, _) = call(
+            app.clone(),
+            Method::GET,
+            "/_assets/highlight.css?__mdview=asset",
+        )
+        .await;
         assert_eq!(status, StatusCode::OK);
-        let (status, _, _) = call(app.clone(), Method::GET, "/_assets/markdown.css").await;
+        let (status, _, _) = call(
+            app.clone(),
+            Method::GET,
+            "/_assets/markdown.css?__mdview=asset",
+        )
+        .await;
         assert_eq!(status, StatusCode::OK);
-        let (status, _, _) = call(app.clone(), Method::GET, "/_assets/app.css").await;
+        let (status, _, _) =
+            call(app.clone(), Method::GET, "/_assets/app.css?__mdview=asset").await;
         assert_eq!(status, StatusCode::OK);
-        let (status, headers, body) = call(app.clone(), Method::GET, "/_assets/app.js").await;
+        let (status, headers, body) =
+            call(app.clone(), Method::GET, "/_assets/app.js?__mdview=asset").await;
         assert_eq!(status, StatusCode::OK);
         assert!(
             headers
@@ -4082,11 +4444,14 @@ mod tests {
 
         let (_, _, body) = call(app.clone(), Method::GET, "/a.md").await;
         let html = String::from_utf8(body).unwrap();
-        assert!(html.contains("/_assets/markdown.css"));
-        assert!(html.contains("/_assets/highlight.js"));
-        assert!(html.contains("/_assets/app.css"));
-        assert!(html.contains("/_assets/app.js"));
-        assert!(html.contains(&format!("?v={}", crate::assets::asset_version())));
+        assert!(html.contains("/_assets/markdown.css?__mdview=asset"));
+        assert!(html.contains("/_assets/highlight.js?__mdview=asset"));
+        assert!(html.contains("/_assets/app.css?__mdview=asset"));
+        assert!(html.contains("/_assets/app.js?__mdview=asset"));
+        assert!(html.contains(&format!(
+            "__mdview=asset&v={}",
+            crate::assets::asset_version()
+        )));
         assert!(html.contains("nonce="));
 
         let (_, _, body) = call(app, Method::GET, "/code.rs").await;

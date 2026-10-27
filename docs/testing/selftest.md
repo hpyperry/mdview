@@ -10,7 +10,7 @@
 | 项 | 值 |
 |---|---|
 | 日期 | 2026-10-21 |
-| 分支 | `main` |
+| 分支 | `feat/static-parity` |
 | 平台 | macOS 27.0.0 arm64 |
 | Rust | 1.96（edition 2024，`rust-version = 1.89`） |
 | 产物 | `target/release/mdview`，约 **4.1 MB**（LTO + strip，内嵌 highlight.js、岛屿前端与压缩包解码器） |
@@ -19,13 +19,13 @@
 
 | 套件 | 命令 | 结果 |
 |---|---|---|
-| 单元/集成 | `cargo test --lib` | **68 passed** |
+| 单元/集成 | `cargo test --lib` | **73 passed** |
 | Golden | `cargo test --test golden` | **27 cases passed** |
 | 渲染兼容 | `cargo test --test render_compat` | **134 passed** |
 | 静态检查 | `cargo clippy --all-targets -- -D warnings` | **通过** |
 | 格式 | `cargo fmt --all --check` | **通过** |
 | Web 类型 | `npm --prefix web run typecheck` | **通过** |
-| 黑盒 HTTP | `bash tests/selftest-rust.sh` | **PASS=198 FAIL=0** |
+| 黑盒 HTTP | `bash tests/selftest-rust.sh` | **PASS=223 FAIL=0** |
 | 浏览器验收 | `node tests/browser-probe.mjs` | **PASS=203 FAIL=0** |
 | 源码页性能 | `node tests/perf-source.mjs` | **4 项预算通过** |
 | TTY 信任 | `bash tests/trust-tty.sh` | **PASS=9 FAIL=0** |
@@ -38,6 +38,9 @@
 ## 黑盒覆盖
 
 - 目录索引：无分组的统一列表（目录在前）、大小、下载按钮只给文件、面包屑、空目录、301 编码；
+- 静态兼容：文件带尾斜杠（含 `%2f`）404；目录始终列目录、不自动 index；`.markdown`
+  渲染并进 Doc 搜索，`.mdx` 是源码页；内部 URL 带 `__mdview` 标记，同名 `search`、
+  `_nav`、`_assets/app.css` 文件优先，无标记缺失即 404；
 - Markdown：标题/粗体/删除线/任务列表字面量/裸 HTML/表格 `style`/标题无 id；
 - 源码页：文件名为标题、类型/大小/行数/修改时间标签、行锚点、第 5 行内容、`预览`、下载入口；大于 256 KB 的文件
   全文输出为 24 个分块、服务端保留末行、无 `?text=1` 文本通道；
@@ -52,7 +55,8 @@
   404/Trust 页面使用用户语言；
 - MIME 与嗅探：JSON/TS/Makefile/Dockerfile/.gitignore/无扩展名文本与二进制；
 - URL 现场往返：空格目录、中文文件名、`%23`、尖括号目标；
-- 安全：路径穿越、FIFO 404、symlink 逃逸 403、根内 symlink 200、`--safe`；
+- 安全：路径穿越、FIFO 404、symlink 逃逸 403、根内 symlink 200、`--safe`
+  （含搜索只覆盖放行类型）；
 - Trust：拦截面、一次性令牌、复用拒绝、raw/download 绕过；
 - CSP：nonce、`form-action 'self'`、`base-uri`、nosniff；
 - 参数：`--no-search`、`--max-preview`（超限下载 + 搜索跳过）、端口占用回退。
@@ -101,7 +105,7 @@ P0 差分报告：1035 条计分语料 **1015 条精确匹配（98.07%）**，0 
 
 - 最近一次远程完整绿色：`CI · 39612891072`（2026-10-21，`94b8e45`），8/8 job
   成功；macOS/Ubuntu/Windows 测试、Node 类型检查、4 目标构建全绿。
-- 本地 `run-all.sh` 当前为 198/203；远程 CI 最近一次绿色仍是 `b3a133a` 的 151/163。
+- 本地 `run-all.sh` 当前为 223/203；远程 CI 最近一次绿色仍是 `b3a133a` 的 151/163。
 - Release 由 tag `v2.0.0` 触发 `release.yml`；发布结果以该 GitHub Release 为准。
 - 岛屿架构首跑 `39421064321` 暴露两个 CI 问题：Linux Chrome 因新增的
   headless 启动参数没有在 15s 内暴露 DevTools；musl 的 cross 容器默认不传递
@@ -109,7 +113,7 @@ P0 差分报告：1035 条计分语料 **1015 条精确匹配（98.07%）**，0 
   参数、DevTools 超时 30s，并加 `Cross.toml` 透传预构建路径。
 - 更早的 `39285530389` 曾受 GitHub Actions `degraded_performance` 影响，
   8 个 job 长时间 queued；那是平台事件，不是代码失败。
-- 测试矩阵覆盖：`cargo test`、黑盒 198、TTY 9、浏览器 203、源码页性能 4；
+- 测试矩阵覆盖：`cargo test`、黑盒 223、TTY 9、浏览器 203、源码页性能 4；
   Windows 跳过 pty/浏览器/性能，其余全跑。
 - artifact 冒烟：macOS arm64、Linux x86_64 musl、Windows x86_64 通过；
   Linux arm64 musl 只构建（x86 runner 无法执行 arm64）。

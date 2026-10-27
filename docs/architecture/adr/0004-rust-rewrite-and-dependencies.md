@@ -1,6 +1,7 @@
 # Rust 原生重写：单文件可执行、成熟 crate、全平台
 
-**Status**: accepted（2026-10-19）
+**Status**: accepted（2026-10-19）；`/search`、`/_nav` 与 `/_assets/*` 的默认 URL
+契约由 ADR 0017 取代（内部请求需 `?__mdview=…`）
 
 旧实现是 `mdview.py`：3394 行、只用 Python 标准库、零第三方依赖。新的硬目标是
 **编译后的单文件可执行程序**，并且运行时仍然完全离线。Python 可以被 PyInstaller /

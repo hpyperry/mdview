@@ -346,7 +346,7 @@ async function main() {
     check('导航树未预渲染', (await evaluate('document.querySelectorAll("#nav-panel .nav-file").length')) === 0);
     check(
       '导航空闲预取完成',
-      await waitFor('performance.getEntriesByType("resource").some((entry) => entry.name.endsWith("/_nav") && entry.responseEnd > 0)', 3000),
+      await waitFor('performance.getEntriesByType("resource").some((entry) => entry.name.includes("/_nav?__mdview=nav") && entry.responseEnd > 0)', 3000),
     );
     check('导航预取后仍关闭', (await evaluate('getComputedStyle(document.getElementById("nav-panel")).display')) === 'none');
     check('无外部资源请求', requests.every((url) => url.startsWith(base) || url.startsWith('data:')), requests.join(', '));
@@ -514,7 +514,7 @@ async function main() {
     await evaluate(`Array.from(document.querySelectorAll('#nav-panel a.nav-file')).find((a) => a.getAttribute('href') === '/sub/page.md').click()`);
     check('点击文件导航', await waitFor('document.body?.dataset.currentPath === "sub/page.md"', 5000));
     check('文件导航后导航收起', (await evaluate('document.documentElement.dataset.navOpen !== "1"')) === true);
-    check('新页面导航空闲预取', await waitFor('performance.getEntriesByType("resource").some((entry) => entry.name.endsWith("/_nav") && entry.responseEnd > 0)', 3000));
+    check('新页面导航空闲预取', await waitFor('performance.getEntriesByType("resource").some((entry) => entry.name.includes("/_nav?__mdview=nav") && entry.responseEnd > 0)', 3000));
     await evaluate('document.getElementById("nav-toggle").click()');
     check('新页面打开无加载中', (await evaluate('document.querySelector("#nav-panel .nav-status") === null')) === true);
     await waitFor('document.querySelectorAll("#nav-panel .nav-file").length > 0', 3000);
@@ -614,7 +614,7 @@ async function main() {
       return link ? link.getAttribute('href') : null;
     })()`);
     check('Markdown 命中行是链接', /^\/page\.md#L\d+$/.test(docHit || ''), docHit);
-    await goto(`/search?q=${encodeURIComponent('末尾段落')}`);
+    await goto(`/search?__mdview=search&q=${encodeURIComponent('末尾段落')}`);
     const lateHit = await evaluate(`(() => {
       const link = document.querySelector('.result-group .hit[href*="#L"]');
       return link ? link.getAttribute('href') : null;
@@ -623,7 +623,7 @@ async function main() {
     await goto(lateHit || '/page.md');
     check('渲染页行定位高亮', await waitFor('!!document.querySelector(".line-target")', 2000));
     check('渲染页滚动到命中行', (await evaluate('window.scrollY')) > 0);
-    await goto('/search?q=plain');
+    await goto('/search?__mdview=search&q=plain');
     const textHit = await evaluate(`(() => {
       const group = Array.from(document.querySelectorAll('.result-group')).find((node) => node.textContent.includes('plain.txt'));
       const link = group?.querySelector('.hit[href*="#L"]');
@@ -750,7 +750,7 @@ async function main() {
       check('未信任 HTML 脚本在沙箱运行', (await childEval('document.body.dataset.script')) === 'yes');
       check('未信任 HTML 相对 CSS 生效', (await childEval('getComputedStyle(document.body).backgroundColor')) === 'rgb(1, 2, 3)');
       check('未信任 HTML 沙箱屏蔽 localStorage', (await childEval('(() => { try { localStorage.getItem("x"); return false } catch { return true } })()')) === true);
-      check('未信任 HTML 沙箱屏蔽同源 fetch', (await childEval('fetch("/_nav").then(() => false).catch(() => true)')) === true);
+      check('未信任 HTML 沙箱屏蔽同源 fetch', (await childEval('fetch("/_nav?__mdview=nav").then(() => false).catch(() => true)')) === true);
     }
     await gotoUntrusted('/page.html?raw=1');
     check('未信任 HTML 源码页 tabs', (await evaluate('document.querySelectorAll(".html-toolbar .seg").length')) === 2);
@@ -790,7 +790,7 @@ async function main() {
     check('无 JS 服务端不着色', (await evaluate('document.querySelectorAll("pre code span").length')) === 0);
     check('无 JS 隐藏主题按钮', (await evaluate('getComputedStyle(document.getElementById("theme-toggle")).display')) === 'none');
     check('无 JS 隐藏导航', (await evaluate('getComputedStyle(document.getElementById("nav-toggle")).display === "none" && getComputedStyle(document.getElementById("nav-panel")).display === "none"')) === true);
-    check('无 JS 搜索入口是链接', (await evaluate('document.getElementById("search-open")?.getAttribute("href") === "/search" && document.getElementById("search-pop")?.hidden === true')) === true);
+    check('无 JS 搜索入口是链接', (await evaluate('document.getElementById("search-open")?.getAttribute("href") === "/search?__mdview=search" && document.getElementById("search-pop")?.hidden === true')) === true);
     await goto('/big.txt');
     check('无 JS 大源码全文', (await evaluate('document.querySelector(".source-chunked")?.textContent.includes("line 15000")')) === true);
     check('无 JS 大源码总行数', (await evaluate('document.querySelector(".source-note")?.textContent.includes("15001 行")')) === true);

@@ -46,7 +46,7 @@ mdview --root docs --host 127.0.0.1
 
 - 一个可执行文件，内部嵌入 Markdown 渲染器、CSS、highlight.js、页面脚本。
 - 默认 `0.0.0.0:8000`、根为当前目录，与旧版一致。
-- 运行时零网络请求：页面只请求本站 `/_assets/…`，不访问 CDN。
+- 运行时零网络请求：页面只请求本站 `/_assets/…?__mdview=asset`，不访问 CDN。
 - `--version` 输出 `mdview 2.0.0`。
 
 ## 4. 技术栈
@@ -80,8 +80,8 @@ mdview --root docs --host 127.0.0.1
 | `/<file>.md?download=1` | 原始 Markdown 字节，`Content-Disposition: attachment` |
 | `/<text-file>` | 统一源码查看页（HTML）；`?raw=1` 同为源码页；`?download=1` 下载原始字节 |
 | `/<binary-file>` | 原样发送，正确 `Content-Type`；`?download=1` 强制附件 |
-| `/search?q=…` | 全文搜索，只扫 `.md` |
-| `/_assets/<hash>/<name>` | 嵌入式 CSS/JS，长缓存 |
+| `/search?__mdview=search&q=…` | 全文搜索，扫 Markdown 文档（`.md`/`.markdown`）与文本 |
+| `/_assets/<name>?__mdview=asset&v=<hash>` | 嵌入式 CSS/JS，长缓存 |
 | `/<dir>`（缺结尾 `/`） | 301 补斜杠 |
 | 不存在 | 404 友好页 |
 | `HEAD` | 与 `GET` 相同的头，不返回体 |
@@ -232,7 +232,7 @@ security_level = 0
 
 - `script-src` **只**用 nonce，不用 `'self'`：否则磁盘上的任意 `.js` 都能被
   裸 HTML 以同源脚本加载。
-- 我们的脚本标签带同一 nonce；highlight.js 也从 `/_assets/` 以 nonce 加载。
+- 我们的脚本标签带同一 nonce；highlight.js 也从 `/_assets/highlight.js?__mdview=asset` 以 nonce 加载。
 - 所有 HTML 响应加 `X-Content-Type-Options: nosniff`。
 - 级别 2 只应由明确知道风险的人使用；启动横幅会警告。
 - 没有 Web UI 修改安全级别（VS Code 有预览工具栏选择器）；用

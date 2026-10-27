@@ -153,7 +153,7 @@ function NavApp({ panel, toggle, rootName, currentPath, currentIsDir }: NavProps
     setLoading(true);
     setError('');
     try {
-      const response = await fetch('/_nav', { headers: { Accept: 'application/json' } });
+      const response = await fetch('/_nav?__mdview=nav', { headers: { Accept: 'application/json' } });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const data = (await response.json()) as NavPayload;
       setPayload(data);
