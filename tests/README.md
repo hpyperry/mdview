@@ -21,8 +21,21 @@ Rust 实现的断言分多组：
 | `fixtures/nav-lazy/root/` | 四层以上目录、同级文件、根文件与另一分支 | 三层预载、`dir=` 按需展开、`active` 脊柱 |
 | `fixtures/static-parity/` | 同名 `search`/`_nav`/`_assets`、`.markdown`/`.mdx`、`sub/index.html` | 内部 URL、尾斜杠与扩展名手动复测 |
 
+## feature/fix 测试文档
+
+每个 feature/fix 必须新增或更新一份人工复测文档：
+
+- 有夹具：`tests/fixtures/<slug>/README.md`，夹具根应能作为 `--root` 启动；使用
+  子目录 root 时在 README 写明确切命令；
+- 纯修复：可以只建 README，但要在文档里给出实际使用的 root/入口；
+- 必填：关联 Issue/PR 与 F-xx、启动命令、入口、复测步骤与预期、自动化覆盖、已知限制；
+- PR 描述必须链接它；新增/修改 F-xx 时 [`docs/reference/features.md`](../docs/reference/features.md)
+  的测试映射也链接它；
+- `docs/testing/` 是执行记录与报告，不复用为复测文档；
+- 模板见 [`fixtures/TEMPLATE.md`](fixtures/TEMPLATE.md)，复制为目录 README 后填写。
+
 手动夹具按 feature 分目录，启动命令与预期见
-[`fixtures/README.md`](fixtures/README.md)；每个目录都可以直接作为 `--root`。
+[`fixtures/README.md`](fixtures/README.md)；有夹具的目录应能直接作为 `--root`。
 
 `selftest-rust.sh` 会自动 `cargo build --release`，起临时服务、跑完自清理；
 可用 `MDVIEW_BIN=` 指向别的二进制，`PORT=` 换一组端口。

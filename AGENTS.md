@@ -34,16 +34,23 @@ bash tests/run-all.sh
 1. **需求先建 Issue**：写清目标、范围与验收标准；Issue 是需求的唯一入口。
 2. **从 main 拉分支**：分支名用 `feat/…`、`fix/…`、`docs/…`、`chore/…` 或
    `release/…`；不在 main 上直接开发。
-3. **PR 关联 Issue**：PR 描述写 `Closes #N`；CI 全绿、required checks 通过后合并。
+3. **feature/fix 配测试文档**：功能或修复完成前，在 `tests/` 下新增/更新一份人工
+   复测文档。有夹具的 feature 用 `tests/fixtures/<slug>/README.md`，夹具根应能作为
+   `--root` 启动（使用子目录 root 的在 README 写明确切命令）；没有新夹具的纯修复也
+   建 README-only 目录，并在文档里给出实际使用的 root/入口。文档必须写清关联
+   Issue/PR、启动命令、复测步骤与预期、自动化覆盖与已知限制。PR 描述链接它；新增/
+   修改 F-xx 时 `docs/reference/features.md` 的测试映射也链接它。`docs/testing/`
+   只放执行记录与报告，不复用为复测文档。
+4. **PR 关联 Issue**：PR 描述写 `Closes #N`；CI 全绿、required checks 通过后合并。
    main 由 ruleset 保护：必须 PR、禁 force push/删除、禁止直接 push；审批数为 0
    （单人维护者可自我合并）；合并方式固定 **squash**，main 保持线性。
-4. **CI 只在 PR 跑**：`ci.yml` 只监听 `pull_request`（可手动 `workflow_dispatch`）；
+5. **CI 只在 PR 跑**：`ci.yml` 只监听 `pull_request`（可手动 `workflow_dispatch`）；
    main 合并后不再重复跑测试/构建；tag 的 Release workflow 负责 4 个 artifact。
-5. **不直接推 main、不打 tag、不发 Release**：除非用户明确要求。
-6. **发布节奏按需批量**：累计一组 feature/fix 后发 release PR，更新版本号、
+6. **不直接推 main、不打 tag、不发 Release**：除非用户明确要求。
+7. **发布节奏按需批量**：累计一组 feature/fix 后发 release PR，更新版本号、
    `CHANGELOG.md` 与 `docs/releases/<tag>.md`；合并后打 annotated tag；Release
    workflow 读取 notes 文件并核对 `SHA256SUMS`。不是每个 PR 都发版。
-7. **紧急修复**也走 PR；直接推 main 或改历史必须得到用户明确授权。
+8. **紧急修复**也走 PR；直接推 main 或改历史必须得到用户明确授权。
 
 ## Agent skills
 
@@ -211,6 +218,7 @@ Single-context: root `GLOSSARY.md` + `docs/architecture/adr/`. See
 | CSP/安全级别 | `csp_header` + `csp_levels` 测试 |
 | Trust 配置 | `src/trust.rs` + 配置往返测试 |
 | 页面样式 | `web/src/styles/app.css`；VS Code 样式在 `assets/*.css` |
+| feature/fix 人工复测文档 | `tests/fixtures/<slug>/README.md`；纯修复可用 README-only 目录，PR 与 F-xx 链接 |
 | 构建管线 | `build.rs`、`web/build.mjs`、`web/package.json` |
 | 高亮语言包 | `tools/build-assets/`，重新生成 `assets/highlight.min.js` |
 
@@ -295,8 +303,10 @@ Single-context: root `GLOSSARY.md` + `docs/architecture/adr/`. See
   新功能追加编号，不重排旧编号。
 - 渲染层断言放 `tests/render_compat.rs`；路由/安全放 `src/server.rs` 的测试模块；
   真二进制行为放 `tests/selftest-rust.sh`。
-- 每个 feature 的测试夹具放 `tests/fixtures/<feature>/`，带 README、启动命令和
-  可直接服务的文件；自动测试从目录复制，不把唯一夹具散落在临时脚本里。
+- 每个 feature/fix 的人工复测文档放 `tests/fixtures/<slug>/README.md`；有夹具时目录
+  带启动命令和可直接服务的文件，纯修复可 README-only。README 是复测文档（步骤、
+  预期、自动化覆盖、已知限制），不是 `docs/testing/` 的执行报告；PR 与 `F-xx` 链接它。
+- 自动测试从夹具目录复制，不把唯一夹具散落在临时脚本里。
 - 全量本地验收跑 `bash tests/run-all.sh`；文档移动/改链接后先跑
   `node tests/check-doc-links.mjs`。
 - 浏览器/视觉验收遵循 [`docs/testing/agent-guide.md`](docs/testing/agent-guide.md)：

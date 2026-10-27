@@ -26,6 +26,9 @@
 - 手动夹具按 feature 收拢到 `tests/fixtures/<feature>/`，每个目录可直接作为
   `--root` 启动；编码目录补齐 README、UTF-16 Markdown 与 UTF-32 样本，黑盒测试
   从目录整体复制。
+- 开发流程固化：每个 feature/fix 在 `tests/fixtures/<slug>/README.md` 新增/更新人工
+  复测文档（纯修复可 README-only），PR 描述与受影响 `F-xx` 链接它；`docs/testing/`
+  只放执行记录与报告。
 
 ### 修复
 

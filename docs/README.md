@@ -11,6 +11,7 @@
 | `architecture/` | 设计方案、执行计划、ADR 决策记录 | [overview.md](architecture/overview.md) · [execution-plan.md](architecture/execution-plan.md) · [ADRs](architecture/adr/) |
 | `guides/` | 安装/运行/Trust、渲染边界、代码块专项 | [install.md](guides/install.md) · [advanced.md](guides/advanced.md) · [code-blocks.md](guides/code-blocks.md) |
 | `reference/` | 功能矩阵与追踪编号 | [features.md](reference/features.md) |
+| `../tests/` | 自动化套件、feature/fix 人工复测文档与夹具 | [tests/README.md](../tests/README.md) · [fixtures/README.md](../tests/fixtures/README.md) |
 | `testing/` | 自测记录、浏览器验收报告、agent 测试指南、截图证据 | [selftest.md](testing/selftest.md) · [browser-report-2026-10-26-nav-lazy.md](testing/browser-report-2026-10-26-nav-lazy.md) · [browser-report-2026-10-27-encodings.md](testing/browser-report-2026-10-27-encodings.md) · [browser-report-2026-10-20.md](testing/browser-report-2026-10-20.md) · [browser-report-2026-10-21.md](testing/browser-report-2026-10-21.md) · [browser-report-2026-10-21-archives.md](testing/browser-report-2026-10-21-archives.md) · [agent-guide.md](testing/agent-guide.md) |
 | `research/` | P0 comrak vs markdown-it 差分探针 | [comrak-vs-markdown-it.md](research/comrak-vs-markdown-it.md) |
 | `archive/` | 旧 Python 实现历史台账 | [selftest-python.md](archive/selftest-python.md) |
@@ -31,10 +32,13 @@
 
 1. 改变用户可见行为时，更新 [`reference/features.md`](reference/features.md) 对应行的
    验收口径与测试映射；新功能追加新编号，不重排旧编号。
-2. 做出难以回退、且未来读者会问“为什么”的选择时，新增 ADR；ADR 放在
+2. 每个 feature/fix 在 `tests/fixtures/<slug>/README.md` 留一份人工复测文档；有夹具
+   时目录可服务，纯修复可只放 README。PR 与受影响 `F-xx` 链接它；`docs/testing/`
+   只放执行记录与报告。
+3. 做出难以回退、且未来读者会问“为什么”的选择时，新增 ADR；ADR 放在
    [`architecture/adr/`](architecture/adr/)，并更新相关指南。
-3. 测试结果写入 [`testing/`](testing/)；自动化命令、临时服务、fixture 与浏览器证据
+4. 测试结果写入 [`testing/`](testing/)；自动化命令、临时服务、fixture 与浏览器证据
    见 [`testing/agent-guide.md`](testing/agent-guide.md)。
-4. 文档内部链接由 `node tests/check-doc-links.mjs` 检查；移动文档后必须同时更新
+5. 文档内部链接由 `node tests/check-doc-links.mjs` 检查；移动文档后必须同时更新
    所有相对链接。
-5. 历史文档不重写行为；如需修正，只加“历史说明”并指向当前文档。
+6. 历史文档不重写行为；如需修正，只加“历史说明”并指向当前文档。

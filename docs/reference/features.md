@@ -172,6 +172,8 @@
 ## 变更规则
 
 - 改变行为时先在这里找到对应 `F-xx`，更新“验收要点”和“测试映射”，再改代码。
+- 新增/修改 `F-xx` 时，必须同步新增或更新 `tests/fixtures/<slug>/README.md` 人工
+  复测文档，并在“测试映射”列链接它；没有 `F-xx` 的纯修复至少在 Issue/PR 链接文档。
 - 新功能追加编号，不重排已有编号；删除功能保留编号并标记 `deprecated`。
 - 自动化套件数量变化时同步 `tests/README.md`、`docs/testing/selftest.md` 和
   `docs/testing/browser-report-2026-10-20.md`。
