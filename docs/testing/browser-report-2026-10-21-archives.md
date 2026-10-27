@@ -1,7 +1,7 @@
 # 浏览器验收：压缩包预览（2026-10-21）
 
 > 历史快照：本报告的 198 项黑盒计数记录当时状态；当前计数见
-> [`selftest.md`](selftest.md)（87/257/224）。
+> [`selftest.md`](selftest.md)（88/274/238）。
 
 **被测版本**：mdview 2.0.0 工作树（ADR 0016 实现）
 **验收方式**：release 二进制 + headless Chrome；实际页面截图 + 自动探针

@@ -13,6 +13,10 @@
   `/_nav?__mdview=nav&dir=<相对路径>` 按需展开一层；`active=<当前路径>` 脊柱让深页
   打开导航一次定位当前文件；桌面悬停约 150ms 预热下一层。不再在每个页面空闲时
   递归扫描并传输整棵树。
+- 压缩包格式扩展：新增 `.tar`、`.tar.bz2`/`.tbz2`/`.tbz`、`.tar.xz`/`.txz`，以及
+  `.jar`/`.war`/`.ear`/`.apk`/`.aar`/`.whl`/`.nupkg`/`.vsix`/`.xpi`/`.ipa`/`.aab`/
+  `.epub`/`.cbz`/`.kmz` 等 ZIP 容器；包内 `.xhtml`/`.xht`/`.mf` 按源码页查看。
+  `.tar.xz` 使用纯 Rust `XzReader`，128 MiB 解码器内存上限。
 
 ### 已知限制
 
@@ -20,6 +24,9 @@
   失败；本轮不提供手动编码覆盖。
 - 导航第 3 层目录在展开前不知道是否为空，统一显示展开箭头；单个超大目录仍一次
   列出全部条目，未做分页/虚拟滚动。
+- 压缩包不支持 `.tar.zst`/RAR/RAR5/单文件 `.gz`/`.bz2`/`.xz`/`.zst` 流与
+  Office/ODF 容器（`.docx` 等）；ZIP 容器只做归档浏览，不渲染 EPUB/Office 原生
+  格式。嵌套包不递归解包。
 
 ### 测试
 
@@ -29,6 +36,8 @@
 - 开发流程固化：每个 feature/fix 在 `tests/fixtures/<slug>/README.md` 新增/更新人工
   复测文档（纯修复可 README-only），PR 描述与受影响 `F-xx` 链接它；`docs/testing/`
   只放执行记录与报告。
+- 压缩包夹具补齐 tar.bz2/tar.xz、高字典 xz、JAR/EPUB/CBZ 与 `.xhtml`；黑盒与浏览器
+  探针覆盖新格式、包内章节源码页与 `--safe` 隐藏。
 
 ### 修复
 

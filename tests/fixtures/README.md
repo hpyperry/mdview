@@ -15,7 +15,7 @@ README 是**复测文档**，不是测试执行报告。必须包含：
 
 | 目录 | 覆盖 |
 |---|---|
-| `archives/` | 压缩包虚拟目录、包内 Markdown/HTML、嵌套包 |
+| `archives/` | ZIP 容器（JAR/EPUB/CBZ）、tar.bz2/tar.xz、包内 Markdown/HTML、嵌套包 |
 | `html-preview/` | HTML Trust 原文/沙箱、子资源、SVG |
 | `encodings/` | GBK/UTF-16/UTF-32、编码标签、搜索与 charset |
 | `nav-lazy/` | 三层预载、当前路径脊柱、`dir=` 按需展开、深层目录占位 |

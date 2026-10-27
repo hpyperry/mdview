@@ -42,6 +42,8 @@ const TEXT_EXT: &[&str] = &[
     "xml",
     "html",
     "htm",
+    "xhtml",
+    "xht",
     "css",
     "scss",
     "sass",
@@ -81,6 +83,7 @@ const TEXT_EXT: &[&str] = &[
     "cfg",
     "conf",
     "properties",
+    "mf",
     "env",
     "diff",
     "patch",
@@ -826,7 +829,7 @@ async fn handle_archive(
             Err(response) => return *response,
         };
         let view = ArchiveView {
-            label: request.kind.label().to_string(),
+            label: request.kind.label_for(&request.path),
             size: request.size,
             entries: extracted.entries,
             download_href: format!("/{}?download=1", encode_path(&request.archive_rel)),
@@ -2303,11 +2306,13 @@ fn source_language_label(path: &Path, info: &FileInfo) -> String {
         "md" | "markdown" => "Markdown",
         "mdx" => "MDX",
         "html" | "htm" => "HTML",
+        "xhtml" | "xht" => "XHTML",
         "xml" => "XML",
         "toml" => "TOML",
         "ini" | "cfg" | "conf" | "properties" => "INI",
         "yaml" | "yml" => "YAML",
         "json" => "JSON",
+        "mf" => "Manifest",
         "rs" => "Rust",
         "py" => "Python",
         "js" | "mjs" | "cjs" | "jsx" => "JavaScript",
@@ -2377,7 +2382,7 @@ fn highlight_language(path: &Path) -> Option<&'static str> {
         "yaml" | "yml" => "yaml",
         "toml" | "ini" | "cfg" | "conf" | "properties" => "ini",
         "json" => "json",
-        "xml" | "html" | "htm" => "xml",
+        "xml" | "html" | "htm" | "xhtml" | "xht" => "xml",
         "css" => "css",
         "scss" => "scss",
         "sass" => "sass",
@@ -3257,6 +3262,23 @@ mod tests {
         write_zip(&root.join("sample.zip"), entries);
         write_tar_gz(&root.join("sample.tar.gz"), &[("docs/a.md", b"# Tar A\n")]);
         write_7z(&root.join("sample.7z"), &[("docs/a.md", b"# Seven A\n")]);
+        for name in [
+            "sample.tar",
+            "sample.tar.bz2",
+            "sample.tar.xz",
+            "high-dict.tar.xz",
+            "sample.jar",
+            "sample.epub",
+            "sample.cbz",
+        ] {
+            std::fs::copy(
+                Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .join("tests/fixtures/archives")
+                    .join(name),
+                root.join(name),
+            )
+            .unwrap();
+        }
         std::fs::create_dir(root.join("not.zip")).unwrap();
         std::fs::write(root.join("not.zip").join("real.txt"), "real\n").unwrap();
         dir
@@ -3412,6 +3434,27 @@ mod tests {
                 .contains("attachment")
         );
         assert_eq!(body, b"hello\nworld\n");
+
+        std::fs::write(
+            dir.path().join("page.xhtml"),
+            "<?xml version=\"1.0\"?><html xmlns=\"http://www.w3.org/1999/xhtml\"><body><p>xhtmlneedle</p></body></html>\n",
+        )
+        .unwrap();
+        let (status, headers, body) = call(app.clone(), Method::GET, "/page.xhtml").await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            headers
+                .get(header::CONTENT_TYPE)
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .starts_with("text/html")
+        );
+        let html = String::from_utf8(body).unwrap();
+        assert!(html.contains("<h1>page.xhtml</h1>"), "{html}");
+        assert!(html.contains("id=\"L1\""), "{html}");
+        assert!(html.contains("xhtmlneedle"), "{html}");
+        assert!(html.contains(">XHTML<"), "{html}");
 
         let (status, headers, _) = call(app, Method::GET, "/a%20b.txt").await;
         assert_eq!(status, StatusCode::OK);
@@ -4126,6 +4169,98 @@ mod tests {
         assert_eq!(status, StatusCode::OK);
         assert!(String::from_utf8(body).unwrap().contains("Tar A"));
 
+        for (name, label) in [
+            ("sample.tar", "tar ·"),
+            ("sample.tar.bz2", "tar.bz2 ·"),
+            ("sample.tar.xz", "tar.xz ·"),
+        ] {
+            let (status, _, body) = call(app.clone(), Method::GET, &format!("/{name}/")).await;
+            assert_eq!(status, StatusCode::OK, "{name}");
+            assert!(
+                String::from_utf8(body).unwrap().contains(label),
+                "{name} label"
+            );
+            let (status, _, body) =
+                call(app.clone(), Method::GET, &format!("/{name}/docs/a.md")).await;
+            assert_eq!(status, StatusCode::OK, "{name}");
+            assert!(
+                String::from_utf8(body).unwrap().contains("Archive A"),
+                "{name} entry"
+            );
+        }
+
+        let (status, _, body) = call(app.clone(), Method::GET, "/sample.jar/").await;
+        assert_eq!(status, StatusCode::OK);
+        let html = String::from_utf8(body).unwrap();
+        assert!(html.contains("JAR ·"), "{html}");
+        assert!(html.contains("META-INF"), "{html}");
+        let (status, _, body) =
+            call(app.clone(), Method::GET, "/sample.jar/META-INF/MANIFEST.MF").await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            String::from_utf8(body)
+                .unwrap()
+                .contains("Manifest-Version")
+        );
+
+        let (status, _, body) = call(app.clone(), Method::GET, "/sample.epub/").await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(String::from_utf8(body).unwrap().contains("EPUB ·"));
+        let (status, headers, body) = call(
+            app.clone(),
+            Method::GET,
+            "/sample.epub/OEBPS/chapter1.xhtml",
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            headers
+                .get(header::CONTENT_TYPE)
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .starts_with("text/html")
+        );
+        let html = String::from_utf8(body).unwrap();
+        assert!(html.contains("<h1>chapter1.xhtml</h1>"), "{html}");
+        assert!(html.contains("id=\"L1\""), "{html}");
+        assert!(html.contains("xhtmlneedle"), "{html}");
+
+        let (status, _, body) = call(app.clone(), Method::GET, "/sample.cbz/").await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(String::from_utf8(body).unwrap().contains("CBZ ·"));
+        let (status, headers, _) = call(app.clone(), Method::GET, "/sample.cbz/page-01.png").await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            headers
+                .get(header::CONTENT_TYPE)
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .starts_with("image/png")
+        );
+
+        let (status, _, body) = call(app.clone(), Method::GET, "/high-dict.tar.xz/").await;
+        assert!(
+            matches!(
+                status,
+                StatusCode::BAD_REQUEST | StatusCode::PAYLOAD_TOO_LARGE
+            ),
+            "{status}"
+        );
+        assert!(String::from_utf8_lossy(&body).contains("tar.xz"));
+
+        let (status, headers, _) = call(app.clone(), Method::GET, "/sample.tar/inner.zip").await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            headers
+                .get(header::CONTENT_TYPE)
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .starts_with("application/zip")
+        );
+
         let (status, _, body) = call(app.clone(), Method::GET, "/sample.7z/docs/a.md").await;
         assert_eq!(status, StatusCode::OK);
         assert!(String::from_utf8(body).unwrap().contains("Seven A"));
@@ -4180,7 +4315,14 @@ mod tests {
     async fn archive_is_hidden_in_safe_mode() {
         let dir = archive_fixture();
         let app = app(state(dir.path(), true, 0, 0));
-        for uri in ["/sample.zip", "/sample.zip/", "/sample.zip/docs/a.md"] {
+        for uri in [
+            "/sample.zip",
+            "/sample.zip/",
+            "/sample.zip/docs/a.md",
+            "/sample.epub",
+            "/sample.epub/",
+            "/sample.tar.xz/",
+        ] {
             let (status, _, _) = call(app.clone(), Method::GET, uri).await;
             assert_eq!(status, StatusCode::NOT_FOUND, "{uri}");
         }
@@ -4865,6 +5007,11 @@ mod tests {
         );
         assert_eq!(source_language_label(Path::new("a.mdx"), &text), "MDX");
         assert_eq!(source_language_label(Path::new("a.rs"), &text), "Rust");
+        assert_eq!(source_language_label(Path::new("a.xhtml"), &text), "XHTML");
+        assert_eq!(
+            source_language_label(Path::new("MANIFEST.MF"), &text),
+            "Manifest"
+        );
         assert_eq!(
             source_language_label(Path::new("a.ts"), &text),
             "TypeScript"

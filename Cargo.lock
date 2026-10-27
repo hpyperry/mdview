@@ -802,6 +802,7 @@ version = "2.1.0"
 dependencies = [
  "anyhow",
  "axum",
+ "bzip2",
  "chardetng",
  "clap",
  "comrak",
@@ -809,6 +810,7 @@ dependencies = [
  "encoding_rs",
  "filetime",
  "flate2",
+ "lzma-rust2 0.22.0",
  "mime_guess",
  "percent-encoding",
  "rand",

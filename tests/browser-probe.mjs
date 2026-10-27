@@ -203,7 +203,10 @@ async function writeFixture(root) {
     join(root, 'evil.svg'),
     '<svg xmlns="http://www.w3.org/2000/svg"><script>document.documentElement.dataset.x=1</script></svg>\n',
   );
-  await copyFile(join(REPO, 'tests', 'fixtures', 'archives', 'sample.zip'), join(root, 'sample.zip'));
+  for (const name of ['sample.zip', 'sample.jar', 'sample.epub', 'sample.cbz', 'sample.tar.bz2', 'sample.tar.xz']) {
+    await copyFile(join(REPO, 'tests', 'fixtures', 'archives', name), join(root, name));
+  }
+  await copyFile(join(REPO, 'tests', 'fixtures', 'archives', 'docs', 'page.xhtml'), join(root, 'page.xhtml'));
   const encodingFixtures = join(REPO, 'tests', 'fixtures', 'encodings');
   for (const name of await readdir(encodingFixtures)) {
     if (name === 'README.md') continue;
@@ -831,6 +834,29 @@ async function main() {
     await gotoUntrusted('/sample.zip/docs/page.html');
     check('包内 HTML untrusted 沙箱', (await evaluate('document.body.dataset.page')) === 'html');
     check('包内 HTML untrusted iframe', (await evaluate('document.querySelector("iframe.html-frame") !== null')) === true);
+
+    await goto('/sample.tar.bz2/docs/a.md');
+    check('tar.bz2 包内渲染', (await evaluate('document.querySelector("article.markdown-body h1")?.textContent')) === 'Archive A');
+    await goto('/sample.jar/');
+    check('JAR 页面标签', (await evaluate('document.querySelector(".dir-head p")?.textContent'))?.includes('JAR ·'));
+    await goto('/sample.jar/META-INF/MANIFEST.MF');
+    check('JAR 清单源码页', (await evaluate('document.querySelector("h1")?.textContent')) === 'MANIFEST.MF');
+    check('JAR 清单内容', (await evaluate('document.body.textContent'))?.includes('Manifest-Version'));
+    check('JAR 清单标签', (await evaluate('document.body.textContent'))?.includes('Manifest'));
+    await goto('/sample.epub/');
+    check('EPUB 页面标签', (await evaluate('document.querySelector(".dir-head p")?.textContent'))?.includes('EPUB ·'));
+    await goto('/sample.epub/OEBPS/chapter1.xhtml');
+    check('EPUB 章节源码页', (await evaluate('document.querySelector("h1")?.textContent')) === 'chapter1.xhtml');
+    check('EPUB 章节内容', (await evaluate('document.body.textContent'))?.includes('xhtmlneedle'));
+    check('EPUB 章节行锚点', (await evaluate('document.querySelector("#L1")?.textContent')) === '1');
+    await goto('/sample.cbz/');
+    check('CBZ 页面标签', (await evaluate('document.querySelector(".dir-head p")?.textContent'))?.includes('CBZ ·'));
+    await goto('/sample.cbz/page-01.png');
+    check('CBZ 图片内联', (await evaluate('document.contentType')) === 'image/png');
+    await goto('/page.xhtml');
+    check('xhtml 源码页', (await evaluate('document.querySelector("h1")?.textContent')) === 'page.xhtml');
+    check('xhtml 源码内容', (await evaluate('document.body.textContent'))?.includes('xhtmlneedle'));
+    check('xhtml 源码标签', (await evaluate('document.body.textContent'))?.includes('XHTML'));
 
     console.log('== no-JS baseline ==');
     await page.send('Emulation.setScriptExecutionDisabled', { value: true });

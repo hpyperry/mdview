@@ -1,7 +1,7 @@
 # 浏览器验收报告（2026-10-20）
 
 > 历史快照：本报告的套件计数（50/151/163）记录当时状态；当前计数见
-> [`selftest.md`](selftest.md)（87/257/224）。
+> [`selftest.md`](selftest.md)（88/274/238）。
 
 **被测版本**：mdview 2.0.0，`refactor/new-md-view-server` 工作树
 **验收日期**：2026-10-20
