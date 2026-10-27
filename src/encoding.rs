@@ -188,7 +188,7 @@ fn looks_like_utf32(bytes: &[u8]) -> bool {
     }
     let mut le = 0usize;
     let mut be = 0usize;
-    for chunk in bytes[..groups * 4].chunks_exact(4) {
+    for chunk in bytes[..groups * 4].chunks(4) {
         let le_cp = u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
         if chunk[2] == 0 && chunk[3] == 0 && le_cp <= 0x10FFFF {
             le += 1;
