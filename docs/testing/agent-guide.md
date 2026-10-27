@@ -117,6 +117,7 @@ bash tests/run-all.sh
 | Markdown | F-17–F-27、F-50–F-53 | `/index.md`、指南页 |
 | 源码 | F-28–F-35 | `/index.md?raw=1`、大文本 |
 | 搜索 | F-36–F-44 | `/search?__mdview=search&q=…`、搜索结果行 |
+| 编码 | F-89–F-90 | GBK/UTF-16 预览、编码标签、下载/raw charset |
 | 导航与主题 | F-46–F-49、F-54–F-56 | 桌面浮岛、移动抽屉、主题 |
 | 安全 | F-58–F-63 | 未信任服务、错误页 |
 

@@ -2,35 +2,35 @@
 
 本文件只记录**当前 Rust 实现**跑出来的结果。旧 Python 实现的 217 + 345 项台账
 已归档到 [`../archive/selftest-python.md`](../archive/selftest-python.md)。最近一次
-真实浏览器验收见 [`browser-report-2026-10-20.md`](browser-report-2026-10-20.md)；
+真实浏览器验收见 [`browser-report-2026-10-27-encodings.md`](browser-report-2026-10-27-encodings.md)；
 自主测试流程见 [`agent-guide.md`](agent-guide.md)。
 
 ## 环境
 
 | 项 | 值 |
 |---|---|
-| 日期 | 2026-10-21 |
-| 分支 | `feat/static-parity` |
+| 日期 | 2026-10-27 |
+| 分支 | `feat/file-encoding-detection` |
 | 平台 | macOS 27.0.0 arm64 |
 | Rust | 1.96（edition 2024，`rust-version = 1.89`） |
-| 产物 | `target/release/mdview`，约 **4.1 MB**（LTO + strip，内嵌 highlight.js、岛屿前端与压缩包解码器） |
+| 产物 | `target/release/mdview`，约 **4.3 MB**（LTO + strip，内嵌 highlight.js、岛屿前端与压缩包解码器） |
 
 ## 自动化结果
 
 | 套件 | 命令 | 结果 |
 |---|---|---|
-| 单元/集成 | `cargo test --lib` | **73 passed** |
+| 单元/集成 | `cargo test --lib` | **82 passed** |
 | Golden | `cargo test --test golden` | **27 cases passed** |
 | 渲染兼容 | `cargo test --test render_compat` | **134 passed** |
 | 静态检查 | `cargo clippy --all-targets -- -D warnings` | **通过** |
 | 格式 | `cargo fmt --all --check` | **通过** |
 | Web 类型 | `npm --prefix web run typecheck` | **通过** |
-| 黑盒 HTTP | `bash tests/selftest-rust.sh` | **PASS=223 FAIL=0** |
-| 浏览器验收 | `node tests/browser-probe.mjs` | **PASS=203 FAIL=0** |
+| 黑盒 HTTP | `bash tests/selftest-rust.sh` | **PASS=236 FAIL=0** |
+| 浏览器验收 | `node tests/browser-probe.mjs` | **PASS=210 FAIL=0** |
 | 源码页性能 | `node tests/perf-source.mjs` | **4 项预算通过** |
 | TTY 信任 | `bash tests/trust-tty.sh` | **PASS=9 FAIL=0** |
 | artifact 冒烟 | `bash tests/smoke-artifact.sh target/release/mdview` | **PASS=7 FAIL=0** |
-| 依赖漏洞 | `cargo audit` | **195 deps，无漏洞** |
+| 依赖漏洞 | `cargo audit` | **无已知漏洞** |
 | 许可证/来源 | `cargo deny check advisories licenses bans sources` | **全部 ok** |
 
 `cargo test` 总耗时约 1.5 秒（debug）；黑盒套件约 15 秒（含 release 构建）。
@@ -41,6 +41,9 @@
 - 静态兼容：文件带尾斜杠（含 `%2f`）404；目录始终列目录、不自动 index；`.markdown`
   渲染并进 Doc 搜索，`.mdx` 是源码页；内部 URL 带 `__mdview` 标记，同名 `search`、
   `_nav`、`_assets/app.css` 文件优先，无标记缺失即 404；
+- 文件编码：GBK Markdown/文本正确预览并显示编码；GBK 正文可搜；UTF-16LE BOM
+  可预览；UTF-32 BOM 按二进制下载；非 HTML 文本下载/raw 的 charset 为检测值，
+  HTML 下载不带 charset；
 - Markdown：标题/粗体/删除线/任务列表字面量/裸 HTML/表格 `style`/标题无 id；
 - 源码页：文件名为标题、类型/大小/行数/修改时间标签、行锚点、第 5 行内容、`预览`、下载入口；大于 256 KB 的文件
   全文输出为 24 个分块、服务端保留末行、无 `?text=1` 文本通道；
@@ -73,7 +76,7 @@ P0 差分报告：1035 条计分语料 **1015 条精确匹配（98.07%）**，0 
 
 ## 浏览器验证
 
-`tests/browser-probe.mjs` 在真实 headless Chrome 里跑 **203 项**断言：
+`tests/browser-probe.mjs` 在真实 headless Chrome 里跑 **210 项**断言：
 
 - 岛屿：文档页按需水合 toc/linetarget/code/zoom，源码页只挂 source；
 - HTML 文件：trusted 根原文顶层、脚本/localStorage/同源 fetch 正常；untrusted 根沙箱 iframe 内脚本运行/相对 CSS 生效、localStorage 与同源 fetch 被阻断；源码页切换、SVG 直开脚本不执行、目录大小/时间列对齐；
@@ -88,6 +91,8 @@ P0 差分报告：1035 条计分语料 **1015 条精确匹配（98.07%）**，0 
 - 导航空闲预取/全站树/目录只展开/文件导航/展开记忆/默认收起/移动抽屉；
 - 搜索图标弹层、统一键帽提示、真实提交、搜索页独立表单、结果分组与查询词高亮；
   搜索结果整行点击、Markdown 渲染块行定位与滚动/高亮；
+- 编码：GBK Markdown 正文与页头标签、GBK 源码页标签与正文、UTF-16LE 源码页标签、
+  GBK 搜索结果行；
 - 源码页文件名标题、类型/大小/行数/时间标签、预览/下载入口与 H1 无下划线；
 - highlight.js 实际着色、复制按钮与剪贴板反馈；
 - 图片放大：`href === src`、`showModal()`、焦点落在 dialog、关闭后焦点归还、
@@ -105,7 +110,7 @@ P0 差分报告：1035 条计分语料 **1015 条精确匹配（98.07%）**，0 
 
 - 最近一次远程完整绿色：`CI · 39612891072`（2026-10-21，`94b8e45`），8/8 job
   成功；macOS/Ubuntu/Windows 测试、Node 类型检查、4 目标构建全绿。
-- 本地 `run-all.sh` 当前为 223/203；远程 CI 最近一次绿色仍是 `b3a133a` 的 151/163。
+- 本地 `run-all.sh` 当前为 236/210；远程 CI 最近一次绿色仍是 `b3a133a` 的 151/163。
 - Release 由 tag `v2.0.0` 触发 `release.yml`；发布结果以该 GitHub Release 为准。
 - 岛屿架构首跑 `39421064321` 暴露两个 CI 问题：Linux Chrome 因新增的
   headless 启动参数没有在 15s 内暴露 DevTools；musl 的 cross 容器默认不传递
@@ -113,7 +118,7 @@ P0 差分报告：1035 条计分语料 **1015 条精确匹配（98.07%）**，0 
   参数、DevTools 超时 30s，并加 `Cross.toml` 透传预构建路径。
 - 更早的 `39285530389` 曾受 GitHub Actions `degraded_performance` 影响，
   8 个 job 长时间 queued；那是平台事件，不是代码失败。
-- 测试矩阵覆盖：`cargo test`、黑盒 223、TTY 9、浏览器 203、源码页性能 4；
+- 测试矩阵覆盖：`cargo test`、黑盒 236、TTY 9、浏览器 210、源码页性能 4；
   Windows 跳过 pty/浏览器/性能，其余全跑。
 - artifact 冒烟：macOS arm64、Linux x86_64 musl、Windows x86_64 通过；
   Linux arm64 musl 只构建（x86 runner 无法执行 arm64）。

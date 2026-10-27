@@ -2,6 +2,8 @@
 
 **Status**: accepted（2026-10-21）。取代本 ADR 先前“默认沙箱外壳”的草案；
 Markdown 裸 HTML 的 Trust/CSP 规则仍由 [ADR 0006](0006-html-trust-and-csp.md) 决定。
+编码检测只作用于 mdview 生成的预览/搜索，不改变本文的 HTML 原文策略
+（[ADR 0019](0019-file-encoding-detection.md)）。
 
 ## 背景
 

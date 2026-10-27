@@ -26,6 +26,7 @@ use walkdir::WalkDir;
 use crate::archive::{self, ArchiveRequest, ArchiveStore, Extracted};
 use crate::assets::{APP_CSS, APP_JS, HIGHLIGHT_CSS, HIGHLIGHT_JS, MARKDOWN_CSS};
 use crate::cli::Cli;
+use crate::encoding;
 use crate::render::render_markdown_with_sourcepos;
 use crate::trust::TrustState;
 
@@ -186,6 +187,7 @@ struct TokenEntry {
 struct CacheEntry {
     mtime: SystemTime,
     size: u64,
+    encoding: String,
     html: String,
 }
 
@@ -1617,8 +1619,10 @@ fn search_files(root: &Path, needle: &str, max_preview: u64, safe: bool) -> Sear
             let Ok(bytes) = std::fs::read(entry.path()) else {
                 continue;
             };
-            let text = String::from_utf8_lossy(&bytes);
-            for (index, line) in text.lines().enumerate() {
+            let Some(decoded) = encoding::decode(&bytes, true) else {
+                continue;
+            };
+            for (index, line) in decoded.text.lines().enumerate() {
                 if line.to_lowercase().contains(&needle) {
                     let snippet: String = line.trim().chars().take(240).collect();
                     hits.push(SearchHit {
@@ -1684,7 +1688,14 @@ fn sniff_text_sync(path: &Path) -> Option<bool> {
     let mut file = std::fs::File::open(path).ok()?;
     let mut buffer = [0u8; 512];
     let read = file.read(&mut buffer).ok()?;
-    Some(!buffer[..read].contains(&0))
+    let prefix = &buffer[..read];
+    if encoding::is_unsupported_utf32(prefix) {
+        return Some(false);
+    }
+    if encoding::has_utf16_bom(prefix) {
+        return Some(true);
+    }
+    Some(!prefix.contains(&0))
 }
 
 fn skipped_search_entry(entry: &walkdir::DirEntry) -> bool {
@@ -1774,7 +1785,15 @@ async fn source_page(
         }
     };
     let size = bytes.len();
-    let text = String::from_utf8_lossy(&bytes);
+    let Some(decoded) = encoding::decode(&bytes, true) else {
+        let binary = FileInfo {
+            kind: Kind::Binary,
+            mime: "application/octet-stream".to_string(),
+        };
+        return serve_file(state, path, &binary, size as u64, true, is_head).await;
+    };
+    let encoding_label = decoded.label();
+    let text = decoded.text;
     let chunked_mode = size as u64 > CHUNKED_SOURCE_THRESHOLD;
     let name = path.file_name().and_then(OsStr::to_str).unwrap_or("文件");
     let download = format!("{}?download=1", join_href(parent_rel(rel), name, false));
@@ -1834,6 +1853,7 @@ async fn source_page(
          <div class=\"source-tags\">\
          <span class=\"badge source-kind\">{kind_icon}<span>{kind}</span></span>\
          <span class=\"badge\">{size}</span>\
+         <span class=\"badge source-encoding\" title=\"检测编码：{encoding}\">编码 {encoding}</span>\
          <span class=\"badge\">{lines} 行</span>\
          <span class=\"badge\">更新于 {mtime}</span>\
          </div></div>\
@@ -1845,6 +1865,7 @@ async fn source_page(
         kind_icon = icon("code"),
         kind = escape_html(&kind_label),
         size = size_label,
+        encoding = escape_html(&encoding_label),
         lines = line_count,
         mtime = mtime_label,
         download_icon = icon("download"),
@@ -1982,10 +2003,10 @@ async fn render_page(state: &AppState, path: &Path, rel: &str, is_head: bool) ->
         cache
             .get(path)
             .filter(|entry| entry.mtime == mtime && entry.size == size)
-            .map(|entry| entry.html.clone())
+            .map(|entry| (entry.html.clone(), entry.encoding.clone()))
     };
-    let rendered = if let Some(html) = cached {
-        html
+    let (rendered, encoding_label) = if let Some(cached) = cached {
+        cached
     } else {
         let bytes = match tokio::fs::read(path).await {
             Ok(bytes) => bytes,
@@ -1999,8 +2020,15 @@ async fn render_page(state: &AppState, path: &Path, rel: &str, is_head: bool) ->
                 .await;
             }
         };
-        let text = String::from_utf8_lossy(&bytes);
-        let html = render_markdown_with_sourcepos(&text, rel);
+        let Some(decoded) = encoding::decode(&bytes, true) else {
+            let info = FileInfo {
+                kind: Kind::Binary,
+                mime: "application/octet-stream".to_string(),
+            };
+            return serve_file(state, path, &info, size, true, is_head).await;
+        };
+        let encoding_label = decoded.label();
+        let html = render_markdown_with_sourcepos(&decoded.text, rel);
         let mut cache = state.cache.lock().unwrap();
         if cache.len() > 128 {
             cache.clear();
@@ -2010,10 +2038,11 @@ async fn render_page(state: &AppState, path: &Path, rel: &str, is_head: bool) ->
             CacheEntry {
                 mtime,
                 size,
+                encoding: encoding_label.clone(),
                 html: html.clone(),
             },
         );
-        html
+        (html, encoding_label)
     };
 
     let name = path
@@ -2021,7 +2050,12 @@ async fn render_page(state: &AppState, path: &Path, rel: &str, is_head: bool) ->
         .and_then(OsStr::to_str)
         .unwrap_or("Markdown");
     let encoded = encode_path(rel);
-    let meta = format!("Markdown · {} · {}", format_size(size), format_mtime(mtime));
+    let meta = format!(
+        "Markdown · {} · {} · {}",
+        format_size(size),
+        encoding_label,
+        format_mtime(mtime)
+    );
     let crumbs = page_crumbs(state, rel, PageKind::Doc);
     let body = format!(
         "<article class=\"content-card doc-card\"><header class=\"doc-head\"><div class=\"head-inner\">\
@@ -2202,16 +2236,9 @@ async fn serve_file(
     } else {
         &[]
     };
-    stream_file(
-        state,
-        path,
-        &content_type(info),
-        size,
-        attachment,
-        extra,
-        is_head,
-    )
-    .await
+    let charset = streaming_charset(path, info).await;
+    let content_type = content_type_with_charset(info, charset);
+    stream_file(state, path, &content_type, size, attachment, extra, is_head).await
 }
 
 async fn serve_raw(
@@ -2221,16 +2248,18 @@ async fn serve_raw(
     size: u64,
     is_head: bool,
 ) -> Response {
-    stream_file(
-        state,
-        path,
-        &raw_mime(path, info),
-        size,
-        false,
-        &[],
-        is_head,
-    )
-    .await
+    let mime = raw_mime(path, info);
+    let charset = streaming_charset(path, info).await;
+    let content_type = apply_charset(&mime, charset);
+    stream_file(state, path, &content_type, size, false, &[], is_head).await
+}
+
+async fn streaming_charset(path: &Path, info: &FileInfo) -> Option<&'static str> {
+    if !matches!(info.kind, Kind::Text | Kind::Markdown) {
+        return None;
+    }
+    let prefix = read_prefix(path, encoding::DETECT_WINDOW).await?;
+    encoding::detect_prefix(&prefix, true).map(|detected| detected.charset())
 }
 
 async fn html_trusted_document(
@@ -2608,6 +2637,22 @@ async fn classify(path: &Path) -> FileInfo {
         .to_ascii_lowercase();
     let name = path.file_name().and_then(OsStr::to_str).unwrap_or("");
 
+    let text_candidate = ext == "md"
+        || ext == "markdown"
+        || ext == "html"
+        || ext == "htm"
+        || is_text_ext(&ext)
+        || is_text_name(name);
+    if text_candidate
+        && let Some(prefix) = read_prefix(path, 512).await
+        && encoding::is_unsupported_utf32(&prefix)
+    {
+        return FileInfo {
+            kind: Kind::Binary,
+            mime: "application/octet-stream".to_string(),
+        };
+    }
+
     if ext == "md" || ext == "markdown" {
         return FileInfo {
             kind: Kind::Markdown,
@@ -2650,7 +2695,7 @@ async fn classify(path: &Path) -> FileInfo {
         };
     }
 
-    if sniff_text(path).await == Some(true) {
+    if sniff_text(path, ext.is_empty()).await == Some(true) {
         return FileInfo {
             kind: Kind::Text,
             mime: "text/plain; charset=utf-8".to_string(),
@@ -2662,11 +2707,28 @@ async fn classify(path: &Path) -> FileInfo {
     }
 }
 
-async fn sniff_text(path: &Path) -> Option<bool> {
+async fn read_prefix(path: &Path, limit: usize) -> Option<Vec<u8>> {
+    let file = tokio::fs::File::open(path).await.ok()?;
+    let mut buffer = Vec::new();
+    file.take(limit as u64)
+        .read_to_end(&mut buffer)
+        .await
+        .ok()?;
+    Some(buffer)
+}
+
+async fn sniff_text(path: &Path, allow_bom: bool) -> Option<bool> {
     let mut file = tokio::fs::File::open(path).await.ok()?;
     let mut buffer = [0u8; 512];
     let read = file.read(&mut buffer).await.ok()?;
-    Some(!buffer[..read].contains(&0))
+    let prefix = &buffer[..read];
+    if allow_bom && encoding::is_unsupported_utf32(prefix) {
+        return Some(false);
+    }
+    if allow_bom && encoding::has_utf16_bom(prefix) {
+        return Some(true);
+    }
+    Some(!prefix.contains(&0))
 }
 
 fn allowed_in_safe_mode(path: &Path) -> bool {
@@ -2712,6 +2774,34 @@ fn guess_binary_mime(ext: &str) -> String {
         .first_raw()
         .unwrap_or("application/octet-stream")
         .to_string()
+}
+
+fn content_type_with_charset(info: &FileInfo, charset: Option<&str>) -> String {
+    // HTML files keep their own BOM/meta encoding (ADR 0015); never force a
+    // charset on trusted raw HTML or its downloads/subresources.
+    if info.mime == "text/html" {
+        return "text/html".to_string();
+    }
+    match charset {
+        Some(charset) => apply_charset(&info.mime, Some(charset)),
+        None => content_type(info),
+    }
+}
+
+fn apply_charset(mime: &str, charset: Option<&str>) -> String {
+    let Some(charset) = charset else {
+        return mime.to_string();
+    };
+    if mime.trim_start().starts_with("text/html") {
+        return "text/html".to_string();
+    }
+    let base = mime.split(';').next().unwrap_or(mime).trim();
+    let textual = base.starts_with("text/") || base.contains("json") || base.ends_with("xml");
+    if textual {
+        format!("{base}; charset={}", charset.to_ascii_lowercase())
+    } else {
+        mime.to_string()
+    }
 }
 
 fn content_type(info: &FileInfo) -> String {
@@ -3122,6 +3212,7 @@ mod tests {
         let html = String::from_utf8(body).unwrap();
         assert!(html.contains("<h1>b.txt</h1>"), "{html}");
         assert!(html.contains(">文本<"), "{html}");
+        assert!(html.contains("编码 UTF-8"), "{html}");
         assert!(html.contains("3 行"), "{html}");
 
         let (status, headers, body) = call(app.clone(), Method::GET, "/b.txt?download=1").await;
@@ -3183,6 +3274,7 @@ mod tests {
         let html = String::from_utf8(body).unwrap();
         assert!(html.contains(">hi</h1>"));
         assert!(html.contains("class=\"markdown-body\""));
+        assert!(html.contains("· UTF-8 ·"), "{html}");
         assert!(html.contains("data-sourcepos="), "{html}");
         assert!(html.contains("class=\"shell has-toc\""));
         assert!(html.contains("class=\"toc-rail\" id=\"toc-rail\""));
@@ -3268,6 +3360,126 @@ mod tests {
         assert_eq!(status, StatusCode::OK);
         let (status, _, _) = call(safe_app, Method::GET, "/a.mdx").await;
         assert_eq!(status, StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn legacy_encodings_preview_label_search_and_charset() {
+        let dir = fixture();
+        let gbk_md = encoding_rs::GBK
+            .encode("# 中文标题\n\n唯一正文标记\n")
+            .0
+            .into_owned();
+        std::fs::write(dir.path().join("gbk.md"), &gbk_md).unwrap();
+        let gbk_txt = encoding_rs::GBK
+            .encode("编码测试 GBK 文本\n")
+            .0
+            .into_owned();
+        std::fs::write(dir.path().join("gbk.txt"), &gbk_txt).unwrap();
+        let gbk_css = encoding_rs::GBK
+            .encode("body::after { content: \"这是一个用于测试编码检测的中文句子\"; }\n")
+            .0
+            .into_owned();
+        std::fs::write(dir.path().join("gbk.css"), &gbk_css).unwrap();
+
+        let utf16_text = "UTF-16LE 文本\n";
+        let mut utf16 = vec![0xFF, 0xFE];
+        for unit in utf16_text.encode_utf16() {
+            utf16.extend_from_slice(&unit.to_le_bytes());
+        }
+        std::fs::write(dir.path().join("utf16.txt"), &utf16).unwrap();
+        let mut utf16_md = vec![0xFF, 0xFE];
+        for unit in "# UTF-16 标题\n".encode_utf16() {
+            utf16_md.extend_from_slice(&unit.to_le_bytes());
+        }
+        std::fs::write(dir.path().join("utf16.md"), &utf16_md).unwrap();
+
+        let utf32_text = "UTF-32 文本\n";
+        let mut utf32 = vec![0xFF, 0xFE, 0x00, 0x00];
+        for ch in utf32_text.chars() {
+            utf32.extend_from_slice(&(ch as u32).to_le_bytes());
+        }
+        std::fs::write(dir.path().join("utf32.txt"), &utf32).unwrap();
+
+        let app = app(state(dir.path(), false, 0, 0));
+
+        let (status, _, body) = call(app.clone(), Method::GET, "/gbk.md").await;
+        assert_eq!(status, StatusCode::OK);
+        let html = String::from_utf8(body).unwrap();
+        assert!(html.contains("中文标题"), "{html}");
+        assert!(html.contains("class=\"doc-meta\">Markdown · "), "{html}");
+        assert!(html.contains("GBK"), "{html}");
+
+        let (_, _, body) = call(app.clone(), Method::GET, "/gbk.md?raw=1").await;
+        let html = String::from_utf8(body).unwrap();
+        assert!(html.contains("source-encoding"), "{html}");
+        assert!(html.contains("编码 GBK"), "{html}");
+        assert!(html.contains("中文标题"), "{html}");
+
+        let (_, _, body) = call(
+            app.clone(),
+            Method::GET,
+            "/search?__mdview=search&q=%E4%B8%AD%E6%96%87",
+        )
+        .await;
+        let html = String::from_utf8(body).unwrap();
+        assert!(html.contains("href=\"/gbk.md#L1\""), "{html}");
+        assert!(html.contains("中文标题"), "{html}");
+
+        let (_, _, body) = call(app.clone(), Method::GET, "/gbk.txt").await;
+        let html = String::from_utf8(body).unwrap();
+        assert!(html.contains("编码 GBK"), "{html}");
+        assert!(html.contains("编码测试 GBK 文本"), "{html}");
+
+        let (_, headers, body) = call(app.clone(), Method::GET, "/gbk.md?download=1").await;
+        assert_eq!(body, gbk_md);
+        assert!(
+            headers
+                .get(header::CONTENT_TYPE)
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .contains("charset=gbk")
+        );
+
+        let (_, headers, body) = call_with_headers(
+            app.clone(),
+            Method::GET,
+            "/gbk.css",
+            &[("Sec-Fetch-Dest", "style")],
+        )
+        .await;
+        assert_eq!(body, gbk_css);
+        assert!(
+            headers
+                .get(header::CONTENT_TYPE)
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .contains("charset=gbk")
+        );
+
+        let (_, _, body) = call(app.clone(), Method::GET, "/utf16.txt").await;
+        let html = String::from_utf8(body).unwrap();
+        assert!(html.contains("编码 UTF-16LE BOM"), "{html}");
+        assert!(html.contains("UTF-16LE 文本"), "{html}");
+
+        let (_, _, body) = call(app.clone(), Method::GET, "/utf16.md").await;
+        let html = String::from_utf8(body).unwrap();
+        assert!(html.contains("UTF-16 标题"), "{html}");
+        assert!(html.contains("UTF-16LE BOM"), "{html}");
+
+        let (_, headers, body) = call(app.clone(), Method::GET, "/utf32.txt").await;
+        assert_eq!(body, utf32);
+        assert_eq!(
+            headers.get(header::CONTENT_TYPE).unwrap().to_str().unwrap(),
+            "application/octet-stream"
+        );
+
+        let (_, headers, _) = call(app, Method::GET, "/page.html?download=1").await;
+        assert_eq!(
+            headers.get(header::CONTENT_TYPE).unwrap().to_str().unwrap(),
+            "text/html"
+        );
     }
 
     #[tokio::test]

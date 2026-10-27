@@ -197,6 +197,9 @@ async function writeFixture(root) {
     '<svg xmlns="http://www.w3.org/2000/svg"><script>document.documentElement.dataset.x=1</script></svg>\n',
   );
   await copyFile(join(REPO, 'tests', 'fixtures', 'archives', 'sample.zip'), join(root, 'sample.zip'));
+  await copyFile(join(REPO, 'tests', 'fixtures', 'encodings', 'gbk.md'), join(root, 'gbk.md'));
+  await copyFile(join(REPO, 'tests', 'fixtures', 'encodings', 'gbk.txt'), join(root, 'gbk.txt'));
+  await copyFile(join(REPO, 'tests', 'fixtures', 'encodings', 'utf16le.txt'), join(root, 'utf16le.txt'));
   await writeFile(join(root, 'plain.txt'), 'plain text without a language\nsecond line\n');
   await writeFile(join(root, 'small.rs'), 'fn main() {\n    let x = 1;\n    println!("{}", x);\n}\n');
   await writeFile(join(root, 'single.md'), '# Single\n\nOnly a heading.\n');
@@ -640,6 +643,19 @@ async function main() {
       return form.top - title.bottom < 80;
     })()`)) === true);
     await page.send('Emulation.setDeviceMetricsOverride', { width: 1200, height: 320, deviceScaleFactor: 1, mobile: false });
+
+    console.log('== encodings ==');
+    await goto('/gbk.md');
+    check('GBK Markdown 文本', (await evaluate('document.querySelector("article.markdown-body h1")?.textContent')) === '中文标题');
+    check('GBK Markdown 标签', (await evaluate('document.querySelector(".doc-meta")?.textContent'))?.includes('GBK') === true);
+    await goto('/gbk.txt');
+    check('GBK 源码文本', (await evaluate('document.querySelector(".source code")?.textContent'))?.includes('编码测试 GBK 文本') === true);
+    check('GBK 源码编码标签', (await evaluate('document.querySelector(".source-encoding")?.textContent')) === '编码 GBK');
+    await goto('/utf16le.txt');
+    check('UTF-16 源码文本', (await evaluate('document.querySelector(".source code")?.textContent'))?.includes('UTF-16LE 文本') === true);
+    check('UTF-16 编码标签', (await evaluate('document.querySelector(".source-encoding")?.textContent')) === '编码 UTF-16LE BOM');
+    await goto(`/search?__mdview=search&q=${encodeURIComponent('中文')}`);
+    check('GBK 搜索命中', (await evaluate('document.querySelector(".result-group .hit")?.getAttribute("href")')) === '/gbk.md#L1');
 
     console.log('== directory and raw pages ==');
     await goto('/');

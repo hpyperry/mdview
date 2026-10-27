@@ -96,6 +96,11 @@ mkdir -p "$ROOT/_assets"
 printf 'a real app css\n' >"$ROOT/_assets/app.css"
 printf '# Markdown Ext\n\nmarkdownneedle\n' >"$ROOT/a.markdown"
 printf '# MDX\n\n<Component />\n' >"$ROOT/a.mdx"
+cp "$REPO_ROOT/tests/fixtures/encodings/gbk.md" "$ROOT/gbk.md"
+cp "$REPO_ROOT/tests/fixtures/encodings/gbk.txt" "$ROOT/gbk.txt"
+cp "$REPO_ROOT/tests/fixtures/encodings/gbk.css" "$ROOT/gbk.css"
+cp "$REPO_ROOT/tests/fixtures/encodings/utf16le.txt" "$ROOT/utf16le.txt"
+cp "$REPO_ROOT/tests/fixtures/encodings/utf32le.txt" "$ROOT/utf32le.txt"
 printf '\211PNG\r\n\032\n' >"$ROOT/img.png"
 printf 'abc\0def' >"$ROOT/bin.dat"
 printf '# in space dir\n' >"$ROOT/my dir/a.md"
@@ -319,6 +324,22 @@ chk ".markdown 内容" "$(curl -s "$BASE/a.markdown")" ">Markdown Ext</h1>"
 chk ".mdx 源码页" "$(curl -s "$BASE/a.mdx")" 'class="source-wrap"'
 chk ".mdx 标签" "$(curl -s "$BASE/a.mdx")" ">MDX<"
 chk ".markdown 搜索内容" "$(curl -s "$BASE/search?__mdview=search&q=markdownneedle")" 'href="/a.markdown#L3"'
+
+# Legacy encodings: decode before preview/search, label the detected encoding,
+# and keep original bytes for downloads/raw.
+chk "GBK Markdown 预览" "$(curl -s "$BASE/gbk.md")" "中文标题"
+chk "GBK Markdown 编码标签" "$(curl -s "$BASE/gbk.md")" "GBK"
+chk "GBK 源码编码标签" "$(curl -s "$BASE/gbk.txt")" "编码 GBK"
+chk "GBK 搜索正文" "$(curl -s "$BASE/search?__mdview=search&q=%E4%B8%AD%E6%96%87")" 'href="/gbk.md#L1"'
+chk "GBK 下载 charset" "$(header "$BASE/gbk.txt?download=1" content-type)" "charset=gbk"
+chk "GBK CSS raw charset" "$(curl -s -o /dev/null -w '%{content_type}' -H 'Sec-Fetch-Dest: style' "$BASE/gbk.css")" "text/css; charset=gbk"
+chk_num "GBK CSS 原始字节" "$(curl -s -H 'Sec-Fetch-Dest: style' "$BASE/gbk.css" | wc -c | tr -d ' ')" "$(wc -c <"$ROOT/gbk.css" | tr -d ' ')"
+chk "UTF-16 预览" "$(curl -s "$BASE/utf16le.txt")" "UTF-16LE 文本"
+chk "UTF-16 编码标签" "$(curl -s "$BASE/utf16le.txt")" "编码 UTF-16LE BOM"
+nchk "UTF-32 不进源码页" "$(curl -s "$BASE/utf32le.txt")" "source-encoding"
+chk "UTF-32 按二进制" "$(ctype "$BASE/utf32le.txt")" "application/octet-stream"
+nchk "HTML 下载无 charset" "$(header "$BASE/page.html?download=1" content-type)" "charset="
+
 chk "压缩包条目尾斜杠 404" "$(code "$BASE/sample.zip/docs/a.md/")" "404"
 
 chk "图片 MIME" "$(ctype "$BASE/img.png")" "image/png"
@@ -383,6 +404,7 @@ SAFE="http://127.0.0.1:$SAFE_PORT"
 chk "--safe 拦截文本" "$(code "$SAFE/b.txt")" "404"
 chk "--safe 放行 md" "$(code "$SAFE/a.md")" "200"
 chk "--safe 放行 .markdown" "$(code "$SAFE/a.markdown")" "200"
+chk "--safe 放行 GBK Markdown" "$(code "$SAFE/gbk.md")" "200"
 chk "--safe 放行图片" "$(code "$SAFE/img.png")" "200"
 chk "--safe 拦截 Makefile" "$(code "$SAFE/Makefile")" "404"
 chk "--safe 放行 HTML 源码" "$(code "$SAFE/page.html")" "200"

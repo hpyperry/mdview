@@ -8,8 +8,9 @@
 ## 这是什么
 
 `mdview` 是 Rust 单文件离线 Markdown 预览服务器：渲染 `.md`/`.markdown`、为非
-Markdown 文本提供源码查看页、压缩包虚拟目录、其他文件按类型内联或下载，并带
-全文搜索、Trust 拦截与 CSP。产物只有 `target/release/mdview`，运行时零外部请求。
+Markdown 文本提供源码查看页、检测文件编码、压缩包虚拟目录、其他文件按类型内联
+或下载，并带全文搜索、Trust 拦截与 CSP。产物只有 `target/release/mdview`，运行时
+零外部请求。
 
 ```bash
 npm --prefix web ci
@@ -25,8 +26,8 @@ bash tests/run-all.sh
 `npm --prefix web ci`。跨平台 musl 构建用
 `npm --prefix web run build:web` + `MDVIEW_WEB_PREBUILT=web/dist`。
 
-必须全绿：`cargo test`（73 单元 + 134 渲染兼容 + 27 golden）、223 项黑盒 HTTP、
-9 项 pty 信任测试、203 项 headless Chrome 验收、4 项源码页性能预算。
+必须全绿：`cargo test`（82 单元 + 134 渲染兼容 + 27 golden）、236 项黑盒 HTTP、
+9 项 pty 信任测试、210 项 headless Chrome 验收、4 项源码页性能预算。
 
 ## 协作流程
 
@@ -73,7 +74,8 @@ Single-context: root `GLOSSARY.md` + `docs/architecture/adr/`. See
    [ADR 0015](docs/architecture/adr/0015-html-file-preview-and-sandbox.md) HTML 文件双模式与沙箱，
    [ADR 0016](docs/architecture/adr/0016-archive-virtual-paths.md) 压缩包虚拟路径与解压缓存，
    [ADR 0017](docs/architecture/adr/0017-internal-url-query-disambiguation.md) 内部 URL 查询参数消歧，
-   [ADR 0018](docs/architecture/adr/0018-markdown-extension-scope.md) Markdown 扩展名口径；
+   [ADR 0018](docs/architecture/adr/0018-markdown-extension-scope.md) Markdown 扩展名口径，
+   [ADR 0019](docs/architecture/adr/0019-file-encoding-detection.md) 文件编码检测与 UTF-8 预览；
 4. `docs/architecture/overview.md` 与 `docs/architecture/execution-plan.md`；
 5. `docs/research/comrak-vs-markdown-it.md`：P0 差分证据。
 
@@ -88,6 +90,7 @@ Single-context: root `GLOSSARY.md` + `docs/architecture/adr/`. See
 | `src/cli.rs` | clap 参数与大小解析 |
 | `src/trust.rs` | Trust 配置读写、flag/存储/询问优先级 |
 | `src/server.rs` | axum 路由、目录索引、全站导航 JSON、源码页/大源码分块、搜索、下载、CSP、token、缓存 |
+| `src/encoding.rs` | BOM/UTF-8/UTF-16 启发式/chardetng 检测、UTF-32 拒绝、UTF-8 解码与编码标签 |
 | `src/render.rs` | comrak 配置 + 自定义 formatter（链接/图片/表格/删除线）+ URL 重写 |
 | `src/assets.rs` | 内嵌 vendor 资产与 `OUT_DIR` 的 `app.js`/`app.css` |
 | `src/archive.rs` | 压缩包检测、zip/tar.gz/7z 解压、路径/编码/上限、临时缓存与淘汰 |
@@ -172,6 +175,10 @@ Single-context: root `GLOSSARY.md` + `docs/architecture/adr/`. See
     `.mdx` 是源码/MDX，不按 comrak 渲染。
 20. **目录始终列目录**：不自动寻找 `index.html`/`index.htm`；文件路径带尾斜杠
     （字面或 `%2f`）返回 404，目录缺尾斜杠仍是 301。
+21. **文件编码检测**：BOM → UTF-8 校验 → UTF-16 启发式 → chardetng；只作用于
+    mdview 生成的预览/搜索。HTML 原文/沙箱 iframe 不转码、不强制 charset；非 HTML
+    文本的 raw/下载 charset 用检测值，UTF-32 按二进制下载；不做手动编码覆盖。
+    无 BOM 中文 UTF-16 可能识别失败，检测标签必须如实写“检测编码”。
 
 ## 改哪里
 
@@ -181,7 +188,8 @@ Single-context: root `GLOSSARY.md` + `docs/architecture/adr/`. See
 | 新链接/图片协议规则 | `is_safe_link` + `tests/render_compat.rs` 正反例 |
 | URL 编码/相对路径 | `rewrite_target` + `%20/%2520/%23/%3F` 测试 |
 | 新路由/页面 | `src/server.rs` 的 `app`/`handle` 与 `Page` 外壳 |
-| 搜索范围/结果 | `search_files` / `render_search`；正文只扫文本文件 |
+| 文件编码检测/标签 | `src/encoding.rs` + `render_page`/`source_page`/`search_files`/`streaming_charset` |
+| 搜索范围/结果 | `search_files` / `render_search`；正文按检测编码解码后只扫文本文件 |
 | 目录行列对齐 | `list_dir` 的五列模板 + `web/src/styles/app.css` 的 `.dir-row` grid |
 | 搜索结果行定位 | `render_markdown_with_sourcepos` + `web/src/islands/linetarget.ts` |
 | 顶部栏/导航/页面 chrome/内容面 | `html_page`、`crumbs_html`、`nav.tsx` |
@@ -210,6 +218,9 @@ Single-context: root `GLOSSARY.md` + `docs/architecture/adr/`. See
   不要按 comrak 渲染。
 - **尾斜杠与 index**：文件路径带尾斜杠（含 `%2f`）404；目录缺尾斜杠 301；目录始终
   列目录，不自动寻找 `index.html`/`index.htm`。
+- **文件编码**：预览/搜索先按检测编码解码再输出 UTF-8；HTML 原文不转码；非 HTML
+  文本 raw/下载 charset 用检测值（小写，如 `charset=gbk`），HTML 不带 charset；
+  UTF-32 不预览。标签写“编码”，不要承诺“真实编码”。
 - **图片被包 `<a class="zoom">`**：父节点是链接时不包（徽章）；href 必须与 src
   逐字节相同。
 - **表格对齐**：必须输出 `style="text-align:…"`，不是 `align="…"`。
