@@ -50,7 +50,8 @@ cargo build --release
 [0016](docs/architecture/adr/0016-archive-virtual-paths.md)（压缩包虚拟路径与解压缓存）、
 [0017](docs/architecture/adr/0017-internal-url-query-disambiguation.md)（内部 URL 查询参数消歧）、
 [0018](docs/architecture/adr/0018-markdown-extension-scope.md)（Markdown 扩展名口径）、
-[0019](docs/architecture/adr/0019-file-encoding-detection.md)（文件编码检测与 UTF-8 预览）。
+[0019](docs/architecture/adr/0019-file-encoding-detection.md)（文件编码检测与 UTF-8 预览）、
+[0020](docs/architecture/adr/0020-nav-layered-preload.md)（全站导航三层预载与按需展开）。
 
 ## 功能
 
@@ -61,8 +62,9 @@ cargo build --release
   默认收起的浮层，不占用正文网格；
 - 内容面最大 1240px、阅读行最大 1000px；页头横跨内容面（左右 30px），正文仍
   保持阅读行；搜索页表单在页头右侧，窄屏自动换行；代码块、表格随内容面变宽；
-- 全站导航树在页面空闲时预取，包含所有可见目录与文件；目录行只展开/收起，
-  文件行才导航；当前路径自动展开，用户展开状态本地记忆；
+- 全站导航树只预载根 + 三层目录，更深目录按需展开；空闲预取带当前路径脊柱，
+  深页打开导航也能一次定位当前文件；目录行只展开/收起，文件行才导航；当前路径
+  自动展开，用户展开状态本地记忆；桌面端悬停目录会预热下一层；
 - 顶部栏只保留产品名、搜索图标、主题三态和导航开关；页面路径放在正文头部；
 - 导航默认收起，每次加载都收起；桌面浮岛覆盖、不挤压正文，≤900px 为抽屉 + 遮罩；
 - 搜索：图标 + 按需弹层（`/` 打开），提交进入搜索页；文件名覆盖所有文件，
@@ -127,7 +129,8 @@ cargo build --release
 | 图片 / PDF | 按 MIME 内联；SVG 直开带 CSP `sandbox`，脚本不执行 |
 | 其他 | `application/octet-stream` 下载 |
 | `GET /search?__mdview=search&q=…` | 文件名搜所有文件；正文按检测编码解码后搜 Markdown 文档与文本；按文件分组；每条结果整行可点击；HTML 内容行到 `?raw=1#L<n>` |
-| `GET /_nav?__mdview=nav` | 全站导航树 JSON；包含所有可见目录与文件；读不了的子树跳过并标记 `partial`，供导航浮岛空闲预取 |
+| `GET /_nav?__mdview=nav` | 全站导航初始树 JSON：根 + 三层目录；可带 `active=<当前路径>` 附带祖先链；读不了的子树跳过并标记 `partial` |
+| `GET /_nav?__mdview=nav&dir=<相对路径>` | 按需展开：只返回该目录的直接子项；`dir` 必须是根内真实目录，拒绝 `..`、绝对路径、反斜杠与 NUL |
 | `HEAD` / `301` / `404` | 支持；目录缺尾斜杠返回 301；文件带尾斜杠（字面 `/` 或 `%2f`）返回 404 |
 
 压缩包支持 `.zip`、`.tar.gz`/`.tgz`、`.7z`；嵌套包按普通文件下载，不递归解压。
@@ -231,10 +234,10 @@ macOS / Linux / Windows 三平台跑 `cargo test` 与黑盒 HTTP 套件。
 ```bash
 npm --prefix web ci
 npm --prefix web run typecheck
-cargo test                      # 82 单元 + 134 渲染兼容 + 27 golden
+cargo test                      # 87 单元 + 134 渲染兼容 + 27 golden
 cargo clippy --all-targets -- -D warnings
-bash tests/selftest-rust.sh     # 238 项真二进制 HTTP 断言
-node tests/browser-probe.mjs      # 210 项 headless Chrome 验收
+bash tests/selftest-rust.sh     # 257 项真二进制 HTTP 断言
+node tests/browser-probe.mjs      # 224 项 headless Chrome 验收
 node tests/perf-source.mjs        # 4 项源码页性能预算
 bash tests/trust-tty.sh           # 9 项真实 pty 信任测试
 ```
@@ -242,7 +245,7 @@ bash tests/trust-tty.sh           # 9 项真实 pty 信任测试
 - `tests/render_compat.rs`：旧 217 项渲染断言的 Rust 后继，期望按 ADR 0005/0007 更新；
 - `src/server.rs`：路由、Trust、CSP、symlink、下载头、跨平台路径；
 - `tests/selftest-rust.sh`：目录/301/源码/渲染/下载/搜索/MIME/嗅探/上限/端口回退/
-  Trust/CSP/FIFO/symlink/编码检测与 charset。
+  Trust/CSP/FIFO/symlink/编码检测与 charset/导航分层预载与 `dir` 路径校验。
 
 一次跑完用 `bash tests/run-all.sh`。测试说明见 [`tests/README.md`](tests/README.md)；
 最近一次浏览器验收见
