@@ -8,7 +8,7 @@ Rust 实现的断言分多组：
 | `tests/golden.rs` + `tests/golden/` | 27 条 curated golden 的逐字节输出（accepted deviation 带 `note`） | `cargo test --test golden` |
 | `src/` 的 `#[cfg(test)]` | 模块内单元测试（82 项：render 11 / server 45 / encoding 8 / trust 7 / cli 5 / assets 1 / archive 5） | `cargo test --lib` |
 | `web/src/` | TypeScript 类型检查（岛运行时、Preact 组件、源码岛） | `npm --prefix web run typecheck` |
-| `selftest-rust.sh` | 真二进制的 black-box HTTP 断言（236 项：目录/渲染/源码/大源码全文分块/导航 JSON/岛清单/下载/搜索/Trust/CSP/HTML 信任原文与未信任沙箱/子资源/压缩包虚拟目录与包内条目/SVG sandbox/安全/文件系统边界/文件尾斜杠/内部 URL 与同名文件碰撞/.markdown 与 .mdx/safe 搜索过滤/GBK 与 UTF-16 编码/charset） | `bash tests/selftest-rust.sh` |
+| `selftest-rust.sh` | 真二进制的 black-box HTTP 断言（238 项：目录/渲染/源码/大源码全文分块/导航 JSON/岛清单/下载/搜索/Trust/CSP/HTML 信任原文与未信任沙箱/子资源/压缩包虚拟目录与包内条目/SVG sandbox/安全/文件系统边界/文件尾斜杠/内部 URL 与同名文件碰撞/.markdown 与 .mdx/safe 搜索过滤/GBK 与 UTF-16 编码/charset） | `bash tests/selftest-rust.sh` |
 | `trust-tty.sh` + `trust-tty.exp` | 真实 pty 下的信任询问、持久化、非 TTY 默认（9 项） | `bash tests/trust-tty.sh` |
 | `browser-probe.mjs` | headless Chrome 验收（210 项）：全宽内容面/全宽页头/导航空闲预取与树操作/目录只展开/文件导航/TOC 悬停文字大纲与 scroll-spy/搜索弹层与整行结果/渲染块行定位/源码页头/HTML 信任原文与未信任沙箱/源码切换/目录列对齐/压缩包虚拟目录与包内预览/SVG 直开脚本阻断/主题快速切换与状态反馈/岛水合/语言条/复制/放大/大源码分块/无 JS 全文/GBK 与 UTF-16 编码标签 | `node tests/browser-probe.mjs` |
 | `perf-source.mjs` | 源码页性能预算：100 KB / 1 MB / 10 MB / 1 MB Rust（真实 Chrome，含末行完整性检查） | `node tests/perf-source.mjs` |
@@ -18,6 +18,10 @@ Rust 实现的断言分多组：
 | `fixtures/html-preview/` | 手动 HTML 夹具：trusted 原文、untrusted 沙箱、相对 CSS、SVG、链接与搜索探针 | 见 [fixtures/html-preview/README.md](fixtures/html-preview/README.md) |
 | `fixtures/archives/` | 手动压缩包夹具：zip/tar.gz/7z、包内 Markdown/HTML/CSS、嵌套 zip | 见 [fixtures/archives/README.md](fixtures/archives/README.md) |
 | `fixtures/encodings/` | GBK Markdown/文本/CSS、UTF-16LE、UTF-32LE BOM 夹具 | 编码检测与 charset 断言 |
+| `fixtures/static-parity/` | 同名 `search`/`_nav`/`_assets`、`.markdown`/`.mdx`、`sub/index.html` | 内部 URL、尾斜杠与扩展名手动复测 |
+
+手动夹具按 feature 分目录，启动命令与预期见
+[`fixtures/README.md`](fixtures/README.md)；每个目录都可以直接作为 `--root`。
 
 `selftest-rust.sh` 会自动 `cargo build --release`，起临时服务、跑完自清理；
 可用 `MDVIEW_BIN=` 指向别的二进制，`PORT=` 换一组端口。

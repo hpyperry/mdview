@@ -37,10 +37,10 @@
     lines.push(`localStorage: blocked (${error.name})`);
   }
   try {
-    const response = await fetch('/_nav');
-    lines.push(`fetch /_nav: ${response.status}`);
+    const response = await fetch('/_nav?__mdview=nav');
+    lines.push(`fetch /_nav?__mdview=nav: ${response.status}`);
   } catch (error) {
-    lines.push(`fetch /_nav: blocked (${error.name})`);
+    lines.push(`fetch /_nav?__mdview=nav: blocked (${error.name})`);
   }
   document.body.dataset.script = 'yes';
   document.getElementById('probe').textContent = lines.join('\n');

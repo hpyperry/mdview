@@ -19,7 +19,7 @@ GBK 正文可搜索；HTML 原文保持原字节。自动探针 `PASS=210 FAIL=0
 
 - `node tests/browser-probe.mjs`：**PASS=210 FAIL=0**，新增 GBK Markdown 文本/标签、
   GBK 源码文本/标签、UTF-16LE 标签、GBK 搜索命中 7 项。
-- `bash tests/selftest-rust.sh`：**PASS=236 FAIL=0**，覆盖 GBK/UTF-16/UTF-32、
+- `bash tests/selftest-rust.sh`：**PASS=238 FAIL=0**，覆盖 GBK/UTF-16/UTF-32、
   下载/raw charset、HTML 下载无 charset。
 
 ## 已知边界

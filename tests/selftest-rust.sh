@@ -86,21 +86,22 @@ cat >"$ROOT/a.md" <<'MD'
 | 1 | 2 |
 MD
 printf '# Child\n\nneedle in child\n' >"$ROOT/sub/c.md"
-printf '<h1>SUB INDEX</h1>\n' >"$ROOT/sub/index.html"
-printf 'hello\nworld\n' >"$ROOT/b.txt"
+cp "$REPO_ROOT/tests/fixtures/static-parity/sub/index.html" "$ROOT/sub/index.html"
+cp "$REPO_ROOT/tests/fixtures/static-parity/b.txt" "$ROOT/b.txt"
 awk 'BEGIN { for (i = 1; i <= 11999; i++) print "line with some text 0123456789"; printf "last line marker" }' >"$ROOT/big.txt"
 printf 'needle in text\n' >"$ROOT/search.md"
-printf 'a real search file\n' >"$ROOT/search"
-printf 'a real nav file\n' >"$ROOT/_nav"
+cp "$REPO_ROOT/tests/fixtures/static-parity/search" "$ROOT/search"
+cp "$REPO_ROOT/tests/fixtures/static-parity/_nav" "$ROOT/_nav"
 mkdir -p "$ROOT/_assets"
-printf 'a real app css\n' >"$ROOT/_assets/app.css"
-printf '# Markdown Ext\n\nmarkdownneedle\n' >"$ROOT/a.markdown"
-printf '# MDX\n\n<Component />\n' >"$ROOT/a.mdx"
-cp "$REPO_ROOT/tests/fixtures/encodings/gbk.md" "$ROOT/gbk.md"
-cp "$REPO_ROOT/tests/fixtures/encodings/gbk.txt" "$ROOT/gbk.txt"
-cp "$REPO_ROOT/tests/fixtures/encodings/gbk.css" "$ROOT/gbk.css"
-cp "$REPO_ROOT/tests/fixtures/encodings/utf16le.txt" "$ROOT/utf16le.txt"
-cp "$REPO_ROOT/tests/fixtures/encodings/utf32le.txt" "$ROOT/utf32le.txt"
+cp "$REPO_ROOT/tests/fixtures/static-parity/_assets/app.css" "$ROOT/_assets/app.css"
+cp "$REPO_ROOT/tests/fixtures/static-parity/a.markdown" "$ROOT/a.markdown"
+cp "$REPO_ROOT/tests/fixtures/static-parity/a.mdx" "$ROOT/a.mdx"
+for fixture in "$REPO_ROOT"/tests/fixtures/encodings/*; do
+  case "$fixture" in
+    */README.md) continue ;;
+  esac
+  cp "$fixture" "$ROOT/"
+done
 printf '\211PNG\r\n\032\n' >"$ROOT/img.png"
 printf 'abc\0def' >"$ROOT/bin.dat"
 printf '# in space dir\n' >"$ROOT/my dir/a.md"
@@ -336,6 +337,8 @@ chk "GBK CSS raw charset" "$(curl -s -o /dev/null -w '%{content_type}' -H 'Sec-F
 chk_num "GBK CSS 原始字节" "$(curl -s -H 'Sec-Fetch-Dest: style' "$BASE/gbk.css" | wc -c | tr -d ' ')" "$(wc -c <"$ROOT/gbk.css" | tr -d ' ')"
 chk "UTF-16 预览" "$(curl -s "$BASE/utf16le.txt")" "UTF-16LE 文本"
 chk "UTF-16 编码标签" "$(curl -s "$BASE/utf16le.txt")" "编码 UTF-16LE BOM"
+chk "UTF-16 Markdown 预览" "$(curl -s "$BASE/utf16.md")" "UTF-16 标题"
+chk "UTF-16 Markdown 标签" "$(curl -s "$BASE/utf16.md")" "UTF-16LE BOM"
 nchk "UTF-32 不进源码页" "$(curl -s "$BASE/utf32le.txt")" "source-encoding"
 chk "UTF-32 按二进制" "$(ctype "$BASE/utf32le.txt")" "application/octet-stream"
 nchk "HTML 下载无 charset" "$(header "$BASE/page.html?download=1" content-type)" "charset="
