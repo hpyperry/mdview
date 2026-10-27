@@ -15,7 +15,7 @@ cargo build --release
 # 打开 http://127.0.0.1:8000/
 ```
 
-产物是单个二进制（macOS arm64 约 **4.1 MB**，内嵌 CSS、highlight.js、岛屿前端与压缩包解码器）。
+产物是单个二进制（macOS arm64 约 **4.3 MB**，内嵌 CSS、highlight.js、岛屿前端与压缩包解码器）。
 **运行时**不需要 Python、Node 或任何动态资源；**从源码构建**需要 Node 22 +
 `web/` 的 npm 依赖，`build.rs` 会在编译时生成并嵌入 `app.js`/`app.css`。
 跨平台 musl 构建可先执行 `npm --prefix web run build:web`，再用
@@ -49,7 +49,8 @@ cargo build --release
 [0015](docs/architecture/adr/0015-html-file-preview-and-sandbox.md)（HTML 文件双模式与沙箱预览）、
 [0016](docs/architecture/adr/0016-archive-virtual-paths.md)（压缩包虚拟路径与解压缓存）、
 [0017](docs/architecture/adr/0017-internal-url-query-disambiguation.md)（内部 URL 查询参数消歧）、
-[0018](docs/architecture/adr/0018-markdown-extension-scope.md)（Markdown 扩展名口径）。
+[0018](docs/architecture/adr/0018-markdown-extension-scope.md)（Markdown 扩展名口径）、
+[0019](docs/architecture/adr/0019-file-encoding-detection.md)（文件编码检测与 UTF-8 预览）。
 
 ## 功能
 
@@ -92,27 +93,40 @@ cargo build --release
   （VS Code 1.142 的 `validateLink` 覆盖行为）；
 - 相对链接/图片改写为根相对 URL：切 `?`/`#` → 解码两次 → 相对解析 → 编码一次。
 
+### 文件编码
+
+- 预览与搜索先按 BOM、UTF-8 校验、UTF-16 启发式和 chardetng 检测文件编码，
+  再解码成 Unicode 输出 UTF-8；GBK、Shift_JIS、UTF-16（BOM）等不再按 UTF-8
+  lossy 显示。
+- Markdown 页头与源码页显示检测编码；BOM 显示 ` BOM`，解码出现替换字符时显示
+  `（有替换）`。
+- 下载与 raw 子资源保留原始字节；非 HTML 文本的 `Content-Type` charset 使用检测
+  值（流式响应只看前 64 KiB），HTML 响应保持 `text/html` 不带 charset，由 BOM/
+  `meta charset` 决定。
+- 检测是启发式的：短小 legacy 文件可能误判，无 BOM 且以非 ASCII 为主的中文
+  UTF-16 可能识别失败；UTF-32 不预览，按二进制下载。本轮不提供手动编码覆盖。
+
 ### 服务器
 
 | 请求 | 行为 |
 |------|------|
 | `GET /dir/` | 目录索引：无分组统一列表（目录在前）、名称/大小/时间/操作固定列、下载按钮；上级导航在面包屑；不自动寻找 `index.html`/`index.htm` |
-| `GET /x.md` | 渲染为 HTML（未信任目录先出现一次确认页） |
-| `GET /x.md?raw=1` | 源码查看页：文件名为标题，类型/大小/行数/时间标签、行号、`id="L<n>"` 行锚点、预览/下载入口 |
-| `GET /x.md?download=1` | 原始字节 + `Content-Disposition` |
+| `GET /x.md` | 渲染为 HTML（未信任目录先出现一次确认页）；页头显示检测编码 |
+| `GET /x.md?raw=1` | 源码查看页：文件名为标题，类型/大小/行数/编码/时间标签、行号、`id="L<n>"` 行锚点、预览/下载入口 |
+| `GET /x.md?download=1` | 原始字节 + `Content-Disposition`；非 HTML 文本 charset 用检测值 |
 | `GET /x.html` | 已信任根：原字节 `text/html` 顶层返回，无外壳/沙箱；未信任根：外壳 + 沙箱 iframe（可切源码） |
 | `GET /x.html?raw=1` | HTML 源码页；可信/未信任都可用 |
 | `GET /x.html?view=1` | 裸页：已信任根是原文；未信任根是沙箱裸页（CSP `sandbox`） |
-| `GET /x.html?download=1` | 原始字节 + `Content-Disposition` |
+| `GET /x.html?download=1` | 原始字节 + `Content-Disposition`；保持 `text/html` 不带 charset |
 | `GET /a.zip/` | 压缩包虚拟目录：包名/格式/大小/条目数与“下载压缩包”；包内目录与文件复用目录列表 |
 | `GET /a.zip/docs/x.md` | 包内条目；Markdown/源码/图片/PDF/HTML 走现有管线；相对链接保持在包内 |
 | `GET /a.zip?download=1` | 下载原压缩包 |
 | `GET /a.zip/docs/x?download=1` | 下载解包后的条目 |
-| 已知文本扩展名/文件名 | 源码查看页（文件名标题 + 类型/大小/行数/时间标签 + 行号与客户端高亮）；> 256 KB 全文分块 |
+| 已知文本扩展名/文件名 | 源码查看页（文件名标题 + 类型/大小/行数/编码/时间标签 + 行号与客户端高亮）；> 256 KB 全文分块 |
 | 无扩展名 | 前 512 字节无 NUL → 文本；有 NUL → 下载 |
 | 图片 / PDF | 按 MIME 内联；SVG 直开带 CSP `sandbox`，脚本不执行 |
 | 其他 | `application/octet-stream` 下载 |
-| `GET /search?__mdview=search&q=…` | 文件名搜所有文件；正文搜 Markdown 文档与文本；按文件分组；每条结果整行可点击；HTML 内容行到 `?raw=1#L<n>` |
+| `GET /search?__mdview=search&q=…` | 文件名搜所有文件；正文按检测编码解码后搜 Markdown 文档与文本；按文件分组；每条结果整行可点击；HTML 内容行到 `?raw=1#L<n>` |
 | `GET /_nav?__mdview=nav` | 全站导航树 JSON；包含所有可见目录与文件；读不了的子树跳过并标记 `partial`，供导航浮岛空闲预取 |
 | `HEAD` / `301` / `404` | 支持；目录缺尾斜杠返回 301；文件带尾斜杠（字面 `/` 或 `%2f`）返回 404 |
 
@@ -217,10 +231,10 @@ macOS / Linux / Windows 三平台跑 `cargo test` 与黑盒 HTTP 套件。
 ```bash
 npm --prefix web ci
 npm --prefix web run typecheck
-cargo test                      # 73 单元 + 134 渲染兼容 + 27 golden
+cargo test                      # 82 单元 + 134 渲染兼容 + 27 golden
 cargo clippy --all-targets -- -D warnings
-bash tests/selftest-rust.sh     # 223 项真二进制 HTTP 断言
-node tests/browser-probe.mjs      # 203 项 headless Chrome 验收
+bash tests/selftest-rust.sh     # 236 项真二进制 HTTP 断言
+node tests/browser-probe.mjs      # 210 项 headless Chrome 验收
 node tests/perf-source.mjs        # 4 项源码页性能预算
 bash tests/trust-tty.sh           # 9 项真实 pty 信任测试
 ```
@@ -228,11 +242,11 @@ bash tests/trust-tty.sh           # 9 项真实 pty 信任测试
 - `tests/render_compat.rs`：旧 217 项渲染断言的 Rust 后继，期望按 ADR 0005/0007 更新；
 - `src/server.rs`：路由、Trust、CSP、symlink、下载头、跨平台路径；
 - `tests/selftest-rust.sh`：目录/301/源码/渲染/下载/搜索/MIME/嗅探/上限/端口回退/
-  Trust/CSP/FIFO/symlink。
+  Trust/CSP/FIFO/symlink/编码检测与 charset。
 
 一次跑完用 `bash tests/run-all.sh`。测试说明见 [`tests/README.md`](tests/README.md)；
 最近一次浏览器验收见
-[`docs/testing/browser-report-2026-10-20.md`](docs/testing/browser-report-2026-10-20.md)，
+[`docs/testing/browser-report-2026-10-27-encodings.md`](docs/testing/browser-report-2026-10-27-encodings.md)，
 自主测试流程见 [`docs/testing/agent-guide.md`](docs/testing/agent-guide.md)。
 
 ## 目录结构
@@ -245,6 +259,7 @@ md-preview/
 │  ├─ cli.rs        # 参数
 │  ├─ trust.rs      # Trust 配置与优先级
 │  ├─ server.rs     # 路由、目录、搜索、CSP、下载
+│  ├─ encoding.rs   # 文件编码检测、BOM/UTF-32、UTF-8 解码
 │  ├─ render.rs     # comrak + VS Code 定制层
 │  └─ assets.rs     # 内嵌 vendor 资产与 web 构建产物
 ├─ web/             # TypeScript/Preact 岛屿源码 + esbuild
@@ -264,6 +279,9 @@ md-preview/
 - 引用定义的尖括号目标（`[r]: <a b.md>`）在文件末尾没有换行时可能解析失败（EOF quirk）；正常以换行结尾的文件可解析。
 - front matter 被消费，不渲染成 VS Code 的表格。
 - 文件名里字面含 `%xx` 的文件不能通过相对 Markdown 目标到达（双重解码的代价）。
+- 文件编码检测是启发式的：短小 legacy 文件可能被误判（例如短 GBK 片段判成
+  EUC-KR/Big5），无 BOM 且以非 ASCII 为主的中文 UTF-16 可能识别失败；UTF-32
+  按二进制下载。本轮不提供手动编码覆盖。
 - 搜索每次实时扫盘：文件名覆盖所有文件，正文覆盖 Markdown 文档/文本；无索引、无编辑保存。
 - 超过 256 KB 的源码页全文输出并按 500 行分块渐进绘制；无 JS 可读全文，但精确
   行号深链与懒高亮需要 JS。首次响应会携带完整源码，网络传输量随文件增大。

@@ -6,6 +6,7 @@
 pub mod archive;
 pub mod assets;
 pub mod cli;
+pub mod encoding;
 pub mod render;
 pub mod server;
 pub mod trust;

@@ -26,6 +26,7 @@ mdview 的源码是自有代码；交付二进制嵌入了以下第三方资产/
 |-------|--------|
 | `anyhow` | MIT OR Apache-2.0 |
 | `axum` | MIT |
+| `chardetng` | Apache-2.0 OR MIT |
 | `clap` | MIT OR Apache-2.0 |
 | `comrak` | BSD-2-Clause |
 | `directories` | MIT OR Apache-2.0 |

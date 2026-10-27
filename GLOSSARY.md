@@ -307,7 +307,8 @@ _Avoid_: HTML 预览（指独立文件时）、网页源码
 **HTML 原文模式**：
 已信任根下把独立 `.html` 按字节顶层返回：`text/html`、无 mdview 外壳、无 sandbox、
 无 CSP；脚本同源运行，链接、localStorage、下载与同源 fetch 都正常。它对应 Python
-版的静态文件行为。
+版的静态文件行为。它不参与文件编码检测或转码，编码由文档自己的 BOM/`meta
+charset` 决定。
 _Avoid_: HTML 预览、raw HTML（与 Markdown 裸 HTML 混淆）
 
 **HTML 沙箱预览**：
@@ -380,9 +381,39 @@ URL 路径末尾的 `/`，表示目录。目录缺少它返回 301；文件带�
 `%2f`）返回 404，不把同一个文件暴露成两个 URL。
 _Avoid_: trailing slash、结尾斜杠
 
+**检测编码（detected encoding）**：
+mdview 根据 BOM、UTF-8 校验、UTF-16 启发式与 chardetng 推断出的文件编码；
+不是文件声明，也不保证等于真实编码。UI 显示编码名，BOM/替换字符作为后缀。
+_Avoid_: 实际编码、真实编码、自动编码
+
+**声明编码（declared encoding）**：
+HTML 文档通过 BOM 或 `<meta charset>` 自己声明的编码；HTML 原文模式由浏览器
+按它解码，mdview 不覆盖。
+_Avoid_: 文件编码、Content-Type charset
+
+**UTF-8 输出管线**：
+mdview 生成页面统一 UTF-8；预览先按检测编码解码源字节，再输出 UTF-8。
+下载与 raw 子资源仍发送原始字节。
+_Avoid_: 转码文件、改写源文件
+
+**编码标签**：
+Markdown 页头与源码页上的检测编码名称；BOM 追加 ` BOM`，解码出现替换字符时
+追加 `（有替换）`。
+_Avoid_: 编码徽章、字符集
+
+**替换字符（U+FFFD）**：
+解码器无法按检测编码解释的字节被替换成的 �；编码标签用“有替换”提示，预览
+继续显示。
+_Avoid_: 乱码
+
+**检测窗口**：
+流式下载/raw 只读前 64 KiB 做 charset 检测；预览与搜索使用完整字节。窗口外
+若有不同编码，头部可能不准确。
+_Avoid_: 采样、前缀
+
 **源码查看页**：
 非 Markdown 文档的文本文件（含 `.mdx`，以及 `.md`/`.markdown?raw=1`）的 HTML
-预览页：H1 是文件名，头部用标签显示类型、大小、行数与修改时间；服务端输出行号
+预览页：H1 是文件名，头部用标签显示类型、大小、行数、编码与修改时间；服务端输出行号
 与行锚点，浏览器端用 highlight.js 着色；禁用 JS 时仍是带行号的纯文本。
 _Avoid_: 源码模式、编辑器页
 

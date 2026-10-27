@@ -137,9 +137,12 @@ function NavApp({ panel, toggle, rootName, currentPath, currentIsDir }: NavProps
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const loadedRef = useRef(false);
+  const loadingRef = useRef(false);
+  const openRef = useRef(false);
   const closeRef = useRef<HTMLButtonElement>(null);
 
   function applyOpen(next: boolean): void {
+    openRef.current = next;
     setOpen(next);
     document.documentElement.dataset.navOpen = next ? '1' : '0';
     toggle.setAttribute('aria-expanded', String(next));
@@ -149,7 +152,8 @@ function NavApp({ panel, toggle, rootName, currentPath, currentIsDir }: NavProps
   }
 
   async function load(): Promise<void> {
-    if (loadedRef.current || loading) return;
+    if (loadedRef.current || loadingRef.current) return;
+    loadingRef.current = true;
     setLoading(true);
     setError('');
     try {
@@ -162,6 +166,7 @@ function NavApp({ panel, toggle, rootName, currentPath, currentIsDir }: NavProps
     } catch {
       setError('导航加载失败');
     } finally {
+      loadingRef.current = false;
       setLoading(false);
     }
   }
@@ -190,13 +195,13 @@ function NavApp({ panel, toggle, rootName, currentPath, currentIsDir }: NavProps
   useEffect(() => {
     function onToggle(event: Event): void {
       event.preventDefault();
-      const next = !open;
+      const next = !openRef.current;
       applyOpen(next);
       if (next) void load();
     }
     toggle.addEventListener('click', onToggle);
     return () => toggle.removeEventListener('click', onToggle);
-  }, [open, loading]);
+  }, []);
 
   useLayoutEffect(() => {
     if (!open) return;

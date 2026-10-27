@@ -6,17 +6,18 @@ Rust 实现的断言分多组：
 |------|------|------|
 | `tests/render_compat.rs` | 渲染器回归（134 项）：内联/块/URL 重写/目标编码/引用式/data URI/裸 URL/放大包裹/属性转义/协议安全/性能 | `cargo test --test render_compat` |
 | `tests/golden.rs` + `tests/golden/` | 27 条 curated golden 的逐字节输出（accepted deviation 带 `note`） | `cargo test --test golden` |
-| `src/` 的 `#[cfg(test)]` | 模块内单元测试（73 项：render 11 / server 44 / trust 7 / cli 5 / assets 1 / archive 5） | `cargo test --lib` |
+| `src/` 的 `#[cfg(test)]` | 模块内单元测试（82 项：render 11 / server 45 / encoding 8 / trust 7 / cli 5 / assets 1 / archive 5） | `cargo test --lib` |
 | `web/src/` | TypeScript 类型检查（岛运行时、Preact 组件、源码岛） | `npm --prefix web run typecheck` |
-| `selftest-rust.sh` | 真二进制的 black-box HTTP 断言（223 项：目录/渲染/源码/大源码全文分块/导航 JSON/岛清单/下载/搜索/Trust/CSP/HTML 信任原文与未信任沙箱/子资源/压缩包虚拟目录与包内条目/SVG sandbox/安全/文件系统边界/文件尾斜杠/内部 URL 与同名文件碰撞/.markdown 与 .mdx/safe 搜索过滤） | `bash tests/selftest-rust.sh` |
+| `selftest-rust.sh` | 真二进制的 black-box HTTP 断言（236 项：目录/渲染/源码/大源码全文分块/导航 JSON/岛清单/下载/搜索/Trust/CSP/HTML 信任原文与未信任沙箱/子资源/压缩包虚拟目录与包内条目/SVG sandbox/安全/文件系统边界/文件尾斜杠/内部 URL 与同名文件碰撞/.markdown 与 .mdx/safe 搜索过滤/GBK 与 UTF-16 编码/charset） | `bash tests/selftest-rust.sh` |
 | `trust-tty.sh` + `trust-tty.exp` | 真实 pty 下的信任询问、持久化、非 TTY 默认（9 项） | `bash tests/trust-tty.sh` |
-| `browser-probe.mjs` | headless Chrome 验收（203 项）：全宽内容面/全宽页头/导航空闲预取与树操作/目录只展开/文件导航/TOC 悬停文字大纲与 scroll-spy/搜索弹层与整行结果/渲染块行定位/源码页头/HTML 信任原文与未信任沙箱/源码切换/目录列对齐/压缩包虚拟目录与包内预览/SVG 直开脚本阻断/主题快速切换与状态反馈/岛水合/语言条/复制/放大/大源码分块/无 JS 全文 | `node tests/browser-probe.mjs` |
+| `browser-probe.mjs` | headless Chrome 验收（210 项）：全宽内容面/全宽页头/导航空闲预取与树操作/目录只展开/文件导航/TOC 悬停文字大纲与 scroll-spy/搜索弹层与整行结果/渲染块行定位/源码页头/HTML 信任原文与未信任沙箱/源码切换/目录列对齐/压缩包虚拟目录与包内预览/SVG 直开脚本阻断/主题快速切换与状态反馈/岛水合/语言条/复制/放大/大源码分块/无 JS 全文/GBK 与 UTF-16 编码标签 | `node tests/browser-probe.mjs` |
 | `perf-source.mjs` | 源码页性能预算：100 KB / 1 MB / 10 MB / 1 MB Rust（真实 Chrome，含末行完整性检查） | `node tests/perf-source.mjs` |
 | `smoke-artifact.sh` | 对已构建二进制做目录/渲染/资产/下载/CSP 冒烟（7 项） | `bash tests/smoke-artifact.sh <二进制>` |
 | `check-doc-links.mjs` | 检查 Markdown 内部链接（跳过代码块、归档与站内根 URL） | `node tests/check-doc-links.mjs` |
 | `run-all.sh` | 依次跑类型检查、fmt/clippy、Rust 测试、链接检查、黑盒、浏览器、性能与冒烟 | `bash tests/run-all.sh` |
 | `fixtures/html-preview/` | 手动 HTML 夹具：trusted 原文、untrusted 沙箱、相对 CSS、SVG、链接与搜索探针 | 见 [fixtures/html-preview/README.md](fixtures/html-preview/README.md) |
 | `fixtures/archives/` | 手动压缩包夹具：zip/tar.gz/7z、包内 Markdown/HTML/CSS、嵌套 zip | 见 [fixtures/archives/README.md](fixtures/archives/README.md) |
+| `fixtures/encodings/` | GBK Markdown/文本/CSS、UTF-16LE、UTF-32LE BOM 夹具 | 编码检测与 charset 断言 |
 
 `selftest-rust.sh` 会自动 `cargo build --release`，起临时服务、跑完自清理；
 可用 `MDVIEW_BIN=` 指向别的二进制，`PORT=` 换一组端口。

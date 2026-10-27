@@ -9,6 +9,7 @@ license = "MIT"
 [dependencies]
 anyhow = "1"
 axum = "0.8"
+chardetng = "1.0"
 clap = { version = "4", features = ["derive"] }
 comrak = { version = "0.56", default-features = false }
 directories = "6"

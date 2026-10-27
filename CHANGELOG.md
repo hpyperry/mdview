@@ -1,5 +1,24 @@
 # Changelog
 
+## 未发布
+
+### 新增
+
+- 文件编码检测与预览：BOM → UTF-8 校验 → UTF-16 启发式 → chardetng；GBK、
+  Shift_JIS、UTF-16 BOM 文件解码为 Unicode 后输出 UTF-8。Markdown 页头与源码页
+  显示检测编码（含 BOM/有替换后缀）；搜索正文使用同一解码。
+- 非 HTML 文本的 `?download=1` 与 raw 子资源 charset 使用检测值；HTML 响应保持
+  `text/html` 不带 charset。UTF-32 按二进制下载。
+
+### 已知限制
+
+- 编码检测是启发式的；短小 legacy 文件可能误判，无 BOM 的中文 UTF-16 可能识别
+  失败；本轮不提供手动编码覆盖。
+
+### 修复
+
+- 修复导航开关在加载状态变化时重复注册监听器、可能连续 toggle 的竞态。
+
 ## 2.1.0（2026-10-27）
 
 静态服务器兼容、内部 URL 查询参数消歧与 Markdown 扩展名口径。

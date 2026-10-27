@@ -6,6 +6,7 @@
 *.bmp binary
 *.pdf binary
 *.zip binary
+tests/fixtures/encodings/* binary
 *.elf binary
 *.macho binary
 
