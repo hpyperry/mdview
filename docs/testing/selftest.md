@@ -25,7 +25,7 @@
 | 静态检查 | `cargo clippy --all-targets -- -D warnings` | **通过** |
 | 格式 | `cargo fmt --all --check` | **通过** |
 | Web 类型 | `npm --prefix web run typecheck` | **通过** |
-| 黑盒 HTTP | `bash tests/selftest-rust.sh` | **PASS=236 FAIL=0** |
+| 黑盒 HTTP | `bash tests/selftest-rust.sh` | **PASS=238 FAIL=0** |
 | 浏览器验收 | `node tests/browser-probe.mjs` | **PASS=210 FAIL=0** |
 | 源码页性能 | `node tests/perf-source.mjs` | **4 项预算通过** |
 | TTY 信任 | `bash tests/trust-tty.sh` | **PASS=9 FAIL=0** |
@@ -110,7 +110,7 @@ P0 差分报告：1035 条计分语料 **1015 条精确匹配（98.07%）**，0 
 
 - 最近一次远程完整绿色：`CI · 39612891072`（2026-10-21，`94b8e45`），8/8 job
   成功；macOS/Ubuntu/Windows 测试、Node 类型检查、4 目标构建全绿。
-- 本地 `run-all.sh` 当前为 236/210；远程 CI 最近一次绿色仍是 `b3a133a` 的 151/163。
+- 本地 `run-all.sh` 当前为 238/210；远程 CI 最近一次绿色仍是 `b3a133a` 的 151/163。
 - Release 由 tag `v2.0.0` 触发 `release.yml`；发布结果以该 GitHub Release 为准。
 - 岛屿架构首跑 `39421064321` 暴露两个 CI 问题：Linux Chrome 因新增的
   headless 启动参数没有在 15s 内暴露 DevTools；musl 的 cross 容器默认不传递
@@ -118,7 +118,7 @@ P0 差分报告：1035 条计分语料 **1015 条精确匹配（98.07%）**，0 
   参数、DevTools 超时 30s，并加 `Cross.toml` 透传预构建路径。
 - 更早的 `39285530389` 曾受 GitHub Actions `degraded_performance` 影响，
   8 个 job 长时间 queued；那是平台事件，不是代码失败。
-- 测试矩阵覆盖：`cargo test`、黑盒 236、TTY 9、浏览器 210、源码页性能 4；
+- 测试矩阵覆盖：`cargo test`、黑盒 238、TTY 9、浏览器 210、源码页性能 4；
   Windows 跳过 pty/浏览器/性能，其余全跑。
 - artifact 冒烟：macOS arm64、Linux x86_64 musl、Windows x86_64 通过；
   Linux arm64 musl 只构建（x86 runner 无法执行 arm64）。

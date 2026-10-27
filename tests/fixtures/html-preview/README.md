@@ -27,7 +27,7 @@ cargo build --release
 
 - 页面没有 mdview 顶栏、面包屑、tabs 或 iframe；
 - 相对 `style.css` 生效；
-- “运行时探针”显示 `localStorage: ok`、`fetch /_nav: 200`；
+- “运行时探针”显示 `localStorage: ok`、`fetch /_nav?__mdview=nav: 200`；
 - 点击 `打开 guide.md` 进入 Markdown 页面；
 - 点击 `target=_top` / `target=_blank` 都按普通浏览器行为导航；
 - `http://127.0.0.1:8000/report.html` 是报告本身，没有外壳；
@@ -39,7 +39,7 @@ cargo build --release
 打开 `http://127.0.0.1:8001/page.html`，预期：
 
 - 出现 mdview 外壳和沙箱 iframe；
-- iframe 内探针显示 `localStorage: blocked`、`fetch /_nav: blocked`；
+- iframe 内探针显示 `localStorage: blocked`、`fetch /_nav?__mdview=nav: blocked`；
 - 相对 CSS 仍生效；
 - 顶部 `预览 / 源码` tabs 和 `沙箱预览` 标识可见；
 - `?view=1` 是沙箱裸页；`?raw=1` 是源码页；
@@ -74,7 +74,7 @@ Content-Security-Policy: sandbox allow-top-navigation-by-user-activation
 
 ## 5. 搜索
 
-打开 `http://127.0.0.1:8000/search?q=htmlneedle`，HTML 内容行应链接到
+打开 `http://127.0.0.1:8000/search?__mdview=search&q=htmlneedle`，HTML 内容行应链接到
 `/page.html?raw=1#L...`；文件标题链接到 `/page.html`。
 
 ## 6. Linux 的 `_nav` 500 / CSS 丢失
@@ -86,11 +86,11 @@ Content-Security-Policy: sandbox allow-top-navigation-by-user-activation
 ```
 
 - `_nav` 失败会打印 `nav: 无法读取目录 <路径>: <errno>`；
-- 看浏览器是否请求了 `GET /_assets/app.css`，状态是多少；
+- 看浏览器是否请求了 `GET /_assets/app.css?__mdview=asset`，状态是多少；
 - 另开终端：
 
 ```bash
-curl -sI http://127.0.0.1:8000/_assets/app.css | grep -iE 'content-length|content-type'
+curl -sI 'http://127.0.0.1:8000/_assets/app.css?__mdview=asset' | grep -iE 'content-length|content-type'
 ```
 
 官方包应为 `Content-Length: 32949` 左右。如果是 0，说明跑的是自编译二进制且

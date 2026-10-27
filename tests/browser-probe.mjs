@@ -12,7 +12,7 @@
 // Requires Node 22 (global WebSocket/fetch) and a Chrome/Chromium binary.
 
 import { spawn, spawnSync } from 'node:child_process';
-import { copyFile, mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { copyFile, mkdtemp, mkdir, readdir, rm, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -197,9 +197,11 @@ async function writeFixture(root) {
     '<svg xmlns="http://www.w3.org/2000/svg"><script>document.documentElement.dataset.x=1</script></svg>\n',
   );
   await copyFile(join(REPO, 'tests', 'fixtures', 'archives', 'sample.zip'), join(root, 'sample.zip'));
-  await copyFile(join(REPO, 'tests', 'fixtures', 'encodings', 'gbk.md'), join(root, 'gbk.md'));
-  await copyFile(join(REPO, 'tests', 'fixtures', 'encodings', 'gbk.txt'), join(root, 'gbk.txt'));
-  await copyFile(join(REPO, 'tests', 'fixtures', 'encodings', 'utf16le.txt'), join(root, 'utf16le.txt'));
+  const encodingFixtures = join(REPO, 'tests', 'fixtures', 'encodings');
+  for (const name of await readdir(encodingFixtures)) {
+    if (name === 'README.md') continue;
+    await copyFile(join(encodingFixtures, name), join(root, name));
+  }
   await writeFile(join(root, 'plain.txt'), 'plain text without a language\nsecond line\n');
   await writeFile(join(root, 'small.rs'), 'fn main() {\n    let x = 1;\n    println!("{}", x);\n}\n');
   await writeFile(join(root, 'single.md'), '# Single\n\nOnly a heading.\n');

@@ -26,7 +26,7 @@ bash tests/run-all.sh
 `npm --prefix web ci`。跨平台 musl 构建用
 `npm --prefix web run build:web` + `MDVIEW_WEB_PREBUILT=web/dist`。
 
-必须全绿：`cargo test`（82 单元 + 134 渲染兼容 + 27 golden）、236 项黑盒 HTTP、
+必须全绿：`cargo test`（82 单元 + 134 渲染兼容 + 27 golden）、238 项黑盒 HTTP、
 9 项 pty 信任测试、210 项 headless Chrome 验收、4 项源码页性能预算。
 
 ## 协作流程
@@ -287,6 +287,8 @@ Single-context: root `GLOSSARY.md` + `docs/architecture/adr/`. See
   新功能追加编号，不重排旧编号。
 - 渲染层断言放 `tests/render_compat.rs`；路由/安全放 `src/server.rs` 的测试模块；
   真二进制行为放 `tests/selftest-rust.sh`。
+- 每个 feature 的测试夹具放 `tests/fixtures/<feature>/`，带 README、启动命令和
+  可直接服务的文件；自动测试从目录复制，不把唯一夹具散落在临时脚本里。
 - 全量本地验收跑 `bash tests/run-all.sh`；文档移动/改链接后先跑
   `node tests/check-doc-links.mjs`。
 - 浏览器/视觉验收遵循 [`docs/testing/agent-guide.md`](docs/testing/agent-guide.md)：
