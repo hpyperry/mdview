@@ -1,4 +1,4 @@
-# mdview 2.0 —— 单文件离线 Markdown 预览服务器
+# mdview 2.1 —— 单文件离线 Markdown 预览服务器
 
 用一个可执行文件，把一个目录变成可浏览的文档站：Markdown 渲染、文本源码查看、
 压缩包虚拟目录、所有类型下载、全文搜索；不联网、不请求任何外部资源。Markdown 语义与代码高亮
@@ -21,7 +21,7 @@ cargo build --release
 跨平台 musl 构建可先执行 `npm --prefix web run build:web`，再用
 `MDVIEW_WEB_PREBUILT=web/dist` 让 build script 复用预构建产物。
 
-## 2.0 与旧 Python 版的关系
+## 2.x 与旧 Python 版的关系
 
 - 旧实现（`mdview.py`、Python 测试、`dist/`）已删除；历史与缺陷台账归档在
   [`docs/archive/selftest-python.md`](docs/archive/selftest-python.md)。
