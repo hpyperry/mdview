@@ -245,7 +245,9 @@ bash tests/trust-tty.sh           # 9 项真实 pty 信任测试
 - `tests/render_compat.rs`：旧 217 项渲染断言的 Rust 后继，期望按 ADR 0005/0007 更新；
 - `src/server.rs`：路由、Trust、CSP、symlink、下载头、跨平台路径；
 - `tests/selftest-rust.sh`：目录/301/源码/渲染/下载/搜索/MIME/嗅探/上限/端口回退/
-  Trust/CSP/FIFO/symlink/编码检测与 charset/导航分层预载与 `dir` 路径校验。
+  Trust/CSP/FIFO/symlink/编码检测与 charset/导航分层预载与 `dir` 路径校验；
+- `tests/fixtures/<slug>/README.md`：每个 feature/fix 的人工复测文档；有夹具时目录
+  可直接作为 `--root`，纯修复可只放 README；PR 与 `F-xx` 链接它。
 
 一次跑完用 `bash tests/run-all.sh`。测试说明见 [`tests/README.md`](tests/README.md)；
 最近一次浏览器验收见
