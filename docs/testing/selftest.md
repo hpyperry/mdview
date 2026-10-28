@@ -9,8 +9,8 @@
 
 | 项 | 值 |
 |---|---|
-| 日期 | 2026-10-26 |
-| 分支 | `feat/archive-formats` |
+| 日期 | 2026-10-28 |
+| 分支 | `release/v2.2.0` |
 | 平台 | macOS 27.0.0 arm64 |
 | Rust | 1.96（edition 2024，`rust-version = 1.89`） |
 | 产物 | `target/release/mdview`，约 **4.3 MB**（LTO + strip，内嵌 highlight.js、岛屿前端与压缩包解码器） |

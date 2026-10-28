@@ -50,7 +50,7 @@ mdview --root docs --host 127.0.0.1
 - 一个可执行文件，内部嵌入 Markdown 渲染器、CSS、highlight.js、页面脚本。
 - 默认 `0.0.0.0:8000`、根为当前目录，与旧版一致。
 - 运行时零网络请求：页面只请求本站 `/_assets/…?__mdview=asset`，不访问 CDN。
-- `--version` 输出 `mdview 2.1.0`。
+- `--version` 输出 `mdview 2.2.0`。
 
 ## 4. 技术栈
 
