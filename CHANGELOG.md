@@ -1,6 +1,6 @@
 # Changelog
 
-## 未发布
+## 2.2.0（2026-10-28）
 
 ### 新增
 
@@ -18,6 +18,21 @@
   `.epub`/`.cbz`/`.kmz` 等 ZIP 容器；包内 `.xhtml`/`.xht`/`.mf` 按源码页查看。
   `.tar.xz` 使用纯 Rust `XzReader`，128 MiB 解码器内存上限。
 
+### 改进
+
+- 手动测试夹具按 feature 收拢到 `tests/fixtures/<feature>/`，每个目录可直接作为
+  `--root` 启动；编码目录补齐 README、UTF-16 Markdown 与 UTF-32 样本，黑盒测试
+  从目录整体复制。
+- 开发流程固化：每个 feature/fix 在 `tests/fixtures/<slug>/README.md` 新增/更新人工
+  复测文档（纯修复可 README-only），PR 描述与受影响 `F-xx` 链接它；`docs/testing/`
+  只放执行记录与报告。
+- 压缩包夹具补齐 tar.bz2/tar.xz、高字典 xz、JAR/EPUB/CBZ 与 `.xhtml`；黑盒与浏览器
+  探针覆盖新格式、包内章节源码页与 `--safe` 隐藏。
+- 源码页编码标签与 Markdown 页头统一为编码名（如 `GBK`），不再重复“编码”前缀。
+- 文档站重整：当前报告移入 `docs/testing/reports/`；历史报告与证据归档到
+  `docs/archive/testing/`；Python 台账、旧截图、已完成的 Rust 重写计划分别归档；
+  新增 ADR 索引与归档索引。
+
 ### 已知限制
 
 - 编码检测是启发式的；短小 legacy 文件可能误判，无 BOM 的中文 UTF-16 可能识别
@@ -27,17 +42,6 @@
 - 压缩包不支持 `.tar.zst`/RAR/RAR5/单文件 `.gz`/`.bz2`/`.xz`/`.zst` 流与
   Office/ODF 容器（`.docx` 等）；ZIP 容器只做归档浏览，不渲染 EPUB/Office 原生
   格式。嵌套包不递归解包。
-
-### 测试
-
-- 手动夹具按 feature 收拢到 `tests/fixtures/<feature>/`，每个目录可直接作为
-  `--root` 启动；编码目录补齐 README、UTF-16 Markdown 与 UTF-32 样本，黑盒测试
-  从目录整体复制。
-- 开发流程固化：每个 feature/fix 在 `tests/fixtures/<slug>/README.md` 新增/更新人工
-  复测文档（纯修复可 README-only），PR 描述与受影响 `F-xx` 链接它；`docs/testing/`
-  只放执行记录与报告。
-- 压缩包夹具补齐 tar.bz2/tar.xz、高字典 xz、JAR/EPUB/CBZ 与 `.xhtml`；黑盒与浏览器
-  探针覆盖新格式、包内章节源码页与 `--safe` 隐藏。
 
 ### 修复
 
@@ -53,8 +57,6 @@
   `/search?__mdview=search`、`/_nav?__mdview=nav`、`/_assets/<name>?__mdview=asset`。
   不带标记的同路径按普通文件处理，同名文件/目录优先。
 - `.markdown` 按 Markdown 文档渲染并进入正文搜索；`.mdx` 保持源码页（MDX 标签）。
-- 源码页编码标签只显示编码名（如 `GBK`），与 Markdown 页头一致；`title` 仍为
-  “检测编码”。
 - 目录始终列目录，不自动寻找 `index.html`/`index.htm`（明确非目标）。
 
 ### 破坏性变更
