@@ -48,6 +48,17 @@ Chrome 对照：同一批 URL 在 Chrome 上改动前后观感应一致；`topba
 - `bash tests/run-all.sh`：Chrome 侧全量回归（含 238 项浏览器探针）。
 - 旧内核本身**没有**自动化：浏览器探针跑最新 headless Chrome，不支持回退模拟。
 
+## 验证记录
+
+- 2026-10-30，Ubuntu 26.04 arm64（UTM，Apple Virtualization 后端 + Rosetta）+
+  Chromium 92.0.4515.107（Linux x64，Rosetta 转译）：
+  - **旧版**（2026-10-21 的 aarch64 构建）复现：`brand-mark` 不可见、`topbar`
+    无底色无边框、`kbd` 无键帽、目录行无隔线、链接偏黑、代码块无底色。
+  - **新版**（PR #27 的 aarch64 musl 构建）在同一个内核下以上全部恢复，浅色/深色
+    主题与搜索弹层正常。
+- 尚未在统信 UOS + 360 信创版真机上复测。Chromium 92 与 360 的差异主要是版本号，
+  本次问题的失效机制相同（缺少 `light-dark()` / `color-mix()`）。
+
 ## 已知限制
 
 - macOS arm64 上没有 Chromium 86 构建、也没有 Rosetta，本机无法自动化复现旧内核；
