@@ -1,6 +1,7 @@
 # Chromium 86 基线 CSS 回退 复测文档
 
-- 关联：Issue [#26](https://github.com/hpyperry/mdview/issues/26) / 本分支 PR / F-93
+- 关联：Issue [#26](https://github.com/hpyperry/mdview/issues/26) /
+  PR [#27](https://github.com/hpyperry/mdview/pull/27) / F-93
 - 夹具根：`tests/fixtures/chromium-baseline/`（README-only + `probe.html`，不新增内容夹具）
 - 启动（用仓库根作为 root，页面入口都在仓库内）：
 
