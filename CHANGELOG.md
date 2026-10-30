@@ -1,5 +1,31 @@
 # Changelog
 
+## 2.2.1（2026-10-30）
+
+### 修复
+
+- 收敛浏览器兼容基线到 Chromium 86（360 信创版、统信 UOS 内置浏览器等旧内核）：
+  `app.css` 不再使用 `light-dark()`（12 处）与 `color-mix()`（5 处），改为静态双色板
+  和 `--topbar-bg`/`--surface-translucent`/`--accent-wash`/`--hover` 半透明 token；
+  `inset: 0` 展开为四边。旧内核不再把整条声明判为无效，修复品牌块、顶栏底色与
+  边框、搜索键帽、目录隔线、链接色与代码块底色全部丢失的问题。
+- 构建 target 改为 `chrome86`：esbuild 压缩会把 `top/right/bottom/left` 合并回
+  `inset` 简写，target 固定后产物不再回退到基线外语法。
+
+### 改进
+
+- 新增 `tests/check-css-baseline.mjs`：拦截基线外 CSS 语法（`light-dark()`、
+  `color-mix()`、现代颜色函数、`inset`、`:is`/`:where`/`:has`、`@container`、
+  CSS 嵌套、`dvh` 等）并逐项比对两份深色色板，接入 `tests/run-all.sh`。
+- 文档：ADR 0022（浏览器兼容基线）、F-93、`tests/fixtures/chromium-baseline/`
+  复测文档与旧内核自检页 `probe.html`；README 与 AGENTS 声明 Chromium 86+ 基线。
+
+### 已知限制
+
+- 浏览器基线为 Chromium 86+，Chromium 78 及更早不保证。
+- 旧内核复测本轮使用 Ubuntu 26.04 arm64 + Chromium 92（Rosetta 转译）；统信 UOS +
+  360 信创版真机尚未复测，失效机制相同。
+
 ## 2.2.0（2026-10-28）
 
 ### 新增
