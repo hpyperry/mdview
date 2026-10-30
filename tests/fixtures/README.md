@@ -20,6 +20,7 @@ README 是**复测文档**，不是测试执行报告。必须包含：
 | `encodings/` | GBK/UTF-16/UTF-32、编码标签、搜索与 charset |
 | `nav-lazy/` | 三层预载、当前路径脊柱、`dir=` 按需展开、深层目录占位 |
 | `static-parity/` | 内部 URL 与同名文件、文件尾斜杠、Markdown 扩展名、目录 index 非目标 |
+| `chromium-baseline/` | 旧内核 CSS 回退：静态色板、半透明 token、`inset` 展开（README + `probe.html`） |
 
 通用启动方式（使用子目录 root 的以该目录 README 为准）：
 

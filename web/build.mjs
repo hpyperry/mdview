@@ -8,7 +8,10 @@ await build({
   minify: true,
   sourcemap: false,
   format: 'iife',
-  target: ['es2020'],
+  // 浏览器基线 Chromium 86（ADR 0022）。CSS 也走这个 target：
+  // 不设时 esbuild 会把 top/right/bottom/left 压成 inset 简写，
+  // 把旧内核不支持的语法重新塞回产物。
+  target: ['chrome86'],
   outdir,
   entryNames: 'app',
   assetNames: 'app',
