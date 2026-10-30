@@ -200,6 +200,14 @@ Single-context: root `GLOSSARY.md` + `docs/architecture/adr/`. See
     无 BOM 中文 UTF-16 可能识别失败，检测标签必须如实写“检测编码”。
 22. **`.xhtml`/`.xht`/`.mf` 是文本源码页**：包内 EPUB 章节与 JAR 清单只进源码页，
     不扩展 HTML 的 Trust/MIME 路径；不要把 `.epub` 做成阅读器，也不执行 `.jar`/`.apk`。
+23. **CSS 基线是 Chromium 86**：`web/src/styles/` 与 `assets/*.css` 不得使用
+    `light-dark()`、`color-mix()`、现代颜色函数、`inset` 简写、`:is`/`:where`/`:has`、
+    `@container`、CSS 嵌套、`dvh` 等基线外语法。色板是静态双色板（`:root` 浅色 +
+    `prefers-color-scheme` 与 `[data-theme="dark"]` 两份深色，必须逐项一致），
+    半透明层次用 `--topbar-bg`/`--surface-translucent`/`--accent-wash`/`--hover`。
+    改样式后跑 `node tests/check-css-baseline.mjs`（已接入 `run-all.sh`）；详见
+    [ADR 0022](docs/architecture/adr/0022-browser-baseline-chromium-86.md)。旧内核
+    会静默丢弃整条声明，Chrome 探针永远测不出来。
 
 ## 改哪里
 

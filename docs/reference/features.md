@@ -175,6 +175,12 @@
 |---|---|---|---|---|
 | F-92 | 压缩包格式扩展 | tar 家族：`.tar`、`.tar.gz`/`.tgz`、`.tar.bz2`/`.tbz2`/`.tbz`、`.tar.xz`/`.txz`；ZIP 容器：`.jar`/`.war`/`.ear`/`.apk`/`.aar`/`.whl`/`.nupkg`/`.vsix`/`.xpi`/`.ipa`/`.aab`/`.epub`/`.cbz`/`.kmz`；包内 `.xhtml`/`.xht`/`.mf` 走源码页；tar 标签归一、ZIP 容器用扩展名标签；纯 Rust 解码，xz 内存上限 128 MiB；不做 `.tar.zst`/RAR/单文件流/Office 容器；嵌套不递归，沿用现有上限与 safe 隐藏 | 服务端单测、黑盒、浏览器探针；[复测文档](../../tests/fixtures/archives/README.md) | ✅ 自动 |
 
+## O. 浏览器兼容基线
+
+| ID | 功能 | 验收要点 | 测试映射 | 状态 |
+|---|---|---|---|---|
+| F-93 | Chromium 86 基线 CSS 回退 | 支持基线 Chromium 86；色板为静态双色板（`:root` 浅色 + `prefers-color-scheme`/`[data-theme="dark"]` 两份深色，不用 `light-dark()`）；半透明层次用 `--topbar-bg`/`--surface-translucent`/`--accent-wash`/`--hover` 静态 token（不用 `color-mix()`），`topbar` 保留 `backdrop-filter`；遮罩用四边定位（不用 `inset` 简写）；`tests/check-css-baseline.mjs` 拦截基线外语法并比对两份深色色板 | CSS lint、`run-all.sh`、Chrome 探针；旧内核真机[复测文档](../../tests/fixtures/chromium-baseline/README.md) | ◐ 部分（lint 与 Chrome 自动；旧内核人工） |
+
 ## 变更规则
 
 - 改变行为时先在这里找到对应 `F-xx`，更新“验收要点”和“测试映射”，再改代码。

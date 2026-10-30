@@ -22,6 +22,9 @@ cargo test
 section "doc links"
 node tests/check-doc-links.mjs
 
+section "css baseline"
+node tests/check-css-baseline.mjs
+
 section "black-box HTTP"
 bash tests/selftest-rust.sh
 

@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>mdview CSS 基线自检</title>
+<style>
+  body { margin: 32px; background: #f6f8fa; color: #1f2328;
+    font: 14px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif; }
+  h1 { margin: 0 0 4px; font-size: 20px; }
+  h2 { margin: 28px 0 10px; font-size: 15px; }
+  .lead, .note { color: #59636e; }
+  .lead { margin: 0 0 18px; }
+  .note { font-size: 12px; }
+  table { width: 100%; max-width: 760px; border-collapse: collapse; background: #fff; }
+  th, td { padding: 6px 10px; border: 1px solid #d1d9e0; text-align: left; }
+  th { background: #f6f8fa; font-weight: 600; }
+  td.mono { font-family: "SF Mono", Monaco, Menlo, Consolas, monospace; font-size: 12px; }
+  .ok { color: #1a7f37; font-weight: 700; }
+  .bad { color: #cf222e; font-weight: 700; }
+
+  /* 以下三条规则与 web/src/styles/app.css 的静态色板逐字对应。
+     旧内核若丢掉任何一条声明，计算值会退化成透明/none，就是原 bug 的指纹。 */
+  .demo-mark {
+    display: inline-grid; place-items: center; width: 24px; height: 24px;
+    border-radius: 6px; background: #0969da; color: #fff; font-size: 14px; font-weight: 800;
+  }
+  .demo-bar {
+    display: flex; align-items: center; gap: 10px; padding: 8px 10px;
+    border: 1px solid #d1d9e0; border-radius: 14px; background: rgba(255,255,255,.92);
+    box-shadow: 0 1px 0 rgba(31,35,40,.04), 0 20px 48px -32px rgba(31,35,40,.3);
+    -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
+  }
+  .demo-kbd {
+    padding: 0 5px; border: 1px solid #d1d9e0; border-bottom-width: 2px;
+    border-radius: 4px; background: #fff; font-size: 10.5px; line-height: 17px;
+  }
+
+  .stage { margin: 12px 0 0; padding: 18px; border: 1px solid #d1d9e0; border-radius: 12px; background: #fff; max-width: 760px; }
+  .stage-row { display: flex; align-items: center; gap: 14px; margin-bottom: 14px; }
+  .stage-row:last-child { margin-bottom: 0; }
+  .stage-label { width: 96px; color: #59636e; font-size: 12px; }
+  pre { margin: 10px 0 0; padding: 12px; max-width: 760px; overflow: auto; background: #fff;
+    border: 1px solid #d1d9e0; border-radius: 8px; font-size: 12px; line-height: 1.5; }
+  code { padding: 0 4px; border: 1px solid #d1d9e0; border-radius: 4px; background: #f6f8fa; font-size: 12px; }
+</style>
+</head>
+<body>
+<h1>mdview CSS 基线自检</h1>
+<p class="lead">在目标浏览器里直接打开本页（<code>file://</code> 或由 mdview 服务）。它不发任何网络请求，
+只读当前引擎的特性支持与三条演示规则的计算值。判定结果见页尾。</p>
+
+<h2>1. 引擎特性支持</h2>
+<table id="features">
+  <thead><tr><th>特性</th><th>最低 Chromium</th><th>本机</th></tr></thead>
+  <tbody></tbody>
+</table>
+<p class="note">最低版本仅供参考；修复后的 mdview 不依赖 <code>light-dark()</code> /
+<code>color-mix()</code> / <code>inset</code>。</p>
+
+<h2>2. 三条演示规则的计算值</h2>
+<div class="stage">
+  <div class="stage-row"><span class="stage-label">brand-mark</span><span class="demo-mark">m</span></div>
+  <div class="stage-row"><span class="stage-label">topbar</span><span class="demo-bar"><span class="demo-kbd">Enter</span><span>搜索</span></span></div>
+  <div class="stage-row"><span class="stage-label">kbd</span><span class="demo-kbd">Esc</span></div>
+</div>
+<pre id="computed">计算中…</pre>
+
+<h2>3. 判定</h2>
+<p id="verdict" class="lead">计算中…</p>
+
+<script>
+(function () {
+  var probes = [
+    ['light-dark()', 'color', 'light-dark(#fff, #000)', 123],
+    ['color-mix()', 'color', 'color-mix(in srgb, #fff 50%, #000)', 111],
+    ['inset: 0', 'inset', '0', 87],
+    ['backdrop-filter', 'backdrop-filter', 'blur(1px)', 76],
+    ['color-scheme', 'color-scheme', 'light dark', 81],
+    ['aspect-ratio', 'aspect-ratio', '1 / 1', 88],
+    [':has()', 'selector(:has(*))', null, 105]
+  ];
+  var tbody = document.querySelector('#features tbody');
+  var supports = {};
+  for (var i = 0; i < probes.length; i++) {
+    var name = probes[i][0], prop = probes[i][1], value = probes[i][2];
+    var ok;
+    try {
+      ok = value === null ? CSS.supports(prop) : CSS.supports(prop, value);
+    } catch (error) {
+      ok = false;
+    }
+    supports[name] = ok;
+    var row = document.createElement('tr');
+    row.innerHTML = '<td class="mono">' + name + '</td><td>' + probes[i][3] + '</td>'
+      + '<td class="' + (ok ? 'ok' : 'bad') + '">' + (ok ? '支持' : '不支持') + '</td>';
+    tbody.appendChild(row);
+  }
+
+  var read = function (selector, prop) {
+    var node = document.querySelector(selector);
+    return window.getComputedStyle(node)[prop];
+  };
+  var actual = {
+    markBackground: read('.demo-mark', 'backgroundColor'),
+    barBackground: read('.demo-bar', 'backgroundColor'),
+    barBorder: read('.demo-bar', 'borderTopStyle') + ' ' + read('.demo-bar', 'borderTopWidth'),
+    barShadow: read('.demo-bar', 'boxShadow'),
+    barBackdrop: read('.demo-bar', 'backdropFilter') || read('.demo-bar', 'webkitBackdropFilter'),
+    kbdBackground: read('.demo-kbd', 'backgroundColor'),
+    kbdBorder: read('.demo-kbd', 'borderTopStyle') + ' ' + read('.demo-kbd', 'borderTopWidth'),
+    kbdBottomBorder: read('.demo-kbd', 'borderBottomWidth')
+  };
+
+  var expected = {
+    markBackground: 'rgb(9, 105, 218)',
+    barBackground: 'rgba(255, 255, 255, 0.92)',
+    barBorder: 'solid 1px',
+    barShadow: 'not none',
+    kbdBackground: 'rgb(255, 255, 255)',
+    kbdBorder: 'solid 1px',
+    kbdBottomBorder: '2px'
+  };
+  var failures = [];
+  for (var key in expected) {
+    var want = expected[key];
+    var got = actual[key];
+    var ok = want === 'not none' ? got !== 'none' : got === want;
+    if (!ok) failures.push(key + ': 期望 ' + want + '，实际 ' + got);
+  }
+
+  var lines = ['userAgent: ' + navigator.userAgent, ''];
+  for (var k in actual) lines.push(k + ': ' + actual[k]);
+  document.getElementById('computed').textContent = lines.join('\n');
+
+  var verdict = document.getElementById('verdict');
+  if (failures.length === 0) {
+    verdict.className = 'lead ok';
+    verdict.textContent = 'PASS：三条演示规则全部生效，静态色板在这个内核上可用。'
+      + (supports['light-dark()'] ? '' : '（本机不支持 light-dark()/color-mix()，符合旧内核预期，修复不依赖它们。）');
+  } else {
+    verdict.className = 'lead bad';
+    verdict.textContent = 'FAIL：' + failures.length + ' 项与预期不符——'
+      + failures.join('；') + '。若本页来自 mdview 修复前的版本，这就是背景/边框被整条丢弃的指纹。';
+  }
+})();
+</script>
+</body>
+</html>
