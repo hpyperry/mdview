@@ -9,8 +9,8 @@
 
 | 项 | 值 |
 |---|---|
-| 日期 | 2026-10-28 |
-| 分支 | `release/v2.2.0` |
+| 日期 | 2026-10-30 |
+| 分支 | `release/v2.2.1` |
 | 平台 | macOS 27.0.0 arm64 |
 | Rust | 1.96（edition 2024，`rust-version = 1.89`） |
 | 产物 | `target/release/mdview`，约 **4.3 MB**（LTO + strip，内嵌 highlight.js、岛屿前端与压缩包解码器） |
@@ -24,6 +24,7 @@
 | 渲染兼容 | `cargo test --test render_compat` | **134 passed** |
 | 静态检查 | `cargo clippy --all-targets -- -D warnings` | **通过** |
 | 格式 | `cargo fmt --all --check` | **通过** |
+| CSS 基线 | `node tests/check-css-baseline.mjs` | **通过**（Chromium 86 黑名单 + 深色色板同步） |
 | Web 类型 | `npm --prefix web run typecheck` | **通过** |
 | 黑盒 HTTP | `bash tests/selftest-rust.sh` | **PASS=274 FAIL=0** |
 | 浏览器验收 | `node tests/browser-probe.mjs` | **PASS=238 FAIL=0** |
@@ -111,10 +112,11 @@ P0 差分报告：1035 条计分语料 **1015 条精确匹配（98.07%）**，0 
 
 ## CI（GitHub Actions）
 
-- 最近一次远程完整绿色：`CI · 39612891072`（2026-10-21，`94b8e45`），8/8 job
+- 最近一次远程完整绿色：`CI · 41071678267`（2026-10-30，`37a8553`），8/8 job
   成功；macOS/Ubuntu/Windows 测试、Node 类型检查、4 目标构建全绿。
 - 本地 `run-all.sh` 当前为 274/238；远程 CI 最近一次绿色仍是 `b3a133a` 的 151/163。
-- Release 由 tag `v2.0.0` 触发 `release.yml`；发布结果以该 GitHub Release 为准。
+- Release 由 annotated tag `v*` 触发 `release.yml`；发布结果以对应 GitHub Release
+  为准。
 - 岛屿架构首跑 `39421064321` 暴露两个 CI 问题：Linux Chrome 因新增的
   headless 启动参数没有在 15s 内暴露 DevTools；musl 的 cross 容器默认不传递
   `MDVIEW_WEB_PREBUILT`，导致 build.rs 在容器内找 npm。修复为移除多余启动
