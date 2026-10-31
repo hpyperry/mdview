@@ -26,6 +26,10 @@ bash tests/run-all.sh
 `npm --prefix web ci`。跨平台 musl 构建用
 `npm --prefix web run build:web` + `MDVIEW_WEB_PREBUILT=web/dist`。
 
+本机 `target/` 是本地副产物，不进交付物。体积基线、清理时机与命令见
+[`docs/guides/build-hygiene.md`](docs/guides/build-hygiene.md)，取舍见
+[ADR 0023](docs/architecture/adr/0023-dev-build-artifact-size.md)。
+
 必须全绿：`cargo test`（88 单元 + 134 渲染兼容 + 27 golden）、274 项黑盒 HTTP、
 9 项 pty 信任测试、238 项 headless Chrome 验收、4 项源码页性能预算。
 
@@ -322,6 +326,10 @@ Single-context: root `GLOSSARY.md` + `docs/architecture/adr/`. See
   不是阅读器，`.jar`/`.apk` 不执行。
 - **文件大小**统一走 `format_size`：1024 进制、KB 起步、1 位小数去尾零；
   不要直接输出 B/KiB。
+- **`target/` 体积**：Cargo 不回收陈旧指纹，长期工作副本能到数 GB（干净基线约
+  700 MB）。超过 2 GB 或 `deps/` 里指纹套数多于 2–3 套就 `cargo clean` 或
+  `rm -rf target/debug`；重建只要几十秒。dev profile 是 `debug = 1`，需要变量级
+  调试时用 `CARGO_PROFILE_DEV_DEBUG=2 cargo build`，用完清掉那套指纹。
 
 ## 测试约定
 

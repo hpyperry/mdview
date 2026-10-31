@@ -9,7 +9,7 @@
 | 目录 | 内容 | 入口 |
 |---|---|---|
 | `architecture/` | 设计方案与 ADR 决策记录 | [overview.md](architecture/overview.md) · [ADRs](architecture/adr/README.md) |
-| `guides/` | 安装/运行/Trust、渲染边界、代码块专项 | [install.md](guides/install.md) · [advanced.md](guides/advanced.md) · [code-blocks.md](guides/code-blocks.md) |
+| `guides/` | 安装/运行/Trust、渲染边界、代码块专项、本地构建卫生 | [install.md](guides/install.md) · [advanced.md](guides/advanced.md) · [code-blocks.md](guides/code-blocks.md) · [build-hygiene.md](guides/build-hygiene.md) |
 | `reference/` | 功能矩阵与追踪编号 | [features.md](reference/features.md) |
 | `../tests/` | 自动化套件、feature/fix 人工复测文档与夹具 | [tests/README.md](../tests/README.md) · [fixtures/README.md](../tests/fixtures/README.md) |
 | `testing/` | 当前自测记录、浏览器验收报告与截图证据 | [selftest.md](testing/selftest.md) · [reports/README.md](testing/reports/README.md) · [agent-guide.md](testing/agent-guide.md) |

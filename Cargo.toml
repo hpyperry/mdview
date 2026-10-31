@@ -36,6 +36,11 @@ zip = { version = "9", default-features = false, features = ["deflate-flate2", "
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }
 
+[profile.dev]
+# 只保留行号级调试信息：panic 仍能定位到具体 src 行，产物体积比默认 debug = 2 小约 18%。
+# 本地产物不是交付物；基线、清理方式与取舍见 docs/guides/build-hygiene.md。
+debug = 1
+
 [profile.release]
 lto = true
 codegen-units = 1
