@@ -70,6 +70,22 @@ cargo clean -p mdview      # 只清本项目 crate 的产物
 `cargo clean` 不会删除 `~/.cargo/registry` 里的源码缓存，重编不需要重新下载。
 `tools/spike/` 下的探针项目有自己的 `target/`，不常用时可以直接删目录。
 
+## 自动清理（post-merge hook）
+
+仓库带一个 git hook：合并或 `git pull` 之后，`target/debug` 超过 **2 GB** 就删除，
+保留 `target/release`。git hooks 不随仓库分发，每个 clone 装一次：
+
+```bash
+bash scripts/install-git-hooks.sh
+```
+
+- 关闭：`MDVIEW_NO_AUTO_CLEAN=1`，或 `git config --unset core.hooksPath`；
+- 阈值：`MDVIEW_CLEAN_THRESHOLD_MB` 覆盖，默认 2048；
+- 它永远以 0 退出，清理失败不会挡住 `git pull`；
+- 只处理 `target/debug`，不动 `target/release` 与 `tools/spike/*/target`。
+
+没装 hook 的 clone 只有上一层“人工判断 + 上面的命令”；装了之后才谈得上自动。
+
 ## 为什么现在不引入跨项目缓存
 
 `sccache` 或共享 `CARGO_TARGET_DIR` 能让依赖产物跨项目复用，但代价是额外的外部

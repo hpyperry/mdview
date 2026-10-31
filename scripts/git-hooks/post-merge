@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+# post-merge：合并或 git pull 之后，如果 target/debug 超过阈值就清掉。
+#
+# 安装：bash scripts/install-git-hooks.sh
+# 关闭：MDVIEW_NO_AUTO_CLEAN=1，或 git config --unset core.hooksPath
+# 调阈值：MDVIEW_CLEAN_THRESHOLD_MB（默认 2048）
+#
+# 这个 hook 永远以 0 退出：清理失败不能挡住 git 操作。
+set -u
+
+THRESHOLD_MB="${MDVIEW_CLEAN_THRESHOLD_MB:-2048}"
+DIR="target/debug"
+
+if [ "${MDVIEW_NO_AUTO_CLEAN:-0}" = "1" ]; then
+  exit 0
+fi
+
+root="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
+cd "$root" || exit 0
+
+[ -d "$DIR" ] || exit 0
+
+kb="$(du -sk "$DIR" 2>/dev/null | awk '{print $1}' | head -1)"
+case "${kb:-}" in
+  ''|*[!0-9]*) exit 0 ;;
+esac
+
+mb=$((kb / 1024))
+[ "$mb" -lt "$THRESHOLD_MB" ] && exit 0
+
+printf '\n[mdview] target/debug 已到 %s MB（阈值 %s MB），清理陈旧构建产物。\n' "$mb" "$THRESHOLD_MB"
+printf '[mdview] 下次构建约 30 秒；设置 MDVIEW_NO_AUTO_CLEAN=1 可关闭。\n'
+
+if rm -rf "$DIR"; then
+  printf '[mdview] 已删除 target/debug，保留 target/release。\n'
+else
+  printf '[mdview] 清理失败，跳过（不影响本次合并）。\n'
+fi
+
+exit 0

@@ -114,6 +114,7 @@ Single-context: root `GLOSSARY.md` + `docs/architecture/adr/`. See
 | `assets/` | VS Code CSS、highlight.js bundle |
 | `tools/build-assets/` | 重建 highlight.js bundle |
 | `tools/spike/` | P0 差分探针（不参与构建） |
+| `scripts/git-hooks/` | 本地 git hooks：post-merge 在 `target/debug` 超阈值时清理 |
 
 ## 硬约束
 
@@ -330,6 +331,8 @@ Single-context: root `GLOSSARY.md` + `docs/architecture/adr/`. See
   700 MB）。超过 2 GB 或 `deps/` 里指纹套数多于 2–3 套就 `cargo clean` 或
   `rm -rf target/debug`；重建只要几十秒。dev profile 是 `debug = 1`，需要变量级
   调试时用 `CARGO_PROFILE_DEV_DEBUG=2 cargo build`，用完清掉那套指纹。
+  仓库带一个 post-merge hook，装一次（`bash scripts/install-git-hooks.sh`）就会在
+  合并后按同一阈值自动清；没装时只有文档约定。
 
 ## 测试约定
 
