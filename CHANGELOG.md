@@ -1,5 +1,29 @@
 # Changelog
 
+## 2.2.2（2026-10-31）
+
+开发工具链版本，没有用户可见变化；交付二进制与 2.2.1 功能一致，仅 `--version`
+输出不同。
+
+### 改进
+
+- 新增 `[profile.dev] debug = 1`：本地 debug 构建只保留行号级调试信息，体积比
+  Cargo 默认的 `debug = 2` 小约 18%（干净构建，`cargo build` + `cargo test --no-run`：
+  867 MB → 708 MB）。panic backtrace 仍能定位到源码行；需要变量级调试时用
+  `CARGO_PROFILE_DEV_DEBUG=2 cargo build`。release profile 与交付物不变。
+- 新增 `scripts/git-hooks/post-merge` 与 `scripts/install-git-hooks.sh`：合并或
+  `git pull` 后 `target/debug` 超过 2 GB 自动清理，保留 `target/release`；hook
+  永远以 0 退出，不阻塞 git；`MDVIEW_NO_AUTO_CLEAN=1` 关闭。
+- 新增 `docs/guides/build-hygiene.md`：实测体积基线、清理命令与清理时机；
+  ADR 0023 记录 `debug = 1` vs `debug = 0`、incremental 与 sccache 的取舍。
+- 新增 `tests/fixtures/dev-build-size/` 与 `tests/fixtures/target-auto-clean/`
+  两份复测文档。
+
+### 已知限制
+
+- 自动清理只在安装过 hook 的 clone 生效，且只处理 `target/debug`；阈值 2 GB。
+- 体积数字来自 macOS arm64 + rustc 1.96 实测，其他平台只作量级参考。
+
 ## 2.2.1（2026-10-30）
 
 ### 修复

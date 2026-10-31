@@ -9,8 +9,8 @@
 
 | 项 | 值 |
 |---|---|
-| 日期 | 2026-10-30 |
-| 分支 | `release/v2.2.1` |
+| 日期 | 2026-10-31 |
+| 分支 | `release/v2.2.2` |
 | 平台 | macOS 27.0.0 arm64 |
 | Rust | 1.96（edition 2024，`rust-version = 1.89`） |
 | 产物 | `target/release/mdview`，约 **4.3 MB**（LTO + strip，内嵌 highlight.js、岛屿前端与压缩包解码器） |
@@ -112,7 +112,7 @@ P0 差分报告：1035 条计分语料 **1015 条精确匹配（98.07%）**，0 
 
 ## CI（GitHub Actions）
 
-- 最近一次远程完整绿色：`CI · 41071678267`（2026-10-30，`37a8553`），8/8 job
+- 最近一次远程完整绿色：`CI · 41170970716`（2026-10-31，`de6c44d`），8/8 job
   成功；macOS/Ubuntu/Windows 测试、Node 类型检查、4 目标构建全绿。
 - 本地 `run-all.sh` 当前为 274/238；远程 CI 最近一次绿色仍是 `b3a133a` 的 151/163。
 - Release 由 annotated tag `v*` 触发 `release.yml`；发布结果以对应 GitHub Release
