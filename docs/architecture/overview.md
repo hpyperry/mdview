@@ -264,6 +264,9 @@ security_level = 0
 ## 10. 构建与发布
 
 - Profile：LTO、`codegen-units = 1`、`strip`；优先体积可控。
+- dev profile：`debug = 1`，只保留行号级调试信息。本地产物不是交付物；体积基线、
+  清理节奏与取舍见 [构建卫生](../guides/build-hygiene.md) 与
+  [ADR 0023](adr/0023-dev-build-artifact-size.md)。
 - 目标：
   - `aarch64-apple-darwin`
   - `x86_64-unknown-linux-musl`
