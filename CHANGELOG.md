@@ -1,5 +1,57 @@
 # Changelog
 
+## 2.2.3（2026-11-02）
+
+### 修复
+
+- 深色主题下文件导航目录行的展开三角不再发黑：`Icon` 组件始终保留 `icon` 基类，
+  自定义 class 只叠加，SVG 恢复 `fill: none; stroke: currentColor`。此前
+  `class="nav-chevron"` 会整个替换基类，退回浏览器默认的 `fill: black; stroke: none`。
+- 右侧 TOC 改为覆盖 `h1`–`h6` 全层级（含正文第一个 `h1`），修复 `h1` 与
+  `h4`–`h6` 标题不进入目录的问题。
+- 长文档的 TOC 细轨限高独立滚动；scroll-spy 切换时自动把当前刻度滚入视野，
+  不再有滚不到的后半段节点。
+- 新增 `--border-strong` 深浅两套值（深色 `#6e7a86`），未选中刻度不再被
+  `--border` 的低对比度吞掉。
+
+### 改进
+
+- TOC 扁平列表逐级缩进（`h3` 20px 起每级 +12px），刻度宽度随级别递减。
+- `h1`–`h6` 锚点补齐 `scroll-margin-top`，跳转不被 sticky 顶栏遮挡。
+- 浏览器探针新增 10 项断言（238 → 248），覆盖全层级、缩进、刻度宽度、
+  深色 `--border-strong`、深色导航三角、长文档细轨滚动与当前项跟随。
+- 新增 [`tests/fixtures/toc-all-levels/`](tests/fixtures/toc-all-levels/README.md)
+  复测文档与夹具；同步 F-50、ADR 0010/0012。
+
+### 兼容性
+
+- 服务端行为、路由、Trust/CSP、编码检测、压缩包范围、配置格式与 CLI 参数不变。
+- 唯一可见行为变化是页内目录条目范围扩大；无迁移步骤，替换二进制即可。
+- 浏览器基线仍为 Chromium 86+，零外部请求。
+
+### 已知限制
+
+- TOC 由浏览器运行时生成；禁用 JS 时没有目录。
+- 正文第一个 `h1` 按约定进入目录，与正文标题重复是预期行为。
+- 细轨只表达标题位置；极长标题在展开的文字大纲里换行显示。
+
+### 验证
+
+```text
+cargo test                    88 单元 + 27 golden + 134 渲染兼容
+cargo fmt --all --check       ok
+cargo clippy --all-targets    ok（-D warnings）
+npm --prefix web run typecheck  ok
+node tests/check-css-baseline.mjs  ok（Chromium 86+，3 份样式表）
+node tests/check-doc-links.mjs     327 links ok
+bash tests/run-all.sh         ALL LOCAL CHECKS PASSED
+  黑盒 HTTP                   274/274
+  TTY Trust                    9/9
+  浏览器验收                 248/248
+  源码页性能                   4/4
+  artifact 冒烟                7/7
+```
+
 ## 2.2.2（2026-10-31）
 
 开发工具链版本，没有用户可见变化；交付二进制与 2.2.1 功能一致，仅 `--version`
