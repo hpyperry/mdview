@@ -4,10 +4,12 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import { Icon } from '../icons';
 import { prefersReducedMotion } from '../utils';
 
+type HeadingLevel = 1 | 2 | 3 | 4 | 5 | 6;
+
 interface Heading {
   id: string;
   text: string;
-  level: 2 | 3;
+  level: HeadingLevel;
 }
 
 interface TocProps {
@@ -19,7 +21,7 @@ interface TocProps {
 function collectHeadings(): Heading[] {
   const article = document.querySelector('.markdown-body');
   if (!article) return [];
-  const headings = Array.from(article.querySelectorAll<HTMLElement>('h2, h3'));
+  const headings = Array.from(article.querySelectorAll<HTMLElement>('h1, h2, h3, h4, h5, h6'));
   return headings.map((heading, index) => {
     if (!heading.id) {
       const base = `toc-${index + 1}`;
@@ -34,7 +36,7 @@ function collectHeadings(): Heading[] {
     return {
       id: heading.id,
       text: (heading.textContent || '').trim(),
-      level: heading.tagName === 'H3' ? 3 : 2,
+      level: Number(heading.tagName.slice(1)) as HeadingLevel,
     };
   });
 }
@@ -62,7 +64,7 @@ function TocLinks({
       {headings.map((heading) => (
         <a
           key={heading.id}
-          class={`toc-link${heading.level === 3 ? ' toc-h3' : ''}${active === heading.id ? ' active' : ''}`}
+          class={`toc-link toc-h${heading.level}${active === heading.id ? ' active' : ''}`}
           href={`#${heading.id}`}
           data-target={heading.id}
           onClick={(event) => {
@@ -82,6 +84,7 @@ function Toc({ headings, inlineNav, rail }: TocProps) {
   const [pinned, setPinned] = useState(false);
   const [hovered, setHovered] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
+  const ticksRef = useRef<HTMLDivElement>(null);
   const expanded = pinned || hovered;
 
   function close(): void {
@@ -183,6 +186,19 @@ function Toc({ headings, inlineNav, rail }: TocProps) {
   }, [expanded]);
 
   useEffect(() => {
+    const container = ticksRef.current;
+    if (!container) return;
+    const tick = container.querySelector<HTMLElement>(
+      `.toc-tick[data-target="${CSS.escape(active)}"]`,
+    );
+    if (!tick) return;
+    const box = container.getBoundingClientRect();
+    const rect = tick.getBoundingClientRect();
+    if (rect.top < box.top) container.scrollTop += rect.top - box.top;
+    else if (rect.bottom > box.bottom) container.scrollTop += rect.bottom - box.bottom;
+  }, [active]);
+
+  useEffect(() => {
     if (!expanded) return;
     const panel = panelRef.current;
     if (!panel) return;
@@ -223,11 +239,11 @@ function Toc({ headings, inlineNav, rail }: TocProps) {
       >
         <Icon name="list" />
       </button>
-      <div class="toc-ticks">
+      <div class="toc-ticks" ref={ticksRef}>
         {headings.map((heading) => (
           <button
             key={heading.id}
-            class={`toc-tick${heading.level === 3 ? ' is-h3' : ''}${active === heading.id ? ' is-active' : ''}`}
+            class={`toc-tick is-h${heading.level}${active === heading.id ? ' is-active' : ''}`}
             type="button"
             data-target={heading.id}
             aria-label={heading.text}
