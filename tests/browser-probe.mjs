@@ -473,6 +473,7 @@ async function main() {
       JSON.stringify(lightChevron),
     );
     await evaluate('document.documentElement.dataset.theme = "dark"');
+    await sleep(50);
     const darkChevron = await evaluate(`(() => {
       const svg = document.querySelector('#nav-panel .nav-chevron');
       const style = getComputedStyle(svg);
@@ -518,6 +519,7 @@ async function main() {
     })()`);
     check('TOC 刻度逐级变窄', tickWidths.every((value, index) => index === 0 || value < tickWidths[index - 1]), JSON.stringify(tickWidths));
     await evaluate('document.documentElement.dataset.theme = "dark"');
+    await sleep(250);
     const darkTick = await evaluate(`(() => {
       const tick = document.querySelector('.toc-tick:not(.is-active)');
       const token = getComputedStyle(document.documentElement).getPropertyValue('--border-strong').trim();
