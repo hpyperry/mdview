@@ -90,7 +90,7 @@
 | F-47 | 导航树行为 | 目录只展开/收起，文件才导航；第 3 层目录按需加载一层，桌面悬停预热；当前文件高亮 | 浏览器探针、视觉 | ✅ 自动 |
 | F-48 | 导航浮层/抽屉 | 桌面浮岛不挤压正文；≤900px 抽屉 + 遮罩 | 浏览器探针、视觉 | ✅ 自动 |
 | F-49 | 导航记忆 | 展开状态 localStorage；当前路径祖先自动展开；深层记忆在打开时按祖先链补加载 | 浏览器探针 | ✅ 自动 |
-| F-50 | TOC 细轨 | h2–h3、sticky、scroll-spy、刻度跳转 | 浏览器探针 | ✅ 自动 |
+| F-50 | TOC 细轨 | h1–h6 全层级（含正文第一个 h1）、逐级缩进、sticky、细轨独立滚动并自动跟随当前项、scroll-spy、刻度跳转；深色未选中刻度用 `--border-strong` | 浏览器探针；[复测文档](../../tests/fixtures/toc-all-levels/README.md) | ✅ 自动 |
 | F-51 | TOC 文字大纲 | 悬停/聚焦展开标题文本；可固定；不挤压正文 | 浏览器探针、视觉 | ✅ 自动 |
 | F-52 | 窄屏内联 TOC | <1360px 回到正文顶部可折叠块 | 浏览器探针 | ✅ 自动 |
 | F-53 | 代码工具条 | 语言条、复制/已复制/复制失败；无语言不自动高亮 | 浏览器探针 | ✅ 自动 |
@@ -179,7 +179,7 @@
 
 | ID | 功能 | 验收要点 | 测试映射 | 状态 |
 |---|---|---|---|---|
-| F-93 | Chromium 86 基线 CSS 回退 | 支持基线 Chromium 86；色板为静态双色板（`:root` 浅色 + `prefers-color-scheme`/`[data-theme="dark"]` 两份深色，不用 `light-dark()`）；半透明层次用 `--topbar-bg`/`--surface-translucent`/`--accent-wash`/`--hover` 静态 token（不用 `color-mix()`），`topbar` 保留 `backdrop-filter`；遮罩用四边定位（不用 `inset` 简写）；`tests/check-css-baseline.mjs` 拦截基线外语法并比对两份深色色板 | CSS lint、`run-all.sh`、Chrome 探针；旧内核真机[复测文档](../../tests/fixtures/chromium-baseline/README.md) | ◐ 部分（lint 与 Chrome 自动；旧内核人工） |
+| F-93 | Chromium 86 基线 CSS 回退 | 支持基线 Chromium 86；色板为静态双色板（`:root` 浅色 + `prefers-color-scheme`/`[data-theme="dark"]` 两份深色，不用 `light-dark()`）；半透明层次用 `--topbar-bg`/`--surface-translucent`/`--accent-wash`/`--hover` 静态 token（不用 `color-mix()`），边界层次用 `--border`/`--border-strong`，`topbar` 保留 `backdrop-filter`；遮罩用四边定位（不用 `inset` 简写）；`tests/check-css-baseline.mjs` 拦截基线外语法并比对两份深色色板 | CSS lint、`run-all.sh`、Chrome 探针；旧内核真机[复测文档](../../tests/fixtures/chromium-baseline/README.md) | ◐ 部分（lint 与 Chrome 自动；旧内核人工） |
 
 ## 变更规则
 

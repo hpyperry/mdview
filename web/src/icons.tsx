@@ -70,9 +70,10 @@ const paths: Record<IconName, JSX.Element> = {
   ),
 };
 
-export function Icon({ name, class: className = 'icon' }: { name: IconName; class?: string }): JSX.Element {
+export function Icon({ name, class: className }: { name: IconName; class?: string }): JSX.Element {
+  const classes = className ? `icon ${className}` : 'icon';
   return (
-    <svg class={className} viewBox="0 0 24 24" aria-hidden="true">
+    <svg class={classes} viewBox="0 0 24 24" aria-hidden="true">
       {paths[name]}
     </svg>
   );

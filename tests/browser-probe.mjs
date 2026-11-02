@@ -191,8 +191,13 @@ async function writeFixture(root) {
   const filler = Array.from({ length: 120 }, (_, i) => `第 ${i + 1} 段，用来把页面撑到可滚动。`).join('\n\n');
   await writeFile(
     join(root, 'page.md'),
-    `# Probe\n\n中文 **粗体**。\n\n## Section A\n\n\`\`\`python\ndef f():\n    return 1\n\`\`\`\n\n\`\`\`\nplain fence text\n\`\`\`\n\n### Sub\n\n![图](img.png)\n\n[目录](/)\n\n## Section B\n\n末尾段落。\n\n${filler}\n`,
+    `# Probe\n\n中文 **粗体**。\n\n## Section A\n\n\`\`\`python\ndef f():\n    return 1\n\`\`\`\n\n\`\`\`\nplain fence text\n\`\`\`\n\n### Sub\n\n![图](img.png)\n\n[目录](/)\n\n#### Detail\n\n细节段落。\n\n##### Note\n\n注释段落。\n\n###### Tiny\n\n最小段落。\n\n## Section B\n\n末尾段落。\n\n${filler}\n`,
   );
+  const longSections = Array.from(
+    { length: 60 },
+    (_, i) => `## Long Section ${String(i + 1).padStart(2, '0')}\n\n第 ${i + 1} 节正文。`,
+  ).join('\n\n');
+  await writeFile(join(root, 'long.md'), `# Long Document\n\n${longSections}\n\n${filler}\n`);
   await writeFile(join(root, 'sub', 'page.md'), '# Sub\n\n[上级](/) · ![图](img.png)\n');
   await writeFile(
     join(root, 'page.html'),
@@ -214,7 +219,7 @@ async function writeFixture(root) {
   }
   await writeFile(join(root, 'plain.txt'), 'plain text without a language\nsecond line\n');
   await writeFile(join(root, 'small.rs'), 'fn main() {\n    let x = 1;\n    println!("{}", x);\n}\n');
-  await writeFile(join(root, 'single.md'), '# Single\n\nOnly a heading.\n');
+  await writeFile(join(root, 'single.md'), '只有正文，没有标题。\n');
   await writeFile(join(root, 'huge-code.md'), `# Huge\n\n\`\`\`js\n${'const x = 1;\n'.repeat(22000)}\`\`\`\n`);
   const bigLines = Array.from({ length: 15000 }, (_, i) => `line ${i + 1} the quick brown fox jumps over the lazy dog`).join('\n') + '\n';
   await writeFile(join(root, 'big.txt'), bigLines);
@@ -356,7 +361,19 @@ async function main() {
     check('复制按钮已注入', (await evaluate('document.querySelectorAll(".copy-btn").length')) === 2);
     check('代码块语言条', (await evaluate('document.querySelector(".code-block .code-bar .lang")?.textContent')) === 'python');
     check('无语言围栏不高亮', (await evaluate('[...document.querySelectorAll(".code-block")].some(b => b.querySelector(".lang")?.textContent === "代码" && !b.querySelector("code.hljs"))')) === true);
-    check('页内目录已生成', (await evaluate('document.querySelectorAll("#toc-slot .toc-link").length')) === 3);
+    check('页内目录已生成', (await evaluate('document.querySelectorAll("#toc-slot .toc-link").length')) === 7);
+    check(
+      '页内目录覆盖 h1–h6',
+      (await evaluate(`(() => {
+        const links = [...document.querySelectorAll('#toc-slot .toc-link')];
+        return links.length === 7 && ['toc-h1', 'toc-h2', 'toc-h3', 'toc-h4', 'toc-h5', 'toc-h6'].every((cls) => links.some((a) => a.classList.contains(cls)));
+      })()`)) === true,
+    );
+    const tocIndents = await evaluate(`(() => {
+      const width = (cls) => parseFloat(getComputedStyle(document.querySelector('#toc-slot .toc-link.' + cls)).paddingLeft);
+      return ['toc-h2', 'toc-h3', 'toc-h4', 'toc-h5', 'toc-h6'].map(width);
+    })()`);
+    check('页内目录逐级缩进', tocIndents.every((value, index) => index === 0 || value > tocIndents[index - 1]), JSON.stringify(tocIndents));
     check('导航默认关闭', (await evaluate('document.documentElement.dataset.navOpen === undefined && getComputedStyle(document.getElementById("nav-panel")).display === "none"')) === true);
     check('导航树未预渲染', (await evaluate('document.querySelectorAll("#nav-panel .nav-file").length')) === 0);
     check(
@@ -445,6 +462,29 @@ async function main() {
     await evaluate('document.getElementById("nav-toggle").click()');
     check('导航打开', await waitFor('document.documentElement.dataset.navOpen === "1" && getComputedStyle(document.getElementById("nav-panel")).display !== "none"', 2000));
     check('导航不挤压正文', Math.abs((await evaluate('document.querySelector(".doc-card").getBoundingClientRect().width')) - beforeNavWidth) < 1);
+    const lightChevron = await evaluate(`(() => {
+      const svg = document.querySelector('#nav-panel .nav-chevron');
+      const style = getComputedStyle(svg);
+      return { classes: svg.getAttribute('class'), fill: style.fill, stroke: style.stroke, color: style.color };
+    })()`);
+    check(
+      '导航三角保留 icon 基类',
+      lightChevron.classes?.split(/\s+/).includes('icon') && lightChevron.fill === 'none' && lightChevron.stroke !== 'none',
+      JSON.stringify(lightChevron),
+    );
+    await evaluate('document.documentElement.dataset.theme = "dark"');
+    await sleep(50);
+    const darkChevron = await evaluate(`(() => {
+      const svg = document.querySelector('#nav-panel .nav-chevron');
+      const style = getComputedStyle(svg);
+      return { fill: style.fill, stroke: style.stroke, color: style.color };
+    })()`);
+    check(
+      '深色导航三角不是黑块',
+      darkChevron.fill === 'none' && darkChevron.stroke !== 'none' && darkChevron.color === 'rgb(145, 152, 161)',
+      JSON.stringify(darkChevron),
+    );
+    await evaluate('delete document.documentElement.dataset.theme');
     await evaluate('document.getElementById("nav-close").click()');
     check('导航关闭', await waitFor('document.documentElement.dataset.navOpen === "0"', 2000));
     await page.send('Emulation.setDeviceMetricsOverride', { width: 800, height: 600, deviceScaleFactor: 1, mobile: false });
@@ -466,10 +506,31 @@ async function main() {
     check('TOC 细轨可见', (await evaluate('getComputedStyle(document.querySelector(".toc-rail")).display')) !== 'none');
     check('正文面使用宽布局', (await evaluate('Math.round(document.querySelector(".doc-card").getBoundingClientRect().width)')) >= 1000);
     check('TOC 当前项', await waitFor('!!document.querySelector(".toc-tick.is-active")', 3000));
+    check(
+      'TOC 刻度覆盖 h1–h6',
+      (await evaluate(`(() => {
+        const ticks = [...document.querySelectorAll('.toc-tick')];
+        return ticks.length === 7 && ['is-h1', 'is-h2', 'is-h3', 'is-h4', 'is-h5', 'is-h6'].every((cls) => ticks.some((tick) => tick.classList.contains(cls)));
+      })()`)) === true,
+    );
+    const tickWidths = await evaluate(`(() => {
+      const width = (cls) => parseFloat(getComputedStyle(document.querySelector('.toc-tick.' + cls), '::before').width);
+      return ['is-h2', 'is-h3', 'is-h4', 'is-h5', 'is-h6'].map(width);
+    })()`);
+    check('TOC 刻度逐级变窄', tickWidths.every((value, index) => index === 0 || value < tickWidths[index - 1]), JSON.stringify(tickWidths));
+    await evaluate('document.documentElement.dataset.theme = "dark"');
+    await sleep(250);
+    const darkTick = await evaluate(`(() => {
+      const tick = document.querySelector('.toc-tick:not(.is-active)');
+      const token = getComputedStyle(document.documentElement).getPropertyValue('--border-strong').trim();
+      return { token, mark: getComputedStyle(tick, '::before').backgroundColor };
+    })()`);
+    check('深色 TOC 刻度用 --border-strong', darkTick.token === '#6e7a86' && darkTick.mark === 'rgb(110, 122, 134)', JSON.stringify(darkTick));
+    await evaluate('delete document.documentElement.dataset.theme');
     check('TOC 面板初始关闭', (await evaluate('document.querySelector(".toc-pop") === null')) === true);
     await evaluate('document.getElementById("toc-rail").dispatchEvent(new PointerEvent("pointerenter"))');
-    check('TOC 悬停展开文字大纲', await waitFor('document.querySelectorAll(".toc-pop .toc-link").length === 3', 2000));
-    check('TOC 大纲标题可读', (await evaluate('document.querySelector(".toc-pop .toc-link")?.textContent')) === 'Section A');
+    check('TOC 悬停展开文字大纲', await waitFor('document.querySelectorAll(".toc-pop .toc-link").length === 7', 2000));
+    check('TOC 大纲标题可读', (await evaluate('document.querySelector(".toc-pop .toc-link")?.textContent')) === 'Probe');
     await evaluate('document.getElementById("toc-rail").dispatchEvent(new PointerEvent("pointerleave"))');
     check('TOC 移出收起', await waitFor('document.querySelector(".toc-pop") === null', 2000));
     await evaluate('document.querySelector(".toc-rail-btn").click()');
@@ -480,15 +541,15 @@ async function main() {
     await evaluate('document.querySelector(".toc-close").click()');
     check('TOC 固定可关闭', await waitFor('document.querySelector(".toc-pop") === null', 2000));
     await evaluate('document.getElementById("toc-rail").querySelector(".toc-rail-btn").click()');
-    check('TOC 面板可展开', await waitFor('document.querySelectorAll(".toc-pop .toc-link").length === 3', 2000));
-    await evaluate('document.getElementById("toc-3").scrollIntoView({ block: "start" })');
-    check('TOC 定位到 Section B', await waitFor('document.getElementById("toc-3").getBoundingClientRect().top < 120', 3000));
+    check('TOC 面板可展开', await waitFor('document.querySelectorAll(".toc-pop .toc-link").length === 7', 2000));
+    await evaluate('document.getElementById("toc-7").scrollIntoView({ block: "start" })');
+    check('TOC 定位到 Section B', await waitFor('document.getElementById("toc-7").getBoundingClientRect().top < 120', 3000));
     await evaluate('window.dispatchEvent(new Event("scroll")); window.dispatchEvent(new Event("resize"))');
-    const tocActive = await waitFor('document.querySelector(".toc-tick.is-active")?.getAttribute("data-target") === "toc-3"', 3000);
+    const tocActive = await waitFor('document.querySelector(".toc-tick.is-active")?.getAttribute("data-target") === "toc-7"', 3000);
     check(
       'TOC 跟随滚动',
       tocActive,
-      await evaluate('JSON.stringify({ y: window.scrollY, active: document.querySelector(".toc-tick.is-active")?.getAttribute("data-target"), top: document.getElementById("toc-3").getBoundingClientRect().top })'),
+      await evaluate('JSON.stringify({ y: window.scrollY, active: document.querySelector(".toc-tick.is-active")?.getAttribute("data-target"), top: document.getElementById("toc-7").getBoundingClientRect().top })'),
     );
     await evaluate('document.querySelector(".toc-close").click()');
     check('TOC 面板可收起', await waitFor('document.querySelector(".toc-pop") === null', 2000));
@@ -500,6 +561,28 @@ async function main() {
     await waitFor('document.querySelector(".toc-pop") !== null', 2000);
     await evaluate('document.querySelector(".doc-prose p").click()');
     check('TOC 点外部关闭', await waitFor('document.querySelector(".toc-pop") === null', 2000));
+
+    await goto('/long.md');
+    check('长文档刻度数完整', (await evaluate('document.querySelectorAll(".toc-tick").length')) === 61);
+    check(
+      '长文档细轨可滚动',
+      (await evaluate('(() => { const ticks = document.querySelector(".toc-ticks"); return ticks.scrollHeight > ticks.clientHeight + 1; })()')) === true,
+    );
+    await evaluate('(() => { const target = [...document.querySelectorAll(".markdown-body h2")].pop(); target.scrollIntoView({ block: "start" }); })()');
+    await evaluate('window.dispatchEvent(new Event("scroll"))');
+    check(
+      '长文档当前刻度自动可见',
+      await waitFor(`(() => {
+        const box = document.querySelector('.toc-ticks');
+        const tick = document.querySelector('.toc-tick.is-active');
+        const last = [...document.querySelectorAll('.markdown-body h2')].pop();
+        if (!box || !tick || !last) return false;
+        const rect = tick.getBoundingClientRect();
+        const boxRect = box.getBoundingClientRect();
+        return tick.dataset.target === last.id && rect.top >= boxRect.top - 1 && rect.bottom <= boxRect.bottom + 1;
+      })()`, 3000),
+    );
+
     await goto('/page.md');
     const articleWidth = await evaluate('document.querySelector(".doc-card").getBoundingClientRect().width');
     check('导航默认关闭', (await evaluate('document.documentElement.dataset.navOpen === undefined && getComputedStyle(document.getElementById("nav-panel")).display === "none"')) === true);
