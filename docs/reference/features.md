@@ -61,7 +61,7 @@
 | F-28 | 非 Markdown 文档文本 / `?raw=1` | 服务端输出带行号的源码页；`.mdx` 默认走这里；头部显示检测编码 | 黑盒、浏览器探针 | ✅ 自动 |
 | F-29 | 源码页头 | H1 为文件名；类型/大小/行数/修改时间标签；预览/下载 | 黑盒、浏览器视觉 | ✅ 自动 |
 | F-30 | 行锚点与高亮 | `#L<n>` 锚点、gutter、highlight.js 着色 | 黑盒、浏览器探针 | ✅ 自动 |
-| F-31 | 大源码分块 | >256 KB 全文输出，500 行/块，`content-visibility: auto` | 黑盒、性能脚本、浏览器探针 | ✅ 自动 |
+| F-31 | 大源码分块 | >256 KB 全文输出，500 行/块；`content-visibility: auto` 仅在支持 `contain-intrinsic-*` 的引擎启用，86–97 回退全量渲染 | 黑盒、性能脚本、浏览器探针；[复测文档](../../tests/fixtures/legacy-baseline-fallbacks/README.md) | ✅ 自动 |
 | F-32 | 无 JS 源码 | 无 JS 仍能读全文与行号 | 浏览器无 JS 基线 | ✅ 自动 |
 | F-33 | 超大代码块 | >256 KB 代码块不自动高亮，语言条提示“高亮已关闭” | 浏览器探针 | ✅ 自动 |
 | F-34 | 源码行定位 | 分块源码跳到目标行并高亮；小源码只跳到锚点，没有目标行高亮 | 黑盒、浏览器探针、视觉 | ◐ 部分 |
@@ -179,7 +179,7 @@
 
 | ID | 功能 | 验收要点 | 测试映射 | 状态 |
 |---|---|---|---|---|
-| F-93 | Chromium 86 基线 CSS 回退 | 支持基线 Chromium 86；色板为静态双色板（`:root` 浅色 + `prefers-color-scheme`/`[data-theme="dark"]` 两份深色，不用 `light-dark()`）；半透明层次用 `--topbar-bg`/`--surface-translucent`/`--accent-wash`/`--hover` 静态 token（不用 `color-mix()`），边界层次用 `--border`/`--border-strong`，`topbar` 保留 `backdrop-filter`；遮罩用四边定位（不用 `inset` 简写）；`tests/check-css-baseline.mjs` 拦截基线外语法并比对两份深色色板 | CSS lint、`run-all.sh`、Chrome 探针；旧内核真机[复测文档](../../tests/fixtures/chromium-baseline/README.md) | ◐ 部分（lint 与 Chrome 自动；旧内核人工） |
+| F-93 | Chromium 86 基线 CSS 回退 | 支持基线 Chromium 86；色板为静态双色板（`:root` 浅色 + `prefers-color-scheme`/`[data-theme="dark"]` 两份深色，不用 `light-dark()`）；半透明层次用 `--topbar-bg`/`--surface-translucent`/`--accent-wash`/`--hover` 静态 token（不用 `color-mix()`），边界层次用 `--border`/`--border-strong`，`topbar` 保留 `backdrop-filter`；遮罩用四边定位（不用 `inset` 简写）；`tests/check-css-baseline.mjs` 拦截基线外语法并比对两份深色色板；`content-visibility` 必须有 intrinsic-size `@supports` 门禁，`replaceChildren` 有无 API 回退 | CSS lint、`run-all.sh`、Chrome 探针；旧内核真机[复测文档](../../tests/fixtures/chromium-baseline/README.md) · [基线回退复测](../../tests/fixtures/legacy-baseline-fallbacks/README.md) | ◐ 部分（lint 与 Chrome 自动；旧内核人工） |
 
 ## P. 阅读排版
 
