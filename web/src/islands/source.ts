@@ -52,7 +52,12 @@ export function mountSource(): void {
       anchor.textContent = String(line);
       fragment.appendChild(anchor);
     }
-    gutter.replaceChildren(fragment);
+    if (typeof gutter.replaceChildren === 'function') {
+      gutter.replaceChildren(fragment);
+    } else {
+      gutter.textContent = '';
+      gutter.appendChild(fragment);
+    }
     chunk.dataset.gutterReady = '1';
   }
 

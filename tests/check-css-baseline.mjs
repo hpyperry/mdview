@@ -79,6 +79,23 @@ for (const file of styleFiles()) {
 // The two dark palettes are written out twice (system preference and manual
 // toggle). They must stay token-for-token identical or one path silently drifts.
 const appCss = readFileSync(join(ROOT, 'web/src/styles/app.css'), 'utf8');
+
+// content-visibility: auto without intrinsic sizing collapses skipped chunks
+// to a zero-size placeholder. The intrinsic longhands need Chromium 95/98, so
+// the optimization must stay behind an @supports gate for the 86 baseline.
+const appCssText = stripComments(appCss);
+if (/content-visibility\s*:\s*auto/.test(appCssText)) {
+  const gate =
+    /@supports\s*\(contain-intrinsic-width:\s*none\)\s*and\s*\(contain-intrinsic-height:\s*1px\)/;
+  if (!gate.test(appCssText)) {
+    violations.push({
+      file: 'web/src/styles/app.css',
+      line: 1,
+      message:
+        'content-visibility: auto must be gated by @supports (contain-intrinsic-width: none) and (contain-intrinsic-height: 1px) for Chromium 86–97',
+    });
+  }
+}
 const systemDark = appCss.match(/@media\s*\(prefers-color-scheme:\s*dark\)\s*\{\s*html:not\(\[data-theme="light"\]\)\s*\{([\s\S]*?)\}\s*\}/);
 const manualDark = appCss.match(/html\[data-theme="dark"\]\s*\{([\s\S]*?)\}/);
 

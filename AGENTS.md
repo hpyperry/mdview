@@ -31,7 +31,7 @@ bash tests/run-all.sh
 [ADR 0023](docs/architecture/adr/0023-dev-build-artifact-size.md)。
 
 必须全绿：`cargo test`（90 单元 + 134 渲染兼容 + 27 golden）、278 项黑盒 HTTP、
-9 项 pty 信任测试、261 项 headless Chrome 验收、4 项源码页性能预算。
+9 项 pty 信任测试、262 项 headless Chrome 验收、4 项源码页性能预算。
 
 ## 协作流程
 
@@ -145,7 +145,10 @@ Single-context: root `GLOSSARY.md` + `docs/architecture/adr/`. See
    与文本文件，跳过隐藏目录、`SKIP_DIRS` 与超 `--max-preview` 的文件；结果按文件分组。
 8. **大文本源码页全文分块**：>256 KB 仍由服务端输出全文，按 500 行分块，
    用 CSS `content-visibility: auto` 跳过离屏布局与绘制；行锚点与语法高亮由
-   `web/src/islands/source.ts` 按可见块懒加载。不要恢复服务端截断、`?text=1`
+   `web/src/islands/source.ts` 按可见块懒加载。`content-visibility` 必须放在
+   `@supports (contain-intrinsic-width: none) and (contain-intrinsic-height: 1px)`
+   里（长属性 95/98 才支持，86–97 要回退全量渲染）；`replaceChildren` 要有
+   `textContent` + `appendChild` 回退。不要恢复服务端截断、`?text=1`
    文本通道、`connect-src` 或 highlightAuto；无 JS 必须仍能读全文。
 9. **岛屿边界**：10 个岛（theme/nav/search/totop/toc/linetarget/code/zoom/source/export）
    由 `body[data-islands]` 清单控制；岛只接管自己的控制区，服务端 HTML 是权威。
@@ -301,6 +304,9 @@ Single-context: root `GLOSSARY.md` + `docs/architecture/adr/`. See
   是一张统一列表，没有“目录/文件”分组标题。
 - **源码页头**：H1 是文件名，不是“源码”；下方类型/大小/行数/修改时间用标签展示，
   操作是“预览/下载”。不要恢复 `查看渲染页` 或把参数重新堆成一行纯文本。
+- **大源码回退**：`content-visibility: auto` 必须和 `contain-intrinsic-*` 一起放在
+  `@supports` 里；单独使用会让 86–97 的离屏分块按 0 高度布局，滚动条与 `#L<n>` 跳。
+  `source.ts` 的 `replaceChildren` 要保留回退，否则 <86 直接丢行号。
 - **H1 下划线**：`assets/markdown.css` 给全局 `h1` 加了 `border-bottom`；
   `web/src/styles/app.css` 的 `h1` 重置负责外壳标题。新增页面标题不要绕开它。
 - **HTML 信任目录**：`/x.html` 必须是原字节顶层原文，不能套外壳/沙箱/CSP；

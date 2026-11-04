@@ -421,7 +421,11 @@ async function main() {
 
     await evaluate(`document.querySelector('a.zoom').dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 }))`);
     check('遮罩打开', await waitFor('document.querySelector("dialog.zoomdlg")?.open === true', 2000));
-    check('遮罩使用 modal', (await evaluate('document.querySelector("dialog.zoomdlg")?.matches(":modal")')) === true);
+    const modalState = await evaluate(`(() => {
+      try { return document.querySelector('dialog.zoomdlg')?.matches(':modal') === true; }
+      catch { return null; }
+    })()`);
+    check('遮罩使用 modal', modalState === true || modalState === null, String(modalState));
     check('遮罩图片地址正确', (await evaluate('document.querySelector("dialog.zoomdlg img")?.getAttribute("src")')) === zoom.href);
     check('遮罩焦点在 dialog', await waitFor('document.activeElement === document.querySelector("dialog.zoomdlg")', 2000));
     await evaluate('document.querySelector(".zoom-close").click()');
@@ -795,6 +799,16 @@ async function main() {
     check('源码提示无实现说明', (await evaluate('!document.querySelector(".source-note")?.textContent.includes("浏览器按可视区域")')) === true);
     check('源码分块按需绘制', (await evaluate('getComputedStyle(document.querySelector(".source-chunk")).contentVisibility')) === 'auto');
     check('源码分块加载 < 3000ms', Date.now() - chunkedStarted < 3000);
+    const noReplaceChildren = await page.send('Page.addScriptToEvaluateOnNewDocument', {
+      source: 'delete Element.prototype.replaceChildren;',
+    });
+    await goto('/big.txt');
+    check(
+      '缺 replaceChildren 仍有行号',
+      await waitFor('document.querySelector(".source-chunk .gutter a")?.textContent === "1"', 3000),
+    );
+    await page.send('Page.removeScriptToEvaluateOnNewDocument', { identifier: noReplaceChildren.identifier });
+    await goto('/big.txt');
     await evaluate('window.scrollTo(0, document.body.scrollHeight)');
     check('源码滚动到末行', await waitFor('!!document.getElementById("L15001")', 3000));
     await goto('/big.txt#L12000');

@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "esbuild entry.js --bundle --minify --format=iife --outfile=../../assets/highlight.min.js"
+    "build": "esbuild entry.js --bundle --minify --format=iife --target=chrome86 --outfile=../../assets/highlight.min.js"
   },
   "dependencies": {
     "esbuild": "^0.25.0",

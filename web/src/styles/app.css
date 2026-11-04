@@ -405,9 +405,17 @@ html.no-js .export-action { display: none !important; }
   position: relative; display: grid; grid-template-columns: max-content minmax(0, 1fr);
   width: max-content; min-width: 100%;
   background: var(--code-bg);
-  content-visibility: auto;
-  contain-intrinsic-width: none;
-  contain-intrinsic-height: calc(var(--rows) * 21px + 28px);
+}
+/* content-visibility:auto needs intrinsic sizing, otherwise skipped chunks
+   collapse to a zero-height placeholder. The longhands ship in Chromium 95/98,
+   so gate the optimization: 86–97 render every chunk instead of breaking
+   scroll height and #L<n> anchors. */
+@supports (contain-intrinsic-width: none) and (contain-intrinsic-height: 1px) {
+  .source-chunk {
+    content-visibility: auto;
+    contain-intrinsic-width: none;
+    contain-intrinsic-height: calc(var(--rows) * 21px + 28px);
+  }
 }
 .source-chunk .gutter {
   margin: 0; padding: 14px 10px 14px 14px; text-align: right;
