@@ -31,7 +31,7 @@ bash tests/run-all.sh
 [ADR 0023](docs/architecture/adr/0023-dev-build-artifact-size.md)。
 
 必须全绿：`cargo test`（88 单元 + 134 渲染兼容 + 27 golden）、274 项黑盒 HTTP、
-9 项 pty 信任测试、248 项 headless Chrome 验收、4 项源码页性能预算。
+9 项 pty 信任测试、252 项 headless Chrome 验收、4 项源码页性能预算。
 
 ## 协作流程
 
@@ -258,6 +258,8 @@ Single-context: root `GLOSSARY.md` + `docs/architecture/adr/`. See
 - **文件编码**：预览/搜索先按检测编码解码再输出 UTF-8；HTML 原文不转码；非 HTML
   文本 raw/下载 charset 用检测值（小写，如 `charset=gbk`），HTML 不带 charset；
   UTF-32 不预览。标签写“编码”，不要承诺“真实编码”。
+- **引用块末元素边距**：`web/src/styles/app.css` 用 `blockquote :first-child/:last-child`
+  收掉块内首末外边距；否则最后一段（或列表末项）的 16px/4px 会留在底色里，看起来底部多一行空带。
 - **图片被包 `<a class="zoom">`**：父节点是链接时不包（徽章）；href 必须与 src
   逐字节相同。
 - **表格对齐**：必须输出 `style="text-align:…"`，不是 `align="…"`。

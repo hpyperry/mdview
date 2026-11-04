@@ -212,6 +212,7 @@ async function writeFixture(root) {
     await copyFile(join(REPO, 'tests', 'fixtures', 'archives', name), join(root, name));
   }
   await copyFile(join(REPO, 'tests', 'fixtures', 'archives', 'docs', 'page.xhtml'), join(root, 'page.xhtml'));
+  await copyFile(join(REPO, 'tests', 'fixtures', 'blockquote-spacing', 'quote.md'), join(root, 'quote.md'));
   const encodingFixtures = join(REPO, 'tests', 'fixtures', 'encodings');
   for (const name of await readdir(encodingFixtures)) {
     if (name === 'README.md') continue;
@@ -424,6 +425,48 @@ async function main() {
     await evaluate('document.querySelector(".zoom-close").click()');
     check('关闭按钮生效', await waitFor('document.querySelector("dialog.zoomdlg")?.open === false', 2000));
     check('焦点归还图片链接', await waitFor('document.activeElement === document.querySelector("a.zoom")', 2000));
+
+    console.log('== blockquote spacing ==');
+    await goto('/quote.md');
+    const blockquoteMetrics = await evaluate(`(() => {
+      const quotes = [...document.querySelectorAll('.markdown-body blockquote')];
+      return quotes.map((b) => {
+        const box = b.getBoundingClientRect();
+        const cs = getComputedStyle(b);
+        const first = b.firstElementChild.getBoundingClientRect();
+        const last = b.lastElementChild.getBoundingClientRect();
+        const after = b.nextElementSibling ? b.nextElementSibling.getBoundingClientRect().top - box.bottom : null;
+        const kids = [...b.children];
+        const paraGap = kids.length > 1 && kids[0].tagName === 'P' && kids[1].tagName === 'P'
+          ? kids[1].getBoundingClientRect().top - kids[0].getBoundingClientRect().bottom
+          : null;
+        return {
+          top: Math.round(first.top - box.top),
+          bottom: Math.round(box.bottom - last.bottom),
+          padTop: Math.round(parseFloat(cs.paddingTop)),
+          padBottom: Math.round(parseFloat(cs.paddingBottom)),
+          after: after === null ? null : Math.round(after),
+          paraGap: paraGap === null ? null : Math.round(paraGap),
+        };
+      });
+    })()`);
+    check('引用块夹具完整', blockquoteMetrics.length === 5, JSON.stringify(blockquoteMetrics));
+    check(
+      '引用块文字上下居中',
+      blockquoteMetrics.every((m) => m.top === m.padTop && m.bottom === m.padBottom && m.padTop === m.padBottom),
+      JSON.stringify(blockquoteMetrics),
+    );
+    check(
+      '引用块与后续段落间距不变',
+      blockquoteMetrics.filter((m) => m.after !== null).every((m) => m.after === 16),
+      JSON.stringify(blockquoteMetrics),
+    );
+    check(
+      '引用块内段间距保留',
+      blockquoteMetrics.filter((m) => m.paraGap !== null).every((m) => m.paraGap === 16),
+      JSON.stringify(blockquoteMetrics),
+    );
+    await goto('/page.md');
 
     console.log('== theme ==');
     await evaluate('document.getElementById("theme-toggle").click()');

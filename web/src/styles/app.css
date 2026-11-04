@@ -274,7 +274,9 @@ html[data-sidebar="collapsed"] .sidebar { padding: 0; border: 0; overflow: hidde
 .markdown-body h3 { font-size: 1.18em; margin: 24px 0 8px; }
 .markdown-body p, .markdown-body ul, .markdown-body ol, .markdown-body blockquote { margin-bottom: 16px; }
 .markdown-body li { margin: 4px 0; }
-.markdown-body blockquote { margin: 16px 0; padding: 2px 16px; border-left: 3px solid var(--accent); background: var(--accent-soft); color: var(--fg); border-radius: 0 6px 6px 0; }
+.markdown-body blockquote { margin: 16px 0; padding: 8px 16px; border-left: 3px solid var(--accent); background: var(--accent-soft); color: var(--fg); border-radius: 0 6px 6px 0; }
+.markdown-body blockquote :first-child { margin-top: 0; }
+.markdown-body blockquote :last-child { margin-bottom: 0; }
 .markdown-body img { max-width: 100%; height: auto; border-radius: 6px; }
 .markdown-body table { display: table; width: 100%; margin: 12px 0 18px; }
 .markdown-body th, .markdown-body td { padding: 7px 10px; }

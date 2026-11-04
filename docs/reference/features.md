@@ -181,6 +181,12 @@
 |---|---|---|---|---|
 | F-93 | Chromium 86 基线 CSS 回退 | 支持基线 Chromium 86；色板为静态双色板（`:root` 浅色 + `prefers-color-scheme`/`[data-theme="dark"]` 两份深色，不用 `light-dark()`）；半透明层次用 `--topbar-bg`/`--surface-translucent`/`--accent-wash`/`--hover` 静态 token（不用 `color-mix()`），边界层次用 `--border`/`--border-strong`，`topbar` 保留 `backdrop-filter`；遮罩用四边定位（不用 `inset` 简写）；`tests/check-css-baseline.mjs` 拦截基线外语法并比对两份深色色板 | CSS lint、`run-all.sh`、Chrome 探针；旧内核真机[复测文档](../../tests/fixtures/chromium-baseline/README.md) | ◐ 部分（lint 与 Chrome 自动；旧内核人工） |
 
+## P. 阅读排版
+
+| ID | 功能 | 验收要点 | 测试映射 | 状态 |
+|---|---|---|---|---|
+| F-94 | 引用块留白 | 底色引用块上下内边距对称（8px）；块内首/末子元素的外边距收口，列表末项也不残留空带；块后间距 16px、多段引用段间距 16px；嵌套引用同样对称 | 浏览器探针；[复测文档](../../tests/fixtures/blockquote-spacing/README.md) | ✅ 自动 |
+
 ## 变更规则
 
 - 改变行为时先在这里找到对应 `F-xx`，更新“验收要点”和“测试映射”，再改代码。
