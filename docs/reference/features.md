@@ -137,7 +137,7 @@
 | ID | 功能 | 验收要点 | 测试映射 | 状态 |
 |---|---|---|---|---|
 | F-75 | HTML 文件 Trust 门控 | trusted 根：原文顶层 `text/html`，无外壳/沙箱，脚本/localStorage/同源 fetch/下载正常；untrusted 根：外壳 + 沙箱 iframe；`?raw=1` 源码 | 服务端单测、黑盒、浏览器探针 | ✅ 自动 |
-| F-76 | HTML 子资源 MIME | 相对 CSS/JS/JSON 按 `Sec-Fetch-Dest`/`Accept` 返回真实 MIME；非 HTML 文本 charset 用检测值，HTML 保持无 charset；直接导航仍是源码页 | 服务端单测、黑盒、浏览器探针 | ✅ 自动 |
+| F-76 | HTML 子资源 MIME | 相对 CSS/JS/JSON 按 `Sec-Fetch-Dest`/`Accept` 返回真实 MIME；无 `Sec-Fetch-*` 的旧客户端用 `Accept: */*` + 子资源扩展名兜底；非 HTML 文本 charset 用检测值，HTML 保持无 charset；直接导航仍是源码页 | 服务端单测、黑盒、浏览器探针；[复测文档](../../tests/fixtures/legacy-subresource-mime/README.md) | ✅ 自动 |
 | F-77 | HTML 沙箱安全（未信任） | 仅 untrusted 根；opaque origin；脚本可运行但 localStorage/parent/同源 fetch 被阻断；`--safe` 只给源码 | 浏览器探针、黑盒 | ✅ 自动 |
 | F-78 | SVG 直开 sandbox | `CSP: sandbox`；`<script>` 不执行；`<img>` 内嵌不受影响 | 服务端单测、黑盒、浏览器探针 | ✅ 自动 |
 | F-79 | HTML 搜索/目录入口 | 搜索正文行到 `?raw=1#L<n>`；目录行有源码入口 | 服务端单测、黑盒 | ✅ 自动 |

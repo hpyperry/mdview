@@ -23,6 +23,7 @@ README 是**复测文档**，不是测试执行报告。必须包含：
 | `chromium-baseline/` | 旧内核 CSS 回退：静态色板、半透明 token、`inset` 展开（README + `probe.html`） |
 | `blockquote-spacing/` | 引用块底色内上下留白对称；多段、嵌套与含列表引用块末元素收口；块后间距 16px |
 | `export-artifact/` | 文档页导出 PNG 长图与打印 PDF：白底、无外壳、分页、代码/表格/图片完整（Issue #39） |
+| `legacy-subresource-mime/` | 无 `Sec-Fetch-*` 的旧客户端请求 `.js`/`.json` 子资源返回真实 MIME；`text/html` 导航仍是源码页（Issue #41） |
 | `dev-build-size/` | dev profile `debug = 1`、干净构建体积基线、行号表检查（README-only） |
 | `target-auto-clean/` | post-merge hook：超阈值清理 `target/debug`、开关与阈值覆盖（README-only） |
 

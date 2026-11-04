@@ -131,6 +131,9 @@ for name in sample.tar sample.tar.bz2 sample.tar.xz high-dict.tar.xz \
   cp "$REPO_ROOT/tests/fixtures/archives/$name" "$ROOT/$name"
 done
 cp "$REPO_ROOT/tests/fixtures/archives/docs/page.xhtml" "$ROOT/page.xhtml"
+cp "$REPO_ROOT/tests/fixtures/legacy-subresource-mime/legacy.html" "$ROOT/legacy.html"
+cp "$REPO_ROOT/tests/fixtures/legacy-subresource-mime/docs.js" "$ROOT/docs.js"
+cp "$REPO_ROOT/tests/fixtures/legacy-subresource-mime/data.json" "$ROOT/legacy.json"
 cat >"$ROOT/page.html" <<'HTML'
 <!doctype html><html><head><meta charset="utf-8"><title>HTML Probe</title><link rel="stylesheet" href="style.css"></head><body><h1>HTML Probe</h1><p>htmlneedle</p><script>document.body.dataset.script='yes'</script></body></html>
 HTML
@@ -281,7 +284,11 @@ chk "HTML 源码行锚点" "$(curl -s "$BASE/page.html?raw=1")" 'id="L1"'
 nchk "HTML 源码无 iframe" "$(curl -s "$BASE/page.html?raw=1")" '<iframe'
 chk "CSS 子资源 MIME" "$(curl -s -o /dev/null -w '%{content_type}' -H 'Sec-Fetch-Dest: style' "$BASE/style.css")" "text/css; charset=utf-8"
 chk "CSS 子资源原文" "$(curl -s -H 'Sec-Fetch-Dest: style' "$BASE/style.css")" "body { color: rgb(1, 2, 3); }"
-chk "CSS 直接访问是源码页" "$(curl -s "$BASE/style.css")" '<h1>style.css</h1>'
+chk "CSS 直接访问是源码页" "$(curl -s -H 'Accept: text/html' "$BASE/style.css")" '<h1>style.css</h1>'
+chk "旧客户端 JS 子资源 MIME" "$(curl -s -o /dev/null -w '%{content_type}' -H 'Accept: */*' -H "Referer: $BASE/legacy.html" "$BASE/docs.js")" "text/javascript; charset=utf-8"
+chk "旧客户端 JS 子资源原文" "$(curl -s -H 'Accept: */*' "$BASE/docs.js")" 'window.OpenCollection'
+chk "旧客户端 JSON 子资源 MIME" "$(curl -s -o /dev/null -w '%{content_type}' -H 'Accept: */*' "$BASE/legacy.json")" "application/json; charset=utf-8"
+chk "旧客户端直接导航仍是源码页" "$(curl -s -H 'Accept: text/html,application/xhtml+xml' "$BASE/docs.js")" '<h1>docs.js</h1>'
 chk "SVG 直开 CSP sandbox" "$(header "$BASE/evil.svg" content-security-policy)" "sandbox allow-top-navigation-by-user-activation"
 chk "HTML 搜索行跳源码" "$(curl -s "$BASE/search?__mdview=search&q=htmlneedle")" 'href="/page.html?raw=1#L1"'
 chk "HTML 目录行有源码入口" "$HOME_HTML" 'href="/page.html?raw=1"'
@@ -438,8 +445,8 @@ chk "资产 markdown.css" "$(code "$BASE/_assets/markdown.css?__mdview=asset")" 
 chk "资产 app.css" "$(code "$BASE/_assets/app.css?__mdview=asset")" "200"
 chk "资产 app.js" "$(code "$BASE/_assets/app.js?__mdview=asset")" "200"
 chk "资产 app.css 是内嵌 CSS" "$(ctype "$BASE/_assets/app.css?__mdview=asset")" "text/css; charset=utf-8"
-chk "同名 _assets/app.css 文件优先" "$(ctype "$BASE/_assets/app.css")" "text/html; charset=utf-8"
-chk "同名 _assets/app.css 内容" "$(curl -s "$BASE/_assets/app.css")" "a real app css"
+chk "同名 _assets/app.css 文件优先" "$(curl -s -o /dev/null -w '%{content_type}' -H 'Accept: text/html' "$BASE/_assets/app.css")" "text/html; charset=utf-8"
+chk "同名 _assets/app.css 内容" "$(curl -s -H 'Accept: text/html' "$BASE/_assets/app.css")" "a real app css"
 chk "无同名文件的内部路径 404" "$(code "$BASE/_assets/highlight.js")" "404"
 ASSET_HTML="$(curl -s "$BASE/a.md")"
 chk "页面引用 highlight.js" "$ASSET_HTML" "/_assets/highlight.js?__mdview=asset"
