@@ -31,7 +31,7 @@ bash tests/run-all.sh
 [ADR 0023](docs/architecture/adr/0023-dev-build-artifact-size.md)。
 
 必须全绿：`cargo test`（88 单元 + 134 渲染兼容 + 27 golden）、274 项黑盒 HTTP、
-9 项 pty 信任测试、252 项 headless Chrome 验收、4 项源码页性能预算。
+9 项 pty 信任测试、261 项 headless Chrome 验收、4 项源码页性能预算。
 
 ## 协作流程
 
@@ -147,7 +147,7 @@ Single-context: root `GLOSSARY.md` + `docs/architecture/adr/`. See
    用 CSS `content-visibility: auto` 跳过离屏布局与绘制；行锚点与语法高亮由
    `web/src/islands/source.ts` 按可见块懒加载。不要恢复服务端截断、`?text=1`
    文本通道、`connect-src` 或 highlightAuto；无 JS 必须仍能读全文。
-9. **岛屿边界**：9 个岛（theme/nav/search/totop/toc/linetarget/code/zoom/source）
+9. **岛屿边界**：10 个岛（theme/nav/search/totop/toc/linetarget/code/zoom/source/export）
    由 `body[data-islands]` 清单控制；岛只接管自己的控制区，服务端 HTML 是权威。
    新增交互先判断是否能归入现有岛，不要回到一个全局 DOMContentLoaded 初始化器。
 10. **全站导航（分层预载）**：`/_nav?__mdview=nav` 只预载根 + 三层目录；第 3 层目录是
@@ -228,6 +228,7 @@ Single-context: root `GLOSSARY.md` + `docs/architecture/adr/`. See
 | 搜索结果行定位 | `render_markdown_with_sourcepos` + `web/src/islands/linetarget.ts` |
 | 顶部栏/导航/页面 chrome/内容面 | `html_page`、`crumbs_html`、`nav.tsx` |
 | TOC/行定位/代码条/主题/导航/大源码分块 | `web/src/islands/*` |
+| 导出图片 / 打印 PDF | `web/src/islands/export.ts` + `web/src/styles/app.css` 的 `@media print` + 文档页工具栏 |
 | 岛屿清单/水合策略 | `src/server.rs` 的 `data-islands` + `web/src/app.ts` |
 | 全站导航树/接口 | `src/server.rs` 的 `/_nav?__mdview=nav`、`nav_payload`/`nav_dir_payload` + `web/src/islands/nav.tsx` |
 | 内部 URL/搜索/资产路由 | `internal_marker` + `search`/`nav`/`asset_or_file`；表单用隐藏 `__mdview` 字段 |
@@ -260,6 +261,9 @@ Single-context: root `GLOSSARY.md` + `docs/architecture/adr/`. See
   UTF-32 不预览。标签写“编码”，不要承诺“真实编码”。
 - **引用块末元素边距**：`web/src/styles/app.css` 用 `blockquote :first-child/:last-child`
   收掉块内首末外边距；否则最后一段（或列表末项）的 16px/4px 会留在底色里，看起来底部多一行空带。
+- **导出固定浅色**：`web/src/islands/export.ts` 在 SVG `foreignObject` 里重建正文，必须用
+  `app.css` 第一段 `:root` 的浅色变量覆盖，不能复制当前主题的实际变量；`@media print`
+  也要用 `html, html:not([data-theme="light"])` 覆盖三段主题选择器。改色板变量名时两处一起改。
 - **图片被包 `<a class="zoom">`**：父节点是链接时不包（徽章）；href 必须与 src
   逐字节相同。
 - **表格对齐**：必须输出 `style="text-align:…"`，不是 `align="…"`。

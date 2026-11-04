@@ -1,0 +1,58 @@
+# 导出图片 / PDF 复测文档
+
+- 关联：Issue [#39](https://github.com/hpyperry/mdview/issues/39) / PR [#40](https://github.com/hpyperry/mdview/pull/40) / F-95
+- 夹具根：`tests/fixtures/export-artifact/`（可直接作为 `--root`）
+- 启动：
+
+```bash
+cargo build --release
+./target/release/mdview --root tests/fixtures/export-artifact --trust --port 8003 --port-tries 0
+```
+
+- 入口：`/doc.md`
+- 自动化覆盖：`tests/browser-probe.mjs` 的 `== export ==` 段（9 项：按钮、岛水合、打印调用、PNG 签名/白底/尺寸、打印样式）；`src/server.rs` 的岛清单与按钮存在性断言；本页为人工视觉复测
+
+## 复测步骤
+
+1. 操作：打开 `/doc.md`，确认工具栏依次有「源码 / 下载 / 导出图片 / 导出 PDF」，390px 窄屏下按钮不溢出（≤520px 只显示图标）。
+   预期：四个动作都可见；无 JS 时两个导出按钮隐藏。
+
+2. 操作：点「导出图片」，等待状态提示“图片已生成”，打开下载的 `doc.png`。
+   预期：白底长图；标题、正文、行内代码、代码高亮、表格、引用、列表、图片都在；
+   没有顶栏、导航、目录、语言条或复制按钮；宽度与阅读列一致。
+
+3. 操作：先切到深色主题，再点「导出图片」。
+   预期：导出的仍然是浅色图，不受当前主题影响。
+
+4. 操作：点「导出 PDF」，在打印对话框里选择“另存为 PDF”（或直接用
+   `chrome --headless --print-to-pdf`）。
+   预期：PDF 只含正文；白底；顶栏/页头/目录/按钮不出现；页边距正常；代码块、
+   表格、图片不跨页断裂；长文自动分页。
+
+5. 操作：找一篇正文高度超过 16000px 的长文档导图片。
+   预期：状态提示“文档太长，请改用导出 PDF”，不生成损坏文件。
+
+6. 操作：在源码页、目录页、HTML 预览页确认没有导出按钮。
+   预期：导出只出现在 Markdown 文档页。
+
+## 自动化覆盖
+
+- `node tests/browser-probe.mjs`：`== export ==` 段断言按钮数量、`export` 岛水合、
+  PDF 按钮调用 `window.print`、PNG 文件签名 `89504e47…`、左上角像素为白色、
+  图片宽高大于 500，以及打印媒体下顶栏/页头隐藏、背景为白色、正文不限宽。
+- `cargo test`：文档页 `data-islands` 含 `export` 且渲染两个按钮；`?raw=1` 源码页两者都不出现。
+- 人工视觉：PNG 内容完整性、深色主题导出、PDF 分页与页边距。
+
+## 已知限制
+
+- PDF 走浏览器打印/另存为，不是服务端直接产出 `.pdf`；依赖浏览器的 PDF 导出能力。
+- PNG 是栅格长图，默认 2x，画布上限内自动降到 1x；超过上限时只提示改用 PDF。
+- 图片导出在绘制前等待 `document.fonts.ready`，但字体可用性仍取决于访问端系统字体。
+- 图片必须已经加载完成才会内联；当前 Markdown 预览不使用懒加载，正常滚动/打开即可。
+- 深色主题下导出仍然是浅色，这是有意为之，方便分享和打印。
+
+## 清理
+
+- 停止临时服务并释放端口（8003）。
+- 夹具目录没有生成物；如需清理构建产物，按
+  [构建卫生](../../../docs/guides/build-hygiene.md) 处理 `target/`。

@@ -2232,20 +2232,34 @@ async fn render_page(state: &AppState, path: &Path, rel: &str, is_head: bool) ->
         format_mtime(mtime)
     );
     let crumbs = page_crumbs(state, rel, PageKind::Doc);
+    let lower_name = name.to_ascii_lowercase();
+    let export_stem = if lower_name.ends_with(".markdown") {
+        &name[..name.len() - ".markdown".len()]
+    } else if lower_name.ends_with(".md") {
+        &name[..name.len() - ".md".len()]
+    } else {
+        name
+    };
     let body = format!(
         "<article class=\"content-card doc-card\"><header class=\"doc-head\"><div class=\"head-inner\">\
          <nav class=\"crumbs\" aria-label=\"面包屑\">{crumbs}</nav>\
          <div class=\"article-toolbar\"><span class=\"doc-meta\">{meta}</span>\
          <div class=\"page-actions\"><a class=\"action\" href=\"/{encoded}?raw=1\">{code_icon}<span>源码</span></a>\
-         <a class=\"action\" href=\"/{encoded}?download=1\">{download_icon}<span>下载</span></a></div></div>\
+         <a class=\"action\" href=\"/{encoded}?download=1\">{download_icon}<span>下载</span></a>\
+         <button class=\"action export-action\" type=\"button\" id=\"export-png\" data-export-name=\"{export_stem}\" aria-label=\"导出图片\">{image_icon}<span>导出图片</span></button>\
+         <button class=\"action export-action\" type=\"button\" id=\"export-pdf\" aria-label=\"导出 PDF\">{print_icon}<span>导出 PDF</span></button>\
+         </div></div>\
          </div></header>\
          <div class=\"toc-inline\" id=\"toc-slot\"><details class=\"toc\"><summary>本页目录</summary><nav class=\"toc-list\" aria-label=\"本页目录\"></nav></details></div>\
          <div class=\"doc-prose\"><h1 class=\"sr-only\">{name}</h1><article class=\"markdown-body\">{rendered}</article></div></article>",
         name = escape_html(name),
         meta = escape_html(&meta),
         crumbs = crumbs,
+        export_stem = escape_html(export_stem),
         code_icon = icon("code"),
-        download_icon = icon("download")
+        download_icon = icon("download"),
+        image_icon = icon("image"),
+        print_icon = icon("print")
     );
     html_page(
         state,
@@ -2552,6 +2566,12 @@ fn icon(name: &str) -> &'static str {
         "download" => {
             r#"<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>"#
         }
+        "image" => {
+            r#"<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-5-5L5 21"/></svg>"#
+        }
+        "print" => {
+            r#"<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>"#
+        }
         "copy" => {
             r#"<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>"#
         }
@@ -2696,7 +2716,7 @@ async fn html_page(state: &AppState, status: StatusCode, page: Page, is_head: bo
     }
     islands.push("totop");
     if is_doc {
-        islands.extend(["toc", "linetarget", "code", "zoom"]);
+        islands.extend(["toc", "linetarget", "code", "zoom", "export"]);
     }
     if page.kind == PageKind::Source {
         islands.push("source");
@@ -3508,7 +3528,14 @@ mod tests {
         assert!(html.contains("class=\"shell has-toc\""));
         assert!(html.contains("class=\"toc-rail\" id=\"toc-rail\""));
         assert!(html.contains("id=\"toc-slot\""));
-        assert!(html.contains("data-islands=\"theme nav search totop toc linetarget code zoom\""));
+        assert!(
+            html.contains(
+                "data-islands=\"theme nav search totop toc linetarget code zoom export\""
+            )
+        );
+        assert!(html.contains("id=\"export-png\""));
+        assert!(html.contains("data-export-name=\"a\""));
+        assert!(html.contains("id=\"export-pdf\""));
         assert!(html.contains("id=\"nav-toggle\""));
         assert!(html.contains("id=\"nav-panel\""));
         assert!(!html.contains("sidebar-toggle"));
@@ -3522,6 +3549,12 @@ mod tests {
         assert!(html.contains("<h1>a.md</h1>"));
         assert!(!html.contains("<h1>源码</h1>"));
         assert!(html.contains("id=\"L1\""));
+        assert!(!html.contains("id=\"export-png\""));
+        assert!(
+            !html.contains(
+                "data-islands=\"theme nav search totop toc linetarget code zoom export\""
+            )
+        );
     }
 
     #[tokio::test]

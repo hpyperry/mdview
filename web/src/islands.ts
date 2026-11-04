@@ -8,6 +8,7 @@ import { mountLineTarget } from './islands/linetarget';
 import { mountMarkdownCode } from './islands/code';
 import { mountZoom } from './islands/zoom';
 import { mountSource } from './islands/source';
+import { mountExport } from './islands/export';
 
 export const islands: Record<string, IslandDefinition> = {
   theme: {
@@ -63,5 +64,11 @@ export const islands: Record<string, IslandDefinition> = {
     when: 'visible',
     root: () => document.querySelector('.source-wrap'),
     mount: mountSource,
+  },
+  export: {
+    name: 'export',
+    when: 'idle',
+    root: () => document.getElementById('export-png'),
+    mount: mountExport,
   },
 };

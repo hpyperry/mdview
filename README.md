@@ -79,7 +79,9 @@ cargo build --release
   存储写入失败也仍可继续切换；
 - 页内目录由浏览器从 h2/h3 生成（服务端不生成标题 id）；宽屏 TOC 细轨支持刻度
   跳转、悬停展开文字大纲、固定/收起与 scroll-spy；窄屏回正文顶部；代码块有
-  语言条与复制按钮。
+  语言条与复制按钮；
+- 文档页可「导出图片」（白底 PNG 长图）与「导出 PDF」（浏览器打印 / 另存为）；
+  两者都去掉外壳、固定浅色，打印样式自动分页，深色主题下导出仍是浅色。
 
 ### Markdown 渲染
 
@@ -251,7 +253,7 @@ cargo test                      # 88 单元 + 134 渲染兼容 + 27 golden
 cargo clippy --all-targets -- -D warnings
 bash tests/selftest-rust.sh     # 274 项真二进制 HTTP 断言
 node tests/check-css-baseline.mjs # Chromium 86 基线黑名单 + 深色色板同步
-node tests/browser-probe.mjs      # 252 项 headless Chrome 验收
+node tests/browser-probe.mjs      # 261 项 headless Chrome 验收
 node tests/perf-source.mjs        # 4 项源码页性能预算
 bash tests/trust-tty.sh           # 9 项真实 pty 信任测试
 ```
