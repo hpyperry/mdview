@@ -3,8 +3,9 @@
 **Status**: 审计完成（2026-11-04）。只读代码，未修改产品代码。
 **审计快照**: HEAD `ab4d097`（PR #42，含 `fetch_kind` 旧子资源修复）。
 **范围**: HTTP 内容协商、`web/src/` 语法与 Web API、CSS/HTML 特性、测试与构建产物。
-**基线**: [ADR 0022](../architecture/adr/0022-browser-baseline-chromium-86.md) 承诺 Chromium 86+；
-本文额外标出低于 86 时先坏在哪里。
+**基线**: 审计时 [ADR 0022](../architecture/adr/0022-browser-baseline-chromium-86.md) 承诺
+Chromium 86+；2026-11-04 已由 [ADR 0024](../architecture/adr/0024-browser-baseline-chromium-88.md)
+提升到 **Chromium 88**（PR #47）。本文保留审计时的 86 表述作为历史语境。
 
 ## TL;DR
 
@@ -36,10 +37,11 @@
 | 审计项 | 状态 |
 |---|---|
 | 旧客户端 JS/JSON MIME | 已修复：[PR #42](https://github.com/hpyperry/mdview/pull/42)（`ab4d097`） |
-| `content-visibility` 的 intrinsic-size 门禁 | [PR #44](https://github.com/hpyperry/mdview/pull/44) |
-| `replaceChildren` 回退 | [PR #44](https://github.com/hpyperry/mdview/pull/44) |
-| `:modal` 探针兼容 | [PR #44](https://github.com/hpyperry/mdview/pull/44) |
-| `highlight.min.js` 构建 target | [PR #44](https://github.com/hpyperry/mdview/pull/44) |
+| `content-visibility` 的 intrinsic-size 门禁 | 已修复：[PR #44](https://github.com/hpyperry/mdview/pull/44) |
+| `replaceChildren` 回退 | 已修复：[PR #44](https://github.com/hpyperry/mdview/pull/44) |
+| `:modal` 探针兼容 | 已修复：[PR #44](https://github.com/hpyperry/mdview/pull/44) |
+| `highlight.min.js` 构建 target | 已修复：[PR #47](https://github.com/hpyperry/mdview/pull/47)（`chrome88`） |
+| 基线提升到 Chromium 88 | 已合并：[PR #47](https://github.com/hpyperry/mdview/pull/47) / ADR 0024 |
 | 旧内核 `--headless` 探测 | 未做 |
 | 旧引擎实测（Chromium 88） | 2026-11-04 通过 25/25，见[报告](../testing/reports/legacy-chromium-88-2026-11-04.md) |
 | <86 视觉/API、`app.js` 语法、`.md` fetch 契约 | 未做，见 §7 / §9 |
@@ -362,7 +364,7 @@ curl -sS -D - -o /dev/null -H 'Sec-Fetch-Dest: script' http://127.0.0.1:8003/doc
 | P0 | 重新构建/发版已提交的 `fetch_kind` 修复，并保留 `fetch_kind_*` 单测与 `selftest-rust.sh` 旧请求头断言 | 旧产物仍会让 trusted HTML 的 JS/JSON 不可用 |
 | P0 | 确认 `*/*` 直开源码页契约：文档/测试统一用 `Accept: text/html` 或 `?raw=1` | `ab4d097` 已改测试与 AGENTS；不要留下“curl 直开 CSS 是源码页”的旧承诺 |
 | P1 | 给 `source.ts` 的 `replaceChildren` 加回退（`textContent=''` + `appendChild`），并验证 <86 的行锚点 | 大源码页在 78–85 上丢行号 |
-| P1 | 处理 `contain-intrinsic-*`：改用 86 可用的 `contain-intrinsic-size` 或去掉分块 `content-visibility`，在 86/92 上验滚动 | 86 基线目前并非完全安全 |
+| P1 | 处理 `contain-intrinsic-*`：用 `@supports` 门禁回退（已完成 #44），在 88/92 上验滚动 | 88–97 仍需要回退，基线提升到 88 不等于可用 |
 | P2 | 给 `:modal`/`contentVisibility` 探针加特性检测，参数化 `--headless` | 让旧内核可以真正跑回归 |
 | P2 | 给 `tools/build-assets` 加 `--target=chrome86`，并加一个 vendored JS 语法检查 | 防止 highlight.js 重建后把语法下限抬高 |
 | P3 | flex `gap`、`:focus-visible`、`color-scheme`、`backdrop-filter` 逐项评估 | 主要是视觉/无障碍降级，可排期 |
@@ -394,7 +396,7 @@ curl -sS -D - -o /dev/null -H 'Sec-Fetch-Dest: script' http://127.0.0.1:8003/doc
   加 try/catch 跳过（#44）。
 - **`contain-intrinsic-*` 在 Chrome 86/92 的滚动表现**：声明确定被丢弃，实际跳变
   幅度、是否影响 `#L<n>` 定位未在真机验证。
-- **flex `gap` 在 78/86 的布局差异**：ADR 0022 已明确 86+；78 不在承诺范围，但仍
+- **flex `gap` 在 78/86 的布局差异**：ADR 0022 当时明确 86+，现基线为 88（ADR 0024）；78 不在承诺范围，但仍
   可能出现在现场。
 - **导出 PNG 的旧内核行为**：`foreignObject`、字体、图片内联、Canvas 尺寸/污染
   在旧 Chromium 上的表现未验证；当前只有新 Chrome 探针。
@@ -405,8 +407,9 @@ curl -sS -D - -o /dev/null -H 'Sec-Fetch-Dest: script' http://127.0.0.1:8003/doc
 
 ## 10. 参考来源
 
-- [ADR 0022：浏览器兼容基线 Chromium 86](../architecture/adr/0022-browser-baseline-chromium-86.md)
-- [Chromium 86 基线复测文档](../../tests/fixtures/chromium-baseline/README.md)
+- [ADR 0024：浏览器兼容基线 Chromium 88](../architecture/adr/0024-browser-baseline-chromium-88.md)
+- [ADR 0022：浏览器兼容基线 Chromium 86（历史）](../architecture/adr/0022-browser-baseline-chromium-86.md)
+- [Chromium 基线复测文档](../../tests/fixtures/chromium-baseline/README.md)
 - [MDN：`Sec-Fetch-Dest`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Sec-Fetch-Dest)
 - [MDN：`:modal`](https://developer.mozilla.org/en-US/docs/Web/CSS/Reference/Selectors/:modal)
 - [MDN：`HTMLDialogElement.showModal()`](https://developer.mozilla.org/en-US/docs/Web/API/HTMLDialogElement/showModal)
