@@ -1,6 +1,6 @@
 # 引用块留白 复测文档
 
-- 关联：Issue [#37](https://github.com/hpyperry/mdview/issues/37) / PR #N / F-94
+- 关联：Issue [#37](https://github.com/hpyperry/mdview/issues/37) / PR [#38](https://github.com/hpyperry/mdview/pull/38) / F-94
 - 夹具根：`tests/fixtures/blockquote-spacing/`（可直接作为 `--root`）
 - 启动：
 
