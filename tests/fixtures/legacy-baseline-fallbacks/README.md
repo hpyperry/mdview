@@ -1,6 +1,6 @@
 # 旧引擎基线回退 复测文档
 
-- 关联：Issue [#43](https://github.com/hpyperry/mdview/issues/43) / PR #N / F-31、F-93
+- 关联：Issue [#43](https://github.com/hpyperry/mdview/issues/43) / PR [#44](https://github.com/hpyperry/mdview/pull/44) / F-31、F-93
 - 夹具根：README-only；大源码用临时生成，不提交大文件
 - 启动：
 
