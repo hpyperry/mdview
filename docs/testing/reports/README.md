@@ -9,3 +9,4 @@
 | 2026-10-26 | 导航分层预载 | [browser-report-2026-10-26-nav-lazy.md](browser-report-2026-10-26-nav-lazy.md) | [`../evidence/2026-10-26/`](../evidence/2026-10-26/) | F-46 / F-47 / F-49 |
 | 2026-10-26 | 压缩包格式扩展 | [browser-report-2026-10-26-archive-formats.md](browser-report-2026-10-26-archive-formats.md) | [`../evidence/2026-10-26/`](../evidence/2026-10-26/) | F-81 / F-92 |
 | 2026-10-27 | 文件编码检测 | [browser-report-2026-10-27-encodings.md](browser-report-2026-10-27-encodings.md) | [`../evidence/2026-10-27/`](../evidence/2026-10-27/) | F-89 / F-90 |
+| 2026-11-04 | 旧引擎（Chromium 88）兼容 | [legacy-chromium-88-2026-11-04.md](legacy-chromium-88-2026-11-04.md) | 无截图（CDP 断言） | F-31 / F-76 / F-93 |

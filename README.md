@@ -234,9 +234,9 @@ CI（[`.github/workflows/ci.yml`](.github/workflows/ci.yml)）覆盖：
 
 macOS / Linux / Windows 三平台跑 `cargo test` 与黑盒 HTTP 套件。
 
-浏览器要求：**Chromium 86+**（Chrome/Edge、360 信创版、统信 UOS 内置浏览器等）。
-页面不使用 `light-dark()`/`color-mix()`/`inset` 简写等基线外语法，约束见
-[ADR 0022](docs/architecture/adr/0022-browser-baseline-chromium-86.md) 与
+浏览器要求：**Chromium 88+**（Chrome/Edge、360 信创版、统信 UOS 内置浏览器等）；
+Chromium 86/87 不再承诺。页面不使用 `light-dark()`/`color-mix()` 等基线外语法，约束见
+[ADR 0024](docs/architecture/adr/0024-browser-baseline-chromium-88.md) 与
 [`tests/check-css-baseline.mjs`](tests/check-css-baseline.mjs)。
 
 推送 `v*` tag 时，[`release.yml`](.github/workflows/release.yml) 会为四个目标构建
@@ -252,7 +252,7 @@ npm --prefix web run typecheck
 cargo test                      # 90 单元 + 134 渲染兼容 + 27 golden
 cargo clippy --all-targets -- -D warnings
 bash tests/selftest-rust.sh     # 278 项真二进制 HTTP 断言
-node tests/check-css-baseline.mjs # Chromium 86 基线黑名单 + 深色色板同步
+node tests/check-css-baseline.mjs # Chromium 88 基线黑名单 + 深色色板同步
 node tests/browser-probe.mjs      # 262 项 headless Chrome 验收
 node tests/perf-source.mjs        # 4 项源码页性能预算
 bash tests/trust-tty.sh           # 9 项真实 pty 信任测试

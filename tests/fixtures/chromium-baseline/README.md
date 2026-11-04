@@ -1,4 +1,4 @@
-# Chromium 86 基线 CSS 回退 复测文档
+# Chromium 88 基线 CSS 回退 复测文档
 
 - 关联：Issue [#26](https://github.com/hpyperry/mdview/issues/26) /
   PR [#27](https://github.com/hpyperry/mdview/pull/27) / F-93
@@ -45,26 +45,30 @@ Chrome 对照：同一批 URL 在 Chrome 上改动前后观感应一致；`topba
 
 - `node tests/check-css-baseline.mjs`：黑名单（基线外语法）+ 两份深色色板逐项比对；
   已接入 `bash tests/run-all.sh`。
-- `bash tests/run-all.sh`：Chrome 侧全量回归（含 238 项浏览器探针）。
+- `bash tests/run-all.sh`：Chrome 侧全量回归（含浏览器探针全量断言）。
 - 旧内核本身**没有**自动化：浏览器探针跑最新 headless Chrome，不支持回退模拟。
 
 ## 验证记录
 
+- 2026-11-04，Docker + Ubuntu 24.04 amd64（qemu）+ Chromium 88.0.4287.0：
+  25 项 CDP 断言全过（旧请求头 MIME、`content-visibility` 回退、导出 PNG、
+  主题/导航/TOC/放大/搜索）。详见
+  [`docs/testing/reports/legacy-chromium-88-2026-11-04.md`](../../../docs/testing/reports/legacy-chromium-88-2026-11-04.md)。
 - 2026-10-30，Ubuntu 26.04 arm64（UTM，Apple Virtualization 后端 + Rosetta）+
   Chromium 92.0.4515.107（Linux x64，Rosetta 转译）：
   - **旧版**（2026-10-21 的 aarch64 构建）复现：`brand-mark` 不可见、`topbar`
     无底色无边框、`kbd` 无键帽、目录行无隔线、链接偏黑、代码块无底色。
   - **新版**（PR #27 的 aarch64 musl 构建）在同一个内核下以上全部恢复，浅色/深色
     主题与搜索弹层正常。
-- 尚未在统信 UOS + 360 信创版真机上复测。Chromium 92 与 360 的差异主要是版本号，
+- 尚未在统信 UOS + 360 信创版真机上复测。Chromium 88/92 与 360 的差异主要是版本号，
   本次问题的失效机制相同（缺少 `light-dark()` / `color-mix()`）。
 
 ## 已知限制
 
-- macOS arm64 上没有 Chromium 86 构建、也没有 Rosetta，本机无法自动化复现旧内核；
-  真机复测只能在 UOS + 360 或同类旧内核环境完成。
-- 360 信创版不同版本内核可能是 Chromium 78 / 86 / 95；本基线只承诺 **86+**，
-  78 上的 flex `gap`（84+）等额外差异不在范围内。
+- macOS arm64 上没有可用的旧 Chromium 构建（也没有 Rosetta）；88 的验证走
+  Docker + Ubuntu amd64/qemu，真机仍需 UOS + 360 或同类环境。
+- 360 信创版不同版本内核可能是 Chromium 78 / 86 / 95；本基线只承诺 **88+**，
+  86/87 不再承诺，78 更早版本不支持。
 - `probe.html` 验证的是“静态声明是否生效”，不覆盖 mdview 页面的完整交互；交互仍看
   Chrome 探针。
 - 两份深色色板是手写副本，lint 只能保证逐项一致，不能保证语义正确。

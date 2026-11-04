@@ -25,5 +25,6 @@
 | [0019](0019-file-encoding-detection.md) | 文件编码检测与 UTF-8 预览 | accepted |
 | [0020](0020-nav-layered-preload.md) | 全站导航分层预载与按需展开 | accepted |
 | [0021](0021-archive-format-expansion.md) | 压缩包格式扩展：tar 家族与 ZIP 容器 | accepted |
-| [0022](0022-browser-baseline-chromium-86.md) | 浏览器兼容基线：Chromium 86 与静态色板 | accepted |
+| [0022](0022-browser-baseline-chromium-86.md) | 浏览器兼容基线：Chromium 86 与静态色板 | superseded by [0024](0024-browser-baseline-chromium-88.md) |
 | [0023](0023-dev-build-artifact-size.md) | 开发构建体积：`debug = 1` 与清理纪律 | accepted |
+| [0024](0024-browser-baseline-chromium-88.md) | 浏览器兼容基线：Chromium 88 | accepted |

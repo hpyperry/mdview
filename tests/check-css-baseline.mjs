@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Enforce the browser CSS baseline: Chromium 86 (ADR 0022).
+// Enforce the browser CSS baseline: Chromium 88 (ADR 0024).
 //
 // The browser probe runs the newest headless Chrome, so it can never see a
 // feature that old enterprise Chromium silently drops. This check is the
@@ -12,7 +12,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 
 const ROOT = process.cwd();
-const BASELINE = 86;
+const BASELINE = 88;
 const STYLE_DIRS = ['web/src/styles', 'assets'];
 
 // Minimum Chromium version for each syntax. Later entries need a newer engine
@@ -22,10 +22,6 @@ const FORBIDDEN = [
   { needle: /light-dark\(/g, min: 123, label: 'light-dark()' },
   { needle: /color-mix\(/g, min: 111, label: 'color-mix()' },
   { needle: /\b(?:oklch|oklab|lab|lch|color|hwb)\(/g, min: 111, label: 'modern color function' },
-  { needle: /\binset(?:-block|-inline)?\s*:/g, min: 87, label: 'inset shorthand' },
-  { needle: /\baspect-ratio\s*:/g, min: 88, label: 'aspect-ratio' },
-  { needle: /:is\(/g, min: 88, label: ':is()' },
-  { needle: /:where\(/g, min: 88, label: ':where()' },
   { needle: /@layer\b/g, min: 99, label: '@layer' },
   { needle: /@container\b/g, min: 105, label: '@container' },
   { needle: /:has\(/g, min: 105, label: ':has()' },
@@ -35,7 +31,6 @@ const FORBIDDEN = [
   { needle: /\bsubgrid\b/g, min: 117, label: 'subgrid' },
   { needle: /overflow\s*:\s*clip/g, min: 90, label: 'overflow: clip' },
   { needle: /\baccent-color\s*:/g, min: 93, label: 'accent-color' },
-  { needle: /text-underline-offset\s*:/g, min: 87, label: 'text-underline-offset' },
   { needle: /^\s*&/gm, min: 120, label: 'CSS nesting' },
 ];
 

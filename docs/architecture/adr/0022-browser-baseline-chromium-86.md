@@ -1,6 +1,6 @@
 # 浏览器兼容基线：Chromium 86
 
-**Status**: accepted（2026-10-30）。约束 `web/src/styles/` 与 `assets/*.css` 可用的
+**Status**: superseded by [ADR 0024](0024-browser-baseline-chromium-88.md)（2026-11-04）；原决定 accepted（2026-10-30）。约束 `web/src/styles/` 与 `assets/*.css` 可用的
 CSS 语法；由 [`tests/check-css-baseline.mjs`](../../../tests/check-css-baseline.mjs) 执行。
 
 在统信 UOS x86 + 360 信创版（旧 Chromium 内核）上打开 mdview，顶栏 `brand-mark`
