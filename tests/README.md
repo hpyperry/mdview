@@ -6,9 +6,9 @@ Rust 实现的断言分多组：
 |------|------|------|
 | `tests/render_compat.rs` | 渲染器回归（134 项）：内联/块/URL 重写/目标编码/引用式/data URI/裸 URL/放大包裹/属性转义/协议安全/性能 | `cargo test --test render_compat` |
 | `tests/golden.rs` + `tests/golden/` | 27 条 curated golden 的逐字节输出（accepted deviation 带 `note`） | `cargo test --test golden` |
-| `src/` 的 `#[cfg(test)]` | 模块内单元测试（88 项：render 11 / server 50 / encoding 8 / trust 7 / cli 5 / assets 1 / archive 6） | `cargo test --lib` |
+| `src/` 的 `#[cfg(test)]` | 模块内单元测试（90 项：render 11 / server 52 / encoding 8 / trust 7 / cli 5 / assets 1 / archive 6） | `cargo test --lib` |
 | `web/src/` | TypeScript 类型检查（岛运行时、Preact 组件、源码岛） | `npm --prefix web run typecheck` |
-| `selftest-rust.sh` | 真二进制的 black-box HTTP 断言（274 项：目录/渲染/源码/大源码全文分块/导航分层预载与 `dir` 校验/岛清单/下载/搜索/Trust/CSP/HTML 信任原文与未信任沙箱/子资源/压缩包虚拟目录与包内条目（ZIP 容器、tar.bz2/tar.xz）/SVG sandbox/安全/文件系统边界/文件尾斜杠/内部 URL 与同名文件碰撞/.markdown 与 .mdx/safe 搜索过滤/GBK 与 UTF-16 编码/charset） | `bash tests/selftest-rust.sh` |
+| `selftest-rust.sh` | 真二进制的 black-box HTTP 断言（278 项：目录/渲染/源码/大源码全文分块/导航分层预载与 `dir` 校验/岛清单/下载/搜索/Trust/CSP/HTML 信任原文与未信任沙箱/子资源/压缩包虚拟目录与包内条目（ZIP 容器、tar.bz2/tar.xz）/SVG sandbox/安全/文件系统边界/文件尾斜杠/内部 URL 与同名文件碰撞/.markdown 与 .mdx/safe 搜索过滤/GBK 与 UTF-16 编码/charset/旧客户端子资源 MIME） | `bash tests/selftest-rust.sh` |
 | `trust-tty.sh` + `trust-tty.exp` | 真实 pty 下的信任询问、持久化、非 TTY 默认（9 项） | `bash tests/trust-tty.sh` |
 | `browser-probe.mjs` | headless Chrome 验收（261 项）：全宽内容面/全宽页头/导航空闲预取与分层展开/三层边界与 `dir` 懒加载/悬停预热/深页 active 脊柱/目录只展开/文件导航/TOC 悬停文字大纲与 scroll-spy/搜索弹层与整行结果/渲染块行定位/源码页头/HTML 信任原文与未信任沙箱/源码切换/目录列对齐/压缩包虚拟目录与包内预览（JAR/EPUB/CBZ、tar.bz2、xhtml 源码页）/SVG 直开脚本阻断/主题快速切换与状态反馈/引用块留白/导出图片与打印样式/岛水合/语言条/复制/放大/大源码分块/无 JS 全文/GBK 与 UTF-16 编码标签 | `node tests/browser-probe.mjs` |
 | `perf-source.mjs` | 源码页性能预算：100 KB / 1 MB / 10 MB / 1 MB Rust（真实 Chrome，含末行完整性检查） | `node tests/perf-source.mjs` |

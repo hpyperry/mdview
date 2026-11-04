@@ -30,7 +30,7 @@ bash tests/run-all.sh
 [`docs/guides/build-hygiene.md`](docs/guides/build-hygiene.md)，取舍见
 [ADR 0023](docs/architecture/adr/0023-dev-build-artifact-size.md)。
 
-必须全绿：`cargo test`（88 单元 + 134 渲染兼容 + 27 golden）、274 项黑盒 HTTP、
+必须全绿：`cargo test`（90 单元 + 134 渲染兼容 + 27 golden）、278 项黑盒 HTTP、
 9 项 pty 信任测试、261 项 headless Chrome 验收、4 项源码页性能预算。
 
 ## 协作流程
@@ -173,8 +173,10 @@ Single-context: root `GLOSSARY.md` + `docs/architecture/adr/`. See
     原始字节。外壳页只在 `PageKind::Html` 把 `frame-src` 放宽为 `'self'`；
     其他页面保持 `'none'`。沙箱只用于未信任根，不是可信文档的默认路径。
 13. **HTML 子资源**：相对 CSS/JS/JSON 按 `Sec-Fetch-Dest`（退化看 `Accept`）返回
-    原字节与真实 MIME；直接导航仍是源码页。`--max-preview` 只限制文档，不限制
-    子资源。HTML 内容命中在搜索里必须链到 `?raw=1#L<n>`。
+    原字节与真实 MIME；无 `Sec-Fetch-*` 时，`Accept: */*` + 子资源扩展名
+    （`js/mjs/cjs/css/json/map/webmanifest/xml`）也判为子资源；直接导航仍是源码页。
+    `--max-preview` 只限制文档，不限制子资源。HTML 内容命中在搜索里必须链到
+    `?raw=1#L<n>`。
 14. **SVG 直开**：`image/svg+xml` 响应必须带
     `Content-Security-Policy: sandbox allow-top-navigation-by-user-activation`；
     `<img>` 内嵌不受影响。
@@ -308,7 +310,9 @@ Single-context: root `GLOSSARY.md` + `docs/architecture/adr/`. See
 - **HTML 源码**：`?raw=1` 才是源码页；trusted 的源码页“预览”tab 指向 `/x.html`
   原文，untrusted 指向沙箱外壳。
 - **HTML 子资源**：`style.css` 直接访问是源码页，只有 `Sec-Fetch-Dest: style`
-  之类请求才返回 `text/css`；不要把所有文本文件都改成原始 MIME。
+  之类请求才返回 `text/css`；不要把所有文本文件都改成原始 MIME。旧浏览器不发
+  `Sec-Fetch-*`，所以 `fetch_kind` 对 `Accept: */*` + 子资源扩展名兜底；扩展名
+  白名单不能加入 `.md`/`.txt`，否则源码页导航会被 raw 响应覆盖。
 - **HTML 搜索行**：HTML 内容命中要到 `?raw=1#L<n>`；默认 `/x.html` 现在是预览页，
   不带行锚点。
 - **SVG**：`serve_file` 对 SVG 加了 CSP sandbox；不要把它挪到所有二进制响应，

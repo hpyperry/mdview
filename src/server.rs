@@ -706,7 +706,7 @@ async fn handle_file(
     is_head: bool,
 ) -> Response {
     let info = classify(path).await;
-    let fetch = fetch_kind(headers);
+    let fetch = fetch_kind(headers, path);
     let explicit_download = query.get("download").map(|v| v == "1").unwrap_or(false);
 
     // `--max-preview` limits documents, not the CSS/JS/images those documents
@@ -919,14 +919,36 @@ async fn handle_archive(
     .await
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum FetchKind {
     Navigation,
     Iframe,
     Subresource,
 }
 
-fn fetch_kind(headers: &HeaderMap) -> FetchKind {
+/// Text files that an HTML page may load as a subresource. `.md` / `.txt`
+/// deliberately stay out: a browser navigation to them must keep showing the
+/// source page. Binary assets (images, fonts, wasm) never reach this split.
+const LEGACY_SUBRESOURCE_EXTENSIONS: &[&str] = &[
+    "js",
+    "mjs",
+    "cjs",
+    "css",
+    "json",
+    "map",
+    "webmanifest",
+    "xml",
+];
+
+fn is_legacy_subresource_path(path: &Path) -> bool {
+    path.extension().and_then(OsStr::to_str).is_some_and(|ext| {
+        LEGACY_SUBRESOURCE_EXTENSIONS
+            .iter()
+            .any(|known| ext.eq_ignore_ascii_case(known))
+    })
+}
+
+fn fetch_kind(headers: &HeaderMap, path: &Path) -> FetchKind {
     if let Some(dest) = headers
         .get("sec-fetch-dest")
         .and_then(|value| value.to_str().ok())
@@ -938,6 +960,17 @@ fn fetch_kind(headers: &HeaderMap) -> FetchKind {
             // still gets the sandbox CSP instead of raw bytes.
             "iframe" | "frame" | "object" | "embed" => FetchKind::Iframe,
             _ => FetchKind::Subresource,
+        };
+    }
+    // Some clients send Fetch Metadata mode without dest.
+    if let Some(mode) = headers
+        .get("sec-fetch-mode")
+        .and_then(|value| value.to_str().ok())
+    {
+        return if mode.eq_ignore_ascii_case("navigate") {
+            FetchKind::Navigation
+        } else {
+            FetchKind::Subresource
         };
     }
     if let Some(accept) = headers
@@ -952,6 +985,15 @@ fn fetch_kind(headers: &HeaderMap) -> FetchKind {
             || accept.contains("text/javascript")
             || accept.contains("application/javascript")
             || accept.contains("application/json")
+        {
+            return FetchKind::Subresource;
+        }
+        // Chrome < 76 and some embedded browsers send `Accept: */*` for
+        // classic scripts and fetch(). Without Sec-Fetch-* that is
+        // indistinguishable from a navigation by headers alone, so use the
+        // extension as the tie-breaker. Browser navigations still send
+        // text/html, which is handled above.
+        if (accept.trim().is_empty() || accept.trim() == "*/*") && is_legacy_subresource_path(path)
         {
             return FetchKind::Subresource;
         }
@@ -3212,6 +3254,73 @@ mod tests {
         std::fs::create_dir(root.join("sub")).unwrap();
         std::fs::write(root.join("sub").join("c.md"), "# c\n").unwrap();
         dir
+    }
+
+    #[test]
+    fn fetch_kind_handles_legacy_wildcard_accept() {
+        let mut headers = HeaderMap::new();
+        headers.insert(header::ACCEPT, "*/*".parse().unwrap());
+        for file in ["docs.js", "data.json", "style.css", "app.webmanifest"] {
+            assert_eq!(
+                fetch_kind(&headers, Path::new(file)),
+                FetchKind::Subresource,
+                "{file}"
+            );
+        }
+        for file in ["note.md", "note.txt", "page.html"] {
+            assert_eq!(
+                fetch_kind(&headers, Path::new(file)),
+                FetchKind::Navigation,
+                "{file}"
+            );
+        }
+
+        headers.insert(
+            header::ACCEPT,
+            "text/html,application/xhtml+xml".parse().unwrap(),
+        );
+        assert_eq!(
+            fetch_kind(&headers, Path::new("docs.js")),
+            FetchKind::Navigation
+        );
+
+        // A client that sends no Accept at all keeps the old navigation
+        // behavior; only the explicit `*/*` shape is treated as a legacy
+        // subresource request.
+        let headers = HeaderMap::new();
+        assert_eq!(
+            fetch_kind(&headers, Path::new("docs.js")),
+            FetchKind::Navigation
+        );
+    }
+
+    #[test]
+    fn fetch_kind_prefers_fetch_metadata() {
+        let mut headers = HeaderMap::new();
+        headers.insert(header::ACCEPT, "*/*".parse().unwrap());
+        headers.insert("sec-fetch-dest", "script".parse().unwrap());
+        assert_eq!(
+            fetch_kind(&headers, Path::new("docs.js")),
+            FetchKind::Subresource
+        );
+        headers.insert("sec-fetch-dest", "document".parse().unwrap());
+        assert_eq!(
+            fetch_kind(&headers, Path::new("docs.js")),
+            FetchKind::Navigation
+        );
+
+        let mut headers = HeaderMap::new();
+        headers.insert(header::ACCEPT, "text/html".parse().unwrap());
+        headers.insert("sec-fetch-mode", "no-cors".parse().unwrap());
+        assert_eq!(
+            fetch_kind(&headers, Path::new("docs.js")),
+            FetchKind::Subresource
+        );
+        headers.insert("sec-fetch-mode", "navigate".parse().unwrap());
+        assert_eq!(
+            fetch_kind(&headers, Path::new("docs.js")),
+            FetchKind::Navigation
+        );
     }
 
     fn nav_find<'a>(nodes: &'a [serde_json::Value], name: &str) -> &'a serde_json::Value {
