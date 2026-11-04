@@ -1,6 +1,6 @@
 # 导出图片 / PDF 复测文档
 
-- 关联：Issue [#39](https://github.com/hpyperry/mdview/issues/39) / PR #N / F-95
+- 关联：Issue [#39](https://github.com/hpyperry/mdview/issues/39) / PR [#40](https://github.com/hpyperry/mdview/pull/40) / F-95
 - 夹具根：`tests/fixtures/export-artifact/`（可直接作为 `--root`）
 - 启动：
 
