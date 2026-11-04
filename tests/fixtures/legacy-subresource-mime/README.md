@@ -1,6 +1,6 @@
 # 旧浏览器子资源 MIME 复测文档
 
-- 关联：Issue [#41](https://github.com/hpyperry/mdview/issues/41) / PR #N / F-76
+- 关联：Issue [#41](https://github.com/hpyperry/mdview/issues/41) / PR [#42](https://github.com/hpyperry/mdview/pull/42) / F-76
 - 夹具根：`tests/fixtures/legacy-subresource-mime/`（可直接作为 `--root`）
 - 启动：
 
