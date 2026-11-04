@@ -213,6 +213,8 @@ async function writeFixture(root) {
   }
   await copyFile(join(REPO, 'tests', 'fixtures', 'archives', 'docs', 'page.xhtml'), join(root, 'page.xhtml'));
   await copyFile(join(REPO, 'tests', 'fixtures', 'blockquote-spacing', 'quote.md'), join(root, 'quote.md'));
+  await copyFile(join(REPO, 'tests', 'fixtures', 'export-artifact', 'doc.md'), join(root, 'export.md'));
+  await copyFile(join(REPO, 'tests', 'fixtures', 'export-artifact', 'pic.png'), join(root, 'pic.png'));
   const encodingFixtures = join(REPO, 'tests', 'fixtures', 'encodings');
   for (const name of await readdir(encodingFixtures)) {
     if (name === 'README.md') continue;
@@ -466,6 +468,80 @@ async function main() {
       blockquoteMetrics.filter((m) => m.paraGap !== null).every((m) => m.paraGap === 16),
       JSON.stringify(blockquoteMetrics),
     );
+    await goto('/page.md');
+
+    console.log('== export ==');
+    await goto('/export.md');
+    check('导出按钮存在', (await evaluate('document.querySelectorAll(".export-action").length')) === 2);
+    check('导出岛已水合', await waitFor('window.__mdviewIslands?.mounted.includes("export")', 3000));
+    const printed = await evaluate(`(() => {
+      let count = 0;
+      const original = window.print;
+      window.print = () => { count += 1; };
+      document.getElementById('export-pdf').click();
+      window.print = original;
+      return count;
+    })()`);
+    check('导出 PDF 调用打印', printed === 1, String(printed));
+    const exported = await evaluate(`(async () => {
+      const originalCreate = URL.createObjectURL;
+      const originalClick = HTMLAnchorElement.prototype.click;
+      let blob = null;
+      URL.createObjectURL = (value) => { blob = value; return originalCreate.call(URL, value); };
+      HTMLAnchorElement.prototype.click = function () {};
+      try {
+        document.getElementById('export-png').click();
+        const deadline = Date.now() + 15000;
+        while (!blob && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 100));
+      } finally {
+        URL.createObjectURL = originalCreate;
+        HTMLAnchorElement.prototype.click = originalClick;
+      }
+      if (!blob) return { ok: false, status: document.querySelector('.export-status')?.textContent };
+      const bytes = new Uint8Array(await blob.arrayBuffer());
+      const signature = [...bytes.slice(0, 8)].map((value) => value.toString(16).padStart(2, '0')).join('');
+      const bitmap = await createImageBitmap(blob);
+      const canvas = document.createElement('canvas');
+      canvas.width = bitmap.width;
+      canvas.height = bitmap.height;
+      const context = canvas.getContext('2d');
+      context.drawImage(bitmap, 0, 0);
+      const corner = [...context.getImageData(1, 1, 1, 1).data];
+      return {
+        ok: true,
+        type: blob.type,
+        signature,
+        width: bitmap.width,
+        height: bitmap.height,
+        corner,
+        status: document.querySelector('.export-status')?.textContent,
+      };
+    })()`);
+    check(
+      '导出图片生成 PNG',
+      exported.ok === true && exported.type === 'image/png' && exported.signature === '89504e470d0a1a0a',
+      JSON.stringify(exported),
+    );
+    check(
+      '导出图片浅色背景',
+      Array.isArray(exported.corner) && exported.corner[0] === 255 && exported.corner[1] === 255 && exported.corner[2] === 255,
+      JSON.stringify(exported.corner),
+    );
+    check('导出图片有尺寸', exported.width > 500 && exported.height > 500, JSON.stringify({ width: exported.width, height: exported.height }));
+
+    await page.send('Emulation.setEmulatedMedia', { media: 'print' });
+    await evaluate('document.documentElement.dataset.theme = "dark"');
+    const printState = await evaluate(`(() => ({
+      topbar: getComputedStyle(document.querySelector('.topbar')).display,
+      head: getComputedStyle(document.querySelector('.doc-head')).display,
+      background: getComputedStyle(document.body).backgroundColor,
+      maxWidth: getComputedStyle(document.querySelector('.markdown-body')).maxWidth,
+    }))()`);
+    await evaluate('delete document.documentElement.dataset.theme');
+    await page.send('Emulation.setEmulatedMedia', { media: '' });
+    check('打印隐藏顶栏与页头', printState.topbar === 'none' && printState.head === 'none', JSON.stringify(printState));
+    check('打印强制浅色', printState.background === 'rgb(255, 255, 255)', JSON.stringify(printState));
+    check('打印正文不限宽', printState.maxWidth === 'none', JSON.stringify(printState));
     await goto('/page.md');
 
     console.log('== theme ==');
