@@ -21,6 +21,7 @@ README 是**复测文档**，不是测试执行报告。必须包含：
 | `nav-lazy/` | 三层预载、当前路径脊柱、`dir=` 按需展开、深层目录占位 |
 | `static-parity/` | 内部 URL 与同名文件、文件尾斜杠、Markdown 扩展名、目录 index 非目标 |
 | `chromium-baseline/` | 旧内核 CSS 回退：静态色板、半透明 token、`inset` 展开（README + `probe.html`） |
+| `blockquote-spacing/` | 引用块底色内上下留白对称；多段、嵌套与含列表引用块末元素收口；块后间距 16px |
 | `dev-build-size/` | dev profile `debug = 1`、干净构建体积基线、行号表检查（README-only） |
 | `target-auto-clean/` | post-merge hook：超阈值清理 `target/debug`、开关与阈值覆盖（README-only） |
 
