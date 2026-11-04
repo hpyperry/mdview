@@ -41,6 +41,7 @@
 | `:modal` 探针兼容 | [PR #44](https://github.com/hpyperry/mdview/pull/44) |
 | `highlight.min.js` 构建 target | [PR #44](https://github.com/hpyperry/mdview/pull/44) |
 | 旧内核 `--headless` 探测 | 未做 |
+| 旧引擎实测（Chromium 88） | 2026-11-04 通过 25/25，见[报告](../testing/reports/legacy-chromium-88-2026-11-04.md) |
 | <86 视觉/API、`app.js` 语法、`.md` fetch 契约 | 未做，见 §7 / §9 |
 
 ## 分级汇总表
@@ -382,10 +383,15 @@ curl -sS -D - -o /dev/null -H 'Sec-Fetch-Dest: script' http://127.0.0.1:8003/doc
 
 ## 9. 未验证 / 开放问题
 
+- **旧引擎实测覆盖**：2026-11-04 已在 Chromium 88（snapshot 815036，Docker/qemu）上跑通
+  25 项 CDP 断言，覆盖旧请求头 MIME、`content-visibility` 回退、导出 PNG、主题/导航/
+  TOC/放大/搜索；详见[报告](../testing/reports/legacy-chromium-88-2026-11-04.md)。
+  **精确 86 仍未验证**（M86 快照 revision 取不到），<86 不在支持范围。
 - **用户实际浏览器版本未知**：`Sec-Fetch-Dest` 缺失可能是 <80 内核、代理/扩展剥离、
   或非 Chromium 套壳。需要 `chrome://version` 或现场抓包确认。
 - **`:modal` 在目标内核是否真的会抛**：按规范/BCD 是 <105 抛未知伪类；当前产品没有
-  使用它，只有测试使用。若目标内核是 86/92，`browser-probe` 会因此失败。
+  使用它，只有测试使用。若目标内核是 86/92，`browser-probe` 会因此失败；已在探针里
+  加 try/catch 跳过（#44）。
 - **`contain-intrinsic-*` 在 Chrome 86/92 的滚动表现**：声明确定被丢弃，实际跳变
   幅度、是否影响 `#L<n>` 定位未在真机验证。
 - **flex `gap` 在 78/86 的布局差异**：ADR 0022 已明确 86+；78 不在承诺范围，但仍
