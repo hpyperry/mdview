@@ -1,5 +1,5 @@
 
-/* 浏览器基线：Chromium 86（360 信创版等旧内核）。
+/* 浏览器基线：Chromium 88（360 信创版等旧内核）。
    禁用 light-dark() / color-mix() / inset 简写等基线外语法，
    tests/check-css-baseline.mjs 会拦截。
    色板：:root 为浅色；深色在媒体查询与 [data-theme="dark"] 两处各写一份，

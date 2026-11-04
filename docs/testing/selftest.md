@@ -24,7 +24,7 @@
 | 渲染兼容 | `cargo test --test render_compat` | **134 passed** |
 | 静态检查 | `cargo clippy --all-targets -- -D warnings` | **通过** |
 | 格式 | `cargo fmt --all --check` | **通过** |
-| CSS 基线 | `node tests/check-css-baseline.mjs` | **通过**（Chromium 86 黑名单 + 深色色板同步） |
+| CSS 基线 | `node tests/check-css-baseline.mjs` | **通过**（Chromium 88 黑名单 + 深色色板同步） |
 | Web 类型 | `npm --prefix web run typecheck` | **通过** |
 | 黑盒 HTTP | `bash tests/selftest-rust.sh` | **PASS=278 FAIL=0** |
 | 浏览器验收 | `node tests/browser-probe.mjs` | **PASS=262 FAIL=0** |

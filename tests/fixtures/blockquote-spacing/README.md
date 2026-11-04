@@ -47,7 +47,7 @@ VS Code 语义基准不动（[ADR 0008](../../../docs/architecture/adr/0008-docs
   的首/末子元素到色块边缘的留白等于上下内边距且互相对称、块后间距 16px、
   两段引用内部的段间距 16px。
 - `node tests/check-css-baseline.mjs`：`> :first-child` / `> :last-child` 不触碰
-  Chromium 86 基线外语法。
+  Chromium 88 基线外语法。
 
 ## 已知限制
 

@@ -179,7 +179,7 @@
 
 | ID | 功能 | 验收要点 | 测试映射 | 状态 |
 |---|---|---|---|---|
-| F-93 | Chromium 86 基线 CSS 回退 | 支持基线 Chromium 86；色板为静态双色板（`:root` 浅色 + `prefers-color-scheme`/`[data-theme="dark"]` 两份深色，不用 `light-dark()`）；半透明层次用 `--topbar-bg`/`--surface-translucent`/`--accent-wash`/`--hover` 静态 token（不用 `color-mix()`），边界层次用 `--border`/`--border-strong`，`topbar` 保留 `backdrop-filter`；遮罩用四边定位（不用 `inset` 简写）；`tests/check-css-baseline.mjs` 拦截基线外语法并比对两份深色色板；`content-visibility` 必须有 intrinsic-size `@supports` 门禁，`replaceChildren` 有无 API 回退 | CSS lint、`run-all.sh`、Chrome 探针；旧内核真机[复测文档](../../tests/fixtures/chromium-baseline/README.md) · [基线回退复测](../../tests/fixtures/legacy-baseline-fallbacks/README.md) | ◐ 部分（lint 与 Chrome 自动；旧内核人工） |
+| F-93 | Chromium 88 基线 CSS 回退 | 支持基线 Chromium 88；色板为静态双色板（`:root` 浅色 + `prefers-color-scheme`/`[data-theme="dark"]` 两份深色，不用 `light-dark()`）；半透明层次用 `--topbar-bg`/`--surface-translucent`/`--accent-wash`/`--hover` 静态 token（不用 `color-mix()`），边界层次用 `--border`/`--border-strong`，`topbar` 保留 `backdrop-filter`；`tests/check-css-baseline.mjs` 拦截基线外语法并比对两份深色色板；`content-visibility` 必须有 intrinsic-size `@supports` 门禁，`replaceChildren` 有无 API 回退 | CSS lint、`run-all.sh`、Chrome 探针；旧内核真机[复测文档](../../tests/fixtures/chromium-baseline/README.md) · [基线回退复测](../../tests/fixtures/legacy-baseline-fallbacks/README.md) | ◐ 部分（lint 与 Chrome 自动；旧内核人工） |
 
 ## P. 阅读排版
 

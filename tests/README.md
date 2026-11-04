@@ -14,7 +14,7 @@ Rust 实现的断言分多组：
 | `perf-source.mjs` | 源码页性能预算：100 KB / 1 MB / 10 MB / 1 MB Rust（真实 Chrome，含末行完整性检查） | `node tests/perf-source.mjs` |
 | `smoke-artifact.sh` | 对已构建二进制做目录/渲染/资产/下载/CSP 冒烟（7 项） | `bash tests/smoke-artifact.sh <二进制>` |
 | `check-doc-links.mjs` | 检查 Markdown 内部链接（跳过代码块、归档与站内根 URL） | `node tests/check-doc-links.mjs` |
-| `check-css-baseline.mjs` | 拦截 Chromium 86 基线外 CSS 语法（`light-dark()`/`color-mix()`/`inset` 等），并比对两份深色色板 | `node tests/check-css-baseline.mjs` |
+| `check-css-baseline.mjs` | 拦截 Chromium 88 基线外 CSS 语法（`light-dark()`/`color-mix()` 等），并比对两份深色色板 | `node tests/check-css-baseline.mjs` |
 | `run-all.sh` | 依次跑类型检查、fmt/clippy、Rust 测试、链接检查、CSS 基线、黑盒、浏览器、性能与冒烟 | `bash tests/run-all.sh` |
 | `fixtures/html-preview/` | 手动 HTML 夹具：trusted 原文、untrusted 沙箱、相对 CSS、SVG、链接与搜索探针 | 见 [fixtures/html-preview/README.md](fixtures/html-preview/README.md) |
 | `fixtures/archives/` | 手动压缩包夹具：zip/tar.gz/7z、包内 Markdown/HTML/CSS、嵌套 zip | 见 [fixtures/archives/README.md](fixtures/archives/README.md) |
