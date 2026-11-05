@@ -1,5 +1,35 @@
 # Changelog
 
+## 2.3.0（2026-11-05）
+
+### 新增
+
+- 文档页新增「导出图片」与「导出 PDF」：PNG 为白底长图，固定浅色、自动降级；
+  PDF 走浏览器打印/另存为，隐藏应用外壳并自动分页。无 JS 时按钮隐藏。
+- 新增 `export` 岛（第 10 个岛），导出不引入外部依赖。
+
+### 修复
+
+- 引用块底色内文字底部多出一行空带：上下内边距改为对称 8px，并收掉块内首/末
+  子元素外边距；多段、嵌套与含列表引用块都生效。
+- 旧浏览器（无 `Sec-Fetch-*`）把 JS/JSON 子资源当导航：`Accept: */*` + 子资源
+  扩展名现在按子资源返回真实 MIME，`docs.js` 等脚本恢复执行。
+- Chromium 86–97 的大源码分块：`content-visibility` 放进 intrinsic-size
+  `@supports` 门禁，不支持时回退全量渲染，滚动与 `#L<n>` 锚点不再跳。
+- `source.ts` 的 `replaceChildren` 增加回退，缺失该 API 时仍生成源码行号。
+
+### 变更
+
+- **浏览器支持基线提升到 Chromium 88**（ADR 0024）；Chromium 86/87 不再承诺，
+  低于 88 不支持。构建 target 与 CSS lint 同步为 88；历史 Release 说明保留当时的 86。
+- CI 的 rust-cache 按 target 隔离，避免 native 与 cross 互相复用 build script。
+
+### 工程
+
+- 归档旧浏览器兼容性审计与 Chromium 88 实测报告（25/25）。
+- 新增 F-95（导出）并更新 F-31/F-57/F-76/F-93 的验收口径。
+- 测试基线：90 单元、278 黑盒 HTTP、262 headless Chrome、9 TTY、4 性能、7 artifact。
+
 ## 2.2.3（2026-11-02）
 
 ### 修复
