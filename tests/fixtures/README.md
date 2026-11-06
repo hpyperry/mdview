@@ -16,7 +16,7 @@ README 是**复测文档**，不是测试执行报告。必须包含：
 | 目录 | 覆盖 |
 |---|---|
 | `archives/` | ZIP 容器（JAR/EPUB/CBZ）、tar.bz2/tar.xz、包内 Markdown/HTML、嵌套包 |
-| `toc-all-levels/` | TOC 常驻岛/细轨断点、悬停标题、多 h1、长文档滚动（Issue #63） |
+| `toc-all-levels/` | 主岛铺满/分栏动效、TOC 常驻岛/细轨断点、悬停标题、多 h1、长文档滚动（Issue #63 / #65） |
 | `page-head/` | Markdown/源码/目录/搜索四类页头统一结构、文件名 H1、元信息徽标与 800px 表单布局（Issue #65） |
 | `html-preview/` | HTML Trust 原文、未信任第二 origin、子资源、SVG |
 | `html-second-origin/` | 应用型 HTML：module/sessionStorage/Service Worker/fetch；302 与只读静态镜像（Issue #52） |

@@ -193,10 +193,10 @@ export function mountExport(): void {
   );
   let timer = 0;
 
-  const say = (message: string): void => {
+  const say = (message: string, duration = 4000): void => {
     status.textContent = message;
     window.clearTimeout(timer);
-    if (message) timer = window.setTimeout(() => { status.textContent = ''; }, 4000);
+    if (message) timer = window.setTimeout(() => { status.textContent = ''; }, duration);
   };
 
   downloadLink?.addEventListener('click', (event) => {
@@ -220,7 +220,7 @@ export function mountExport(): void {
     say('正在生成图片…');
     try {
       await renderPng(article, name);
-      say('');
+      say('图片已导出', DONE_MS);
       flashDone(pngButton);
     } catch (error) {
       console.error('[mdview] export png failed', error);

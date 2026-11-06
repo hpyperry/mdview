@@ -2339,7 +2339,6 @@ async fn source_page(
     let text = decoded.text;
     let chunked_mode = size as u64 > CHUNKED_SOURCE_THRESHOLD;
     let name = path.file_name().and_then(OsStr::to_str).unwrap_or("文件");
-    let download = format!("{}?download=1", join_href(parent_rel(rel), name, false));
     let preview_href = if info.kind == Kind::Html && !state.safe {
         if state.trust.trusted {
             Some(format!("/{}", encode_path(rel)))
@@ -2419,7 +2418,6 @@ async fn source_page(
         head = head
             .action(PageAction::link(format!("/{}", encode_path(rel)), "预览", "book").primary());
     }
-    head = head.action(PageAction::link(download, "下载", "download").aria("下载"));
     let body = format!(
         "<div class=\"content-card\">{head}{html_toolbar}{notice_html}{source_markup}</div>",
         head = head.render(),
@@ -3625,13 +3623,6 @@ fn join_href(rel_dir: &str, name: &str, is_dir: bool) -> String {
     href
 }
 
-fn parent_rel(rel: &str) -> &str {
-    match rel.rfind('/') {
-        Some(index) => &rel[..index],
-        None => "",
-    }
-}
-
 fn encode_segment(value: &str) -> String {
     utf8_percent_encode(value, PATH_SEGMENT_SET).to_string()
 }
@@ -4042,7 +4033,7 @@ mod tests {
         let html = String::from_utf8(body).unwrap();
         assert!(html.contains("id=\"L1\""));
         assert!(html.contains("hello"));
-        assert!(html.contains("?download=1"));
+        assert!(!html.contains("?download=1"), "{html}");
 
         let (status, _, body) = call(app.clone(), Method::GET, "/a.md?raw=1").await;
         assert_eq!(status, StatusCode::OK);

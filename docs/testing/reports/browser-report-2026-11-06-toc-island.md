@@ -7,6 +7,8 @@ PR #64（待建） · [ADR 0026](../../architecture/adr/0026-toc-island-layout.m
 > 后续修正：F-95 完成反馈已改为约 100ms 的完成图标 + 禁用窗口，并移除
 > “图片已生成”成功文案；最新验收见
 > [browser-report-2026-11-06-page-head.md](browser-report-2026-11-06-page-head.md)。
+> 布局断点与宽度已由 ADR 0028 调整（≥1280px 常驻岛、全宽主岛），最新验收见
+> [browser-report-2026-11-06-shell-layout.md](browser-report-2026-11-06-shell-layout.md)。
 
 ## 环境
 

@@ -45,10 +45,23 @@ function collectHeadings(): Heading[] {
   });
 }
 
+/// The desktop shell keeps the main island fixed and scrolls its body.
+/// Mobile falls back to document scrolling.
+function contentScroller(): HTMLElement | null {
+  const card = document.querySelector<HTMLElement>('.content-card');
+  if (!card) return null;
+  return getComputedStyle(card).overflowY === 'auto' ? card : null;
+}
+
 /// TOC jumps are navigation, not decoration. Some embedded/older Chromium
 /// builds stall or ignore smooth scrolling, so always jump immediately.
 function scrollWindowTo(top: number): void {
-  window.scrollTo({ top: Math.max(0, top), behavior: 'auto' });
+  const scroller = contentScroller();
+  if (scroller) {
+    scroller.scrollTo({ top: Math.max(0, top), behavior: 'auto' });
+  } else {
+    window.scrollTo({ top: Math.max(0, top), behavior: 'auto' });
+  }
 }
 
 function headingOffset(): number {
@@ -59,6 +72,15 @@ function headingOffset(): number {
 function scrollToHeading(id: string): void {
   const target = document.getElementById(id);
   if (!target) return;
+  const scroller = contentScroller();
+  if (scroller) {
+    const top = scroller.scrollTop
+      + target.getBoundingClientRect().top
+      - scroller.getBoundingClientRect().top
+      - 20;
+    scrollWindowTo(top);
+    return;
+  }
   const top = window.scrollY + target.getBoundingClientRect().top - headingOffset();
   scrollWindowTo(top);
 }
@@ -135,7 +157,10 @@ function Toc({ headings, inlineNav, rail }: TocProps) {
     let scheduled = false;
     function spy(): void {
       const bar = document.querySelector('.topbar');
-      const offset = (bar?.getBoundingClientRect().height || 56) + 34;
+      const scroller = contentScroller();
+      const offset = scroller
+        ? scroller.getBoundingClientRect().top + 34
+        : (bar?.getBoundingClientRect().height || 56) + 34;
       let next = headings[0]?.id || '';
       for (const heading of headings) {
         const element = document.getElementById(heading.id);
@@ -157,11 +182,14 @@ function Toc({ headings, inlineNav, rail }: TocProps) {
       if (!document.hidden) spy();
     }
     window.addEventListener('scroll', schedule, { passive: true });
+    const card = contentScroller();
+    card?.addEventListener('scroll', schedule, { passive: true });
     window.addEventListener('resize', spy);
     document.addEventListener('visibilitychange', onVisibility);
     spy();
     return () => {
       window.removeEventListener('scroll', schedule);
+      card?.removeEventListener('scroll', schedule);
       window.removeEventListener('resize', spy);
       document.removeEventListener('visibilitychange', onVisibility);
     };
@@ -223,7 +251,7 @@ function Toc({ headings, inlineNav, rail }: TocProps) {
   }, [active]);
 
   useEffect(() => {
-    const narrow = window.matchMedia('(max-width: 1359px)');
+    const narrow = window.matchMedia('(max-width: 1099px)');
     function onNarrow(): void {
       if (narrow.matches) close();
     }

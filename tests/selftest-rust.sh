@@ -217,7 +217,7 @@ chk "源码页行数标签" "$SRC" '3 行'
 chk "源码页修改时间标签" "$SRC" '更新于 '
 chk "源码页行锚点" "$SRC" 'id="L1"'
 chk "源码页内容" "$SRC" "hello"
-chk "源码页下载入口" "$SRC" "?download=1"
+nchk "源码页无下载入口" "$SRC" "?download=1"
 chk "源码页岛清单" "$SRC" 'data-islands="theme nav search totop source"'
 nchk "源码页不挂 TOC 岛" "$SRC" ' totop toc'
 
@@ -249,7 +249,7 @@ chk "raw 原文" "$RAW" "# Hello"
 nchk "raw 不渲染" "$RAW" "<strong>bold</strong>"
 chk "raw 行锚点" "$RAW" 'id="L1"'
 chk "raw 回渲染链接" "$RAW" '预览'
-chk "raw 下载入口" "$RAW" "?download=1"
+nchk "raw 无下载入口" "$RAW" "?download=1"
 LINE5_SRC="$(sed -n '5p' "$ROOT/a.md")"
 chk "raw 第 5 行内容一致" "$RAW" "$LINE5_SRC"
 

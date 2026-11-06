@@ -67,11 +67,13 @@ export function mountMarkdownCode(): void {
       }
     };
     if ('IntersectionObserver' in window) {
+      const card = document.querySelector<HTMLElement>('.content-card');
+      const scrollRoot = card && getComputedStyle(card).overflowY === 'auto' ? card : null;
       const observer = new IntersectionObserver((entries) => {
         if (!entries.some((entry) => entry.isIntersecting)) return;
         observer.disconnect();
         highlight();
-      }, { rootMargin: '1200px 0px' });
+      }, { root: scrollRoot, rootMargin: '1200px 0px' });
       observer.observe(wrapper);
     } else {
       highlight();

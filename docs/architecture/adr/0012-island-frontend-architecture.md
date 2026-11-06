@@ -3,7 +3,8 @@
 **Status**: accepted（2026-10-20）；左侧当前目录侧栏与正文预留导航列由
 [ADR 0013](0013-full-site-navigation-island.md) 更新；TOC 细轨改为悬停展开
 文字大纲；页头改为横跨内容面，搜索结果行定位由
-[ADR 0014](0014-markdown-line-target.md) 补充（决策 5）
+[ADR 0014](0014-markdown-line-target.md) 补充（决策 5）。宽度与分栏由
+[ADR 0028](0028-full-width-shell-and-toc-split.md) 更新（2026-11-06）。
 
 原前端是一个 `assets/mdview.js` IIFE：所有页面加载同一份脚本，DOMContentLoaded
 后执行 7 个初始化器。行为还能用，但改一个交互容易影响整页，且三列卡片把 780px

@@ -7,7 +7,12 @@ export function mountBackToTop(): void {
   button.setAttribute('aria-label', '回到顶部');
   button.textContent = '↑';
   button.addEventListener('click', () => {
-    window.scrollTo({ top: 0, behavior: 'auto' });
+    const card = document.querySelector<HTMLElement>('.content-card');
+    if (card && getComputedStyle(card).overflowY === 'auto') {
+      card.scrollTo({ top: 0, behavior: 'auto' });
+    } else {
+      window.scrollTo({ top: 0, behavior: 'auto' });
+    }
   });
   document.body.appendChild(button);
 }

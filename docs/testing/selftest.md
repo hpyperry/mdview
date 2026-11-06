@@ -27,7 +27,7 @@
 | CSS 基线 | `node tests/check-css-baseline.mjs` | **通过**（Chromium 88 黑名单 + 深色色板同步） |
 | Web 类型 | `npm --prefix web run typecheck` | **通过** |
 | 黑盒 HTTP | `bash tests/selftest-rust.sh` | **PASS=292 FAIL=0** |
-| 浏览器验收 | `node tests/browser-probe.mjs` | **PASS=309 FAIL=0** |
+| 浏览器验收 | `node tests/browser-probe.mjs` | **PASS=322 FAIL=0** |
 | 源码页性能 | `node tests/perf-source.mjs` | **4 项预算通过** |
 | TTY 信任 | `bash tests/trust-tty.sh` | **PASS=9 FAIL=0** |
 | artifact 冒烟 | `bash tests/smoke-artifact.sh target/release/mdview` | **PASS=7 FAIL=0** |
@@ -89,7 +89,7 @@ P0 差分报告：1035 条计分语料 **1015 条精确匹配（98.07%）**，0 
 
 ## 浏览器验证
 
-`tests/browser-probe.mjs` 在真实 headless Chrome 里跑 **309 项**断言：
+`tests/browser-probe.mjs` 在真实 headless Chrome 里跑 **322 项**断言：
 
 - 岛屿：文档页按需水合 toc/linetarget/code/zoom，源码页只挂 source；
 - HTML 文件：trusted 根原文顶层、脚本/localStorage/同源 fetch 正常；untrusted 根 302 到第二 origin，module/sessionStorage/Service Worker/同源 fetch/相对 CSS 全部正常，主 origin 无 iframe 外壳；源码页切换、SVG 直开脚本不执行、目录大小/时间列对齐；
@@ -98,7 +98,7 @@ P0 差分报告：1035 条计分语料 **1015 条精确匹配（98.07%）**，0 
 - 文档站外壳：全宽内容面、四类页面统一的 PageHead 页头（文件名/标题 + 元信息徽标 + 操作）、
   默认收起的全站导航浮岛、完整面包屑、
   代码语言条、移动端抽屉与遮罩；
-- 布局：≥1360 的正文 + 24px TOC 细轨、顶栏/TOC sticky、TOC 悬停文字大纲/固定/scroll-spy；
+- 布局：内容岛铺满并与顶栏对齐；≥901 桌面端主岛固定、正文在岛内滚动；≥1280 的正文 + TOC 岛分栏动效、1100–1279 的 24px 细轨、TOC 悬停文字大纲/固定/scroll-spy；
   TOC 覆盖 h1–h6 全层级、逐级缩进、长文档细轨独立滚动且当前刻度自动可见；
 - 引用块：底色内上下留白对称（单段、多段、嵌套、含列表），块内末元素不留多余下边距，
   块后与后续段落间距仍为 16px、多段引用段间距仍为 16px；
@@ -135,7 +135,7 @@ P0 差分报告：1035 条计分语料 **1015 条精确匹配（98.07%）**，0 
 
 - 最近一次远程完整绿色：`CI · 41444350375`（2026-11-02，PR #35），8/8 job
   成功；macOS/Ubuntu/Windows 测试、Node 类型检查、4 目标构建全绿。
-- 本地 `run-all.sh` 当前为 292/309。
+- 本地 `run-all.sh` 当前为 292/322。
 - Release 由 annotated tag `v*` 触发 `release.yml`；发布结果以对应 GitHub Release
   为准。
 - 岛屿架构首跑 `39421064321` 暴露两个 CI 问题：Linux Chrome 因新增的
@@ -144,7 +144,7 @@ P0 差分报告：1035 条计分语料 **1015 条精确匹配（98.07%）**，0 
   参数、DevTools 超时 30s，并加 `Cross.toml` 透传预构建路径。
 - 更早的 `39285530389` 曾受 GitHub Actions `degraded_performance` 影响，
   8 个 job 长时间 queued；那是平台事件，不是代码失败。
-- 测试矩阵覆盖：`cargo test`、黑盒 292、TTY 9、浏览器 309、源码页性能 4；
+- 测试矩阵覆盖：`cargo test`、黑盒 292、TTY 9、浏览器 322、源码页性能 4；
   Windows 跳过 pty/浏览器/性能，其余全跑。
 - artifact 冒烟：macOS arm64、Linux x86_64 musl、Windows x86_64 通过；
   Linux arm64 musl 只构建（x86 runner 无法执行 arm64）。

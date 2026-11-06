@@ -386,6 +386,28 @@ async function main() {
       }
       return false;
     };
+    const scrollContentTo = (top) => evaluate(`(() => {
+      const card = document.querySelector('.content-card');
+      if (card && getComputedStyle(card).overflowY === 'auto') {
+        card.scrollTop = ${Number(top)};
+        return card.scrollTop;
+      }
+      window.scrollTo(0, ${Number(top)});
+      return window.scrollY;
+    })()`);
+    const scrollContentToBottom = () => evaluate(`(() => {
+      const card = document.querySelector('.content-card');
+      if (card && getComputedStyle(card).overflowY === 'auto') {
+        card.scrollTop = card.scrollHeight;
+        return card.scrollTop;
+      }
+      window.scrollTo(0, document.body.scrollHeight);
+      return window.scrollY;
+    })()`);
+    const currentScrollTop = () => evaluate(`(() => {
+      const card = document.querySelector('.content-card');
+      return card && getComputedStyle(card).overflowY === 'auto' ? card.scrollTop : window.scrollY;
+    })()`);
 
     console.log('== preview page ==');
     await goto('/page.md');
@@ -550,11 +572,13 @@ async function main() {
         window.__exportDoneSeen = false;
         window.__exportDonePath = '';
         window.__exportDoneDisabled = false;
+        window.__exportDoneStatus = '';
         const doneObserver = new MutationObserver(() => {
           if (png.classList.contains('is-done')) {
             window.__exportDoneSeen = true;
             window.__exportDonePath = png.querySelector('svg.icon path')?.getAttribute('d') || '';
             window.__exportDoneDisabled = png.disabled;
+            window.__exportDoneStatus = document.querySelector('.export-status')?.textContent || '';
           }
         });
         doneObserver.observe(png, { attributes: true, attributeFilter: ['class'] });
@@ -599,23 +623,25 @@ async function main() {
     check('导出 PNG 完成图标', await waitFor('window.__exportDoneSeen === true', 3000));
     check('导出 PNG 完成图标是勾', (await evaluate('window.__exportDonePath')) === 'M20 6 9 17l-5-5');
     check('导出完成期间禁用按钮', (await evaluate('window.__exportDoneDisabled')) === true);
-    check('导出完成无状态文案', (await evaluate('document.querySelector(".export-status")?.textContent || ""')) === '');
+    check('导出完成提示图片已导出', (await evaluate('window.__exportDoneStatus')) === '图片已导出');
     await sleep(250);
     check('导出按钮图标恢复', (await evaluate('(() => { const png = document.getElementById("export-png"); return png?.disabled === false && png?.classList.contains("is-done") === false; })()')) === true);
+    check('导出完成提示自动消失', (await evaluate('document.querySelector(".export-status")?.textContent || ""')) === '');
     const downloadDone = await evaluate(`(() => {
       const link = [...document.querySelectorAll('.page-actions a.action')].find((a) => a.href.includes('?download=1'));
       link.addEventListener('click', (event) => event.preventDefault(), { once: true });
       link.click();
       const path = link.querySelector('svg.icon path')?.getAttribute('d');
       const aria = link.getAttribute('aria-disabled');
+      const pointerEvents = getComputedStyle(link).pointerEvents;
       let secondPrevented = null;
       const guard = (event) => { secondPrevented = event.defaultPrevented; link.removeEventListener('click', guard); };
       link.addEventListener('click', guard);
       link.click();
-      return { path, aria, secondPrevented, done: link.classList.contains('is-done') };
+      return { path, aria, pointerEvents, secondPrevented, done: link.classList.contains('is-done') };
     })()`);
     check('下载完成图标是勾', downloadDone.path === 'M20 6 9 17l-5-5', JSON.stringify(downloadDone));
-    check('下载完成期间禁用点击', downloadDone.done === true && downloadDone.aria === 'true' && downloadDone.secondPrevented === true, JSON.stringify(downloadDone));
+    check('下载完成期间禁用点击', downloadDone.done === true && downloadDone.aria === 'true' && downloadDone.pointerEvents === 'none' && downloadDone.secondPrevented === true, JSON.stringify(downloadDone));
     await sleep(250);
     check(
       '下载图标恢复',
@@ -710,11 +736,63 @@ async function main() {
     await goto('/page.md');
     check('390 无横向溢出', (await evaluate('document.documentElement.scrollWidth <= innerWidth + 1')) === true);
 
-    console.log('== three columns ==');
+    console.log('== shell alignment ==');
     await page.send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+    await goto('/sub/');
+    const dirShell = await evaluate(`(() => {
+      const card = document.querySelector('.content-card').getBoundingClientRect();
+      const bar = document.querySelector('.topbar').getBoundingClientRect();
+      return { cardLeft: Math.round(card.left), cardRight: Math.round(card.right), barLeft: Math.round(bar.left), barRight: Math.round(bar.right), cardWidth: Math.round(card.width), barWidth: Math.round(bar.width) };
+    })()`);
+    check(
+      '目录主岛与顶栏左右对齐',
+      Math.abs(dirShell.cardLeft - dirShell.barLeft) <= 1 && Math.abs(dirShell.cardRight - dirShell.barRight) <= 1 && Math.abs(dirShell.cardWidth - dirShell.barWidth) <= 2,
+      JSON.stringify(dirShell),
+    );
+    await goto('/page.md');
+    check('1440 常驻目录岛', await waitFor('document.body?.dataset.hasToc === "1" && getComputedStyle(document.getElementById("toc-island")).display === "flex"', 3000));
+    const docShell = await evaluate(`(() => {
+      const card = document.querySelector('.doc-card').getBoundingClientRect();
+      const bar = document.querySelector('.topbar').getBoundingClientRect();
+      const toc = document.getElementById('toc-island').getBoundingClientRect();
+      const prose = document.querySelector('.markdown-body').getBoundingClientRect();
+      return {
+        cardLeft: Math.round(card.left), cardRight: Math.round(card.right),
+        barLeft: Math.round(bar.left), barRight: Math.round(bar.right),
+        tocRight: Math.round(toc.right), tocWidth: Math.round(toc.width),
+        proseWidth: Math.round(prose.width),
+        animation: getComputedStyle(document.getElementById('shell')).animationName,
+      };
+    })()`);
+    check('文档主岛与顶栏左对齐', Math.abs(docShell.cardLeft - docShell.barLeft) <= 1, JSON.stringify(docShell));
+    check('目录岛与顶栏右对齐', Math.abs(docShell.tocRight - docShell.barRight) <= 1 && docShell.tocWidth >= 180, JSON.stringify(docShell));
+    check('文档主岛为目录岛收窄', docShell.cardRight < docShell.barRight - 180, JSON.stringify(docShell));
+    check('文档正文保持宽阅读行', docShell.proseWidth >= 1000, JSON.stringify(docShell));
+    check('文档分栏有过渡动画', docShell.animation.includes('shell-split'), JSON.stringify(docShell));
+    const fixedShell = await evaluate(`(() => {
+      const card = document.querySelector('.content-card');
+      const bar = document.querySelector('.topbar');
+      const before = { card: Math.round(card.getBoundingClientRect().top), bar: Math.round(bar.getBoundingClientRect().top), bottom: Math.round(card.getBoundingClientRect().bottom) };
+      card.scrollTop = 40;
+      const after = { card: Math.round(card.getBoundingClientRect().top), bar: Math.round(bar.getBoundingClientRect().top) };
+      return { before, after, winY: window.scrollY, scroll: card.scrollTop, viewport: innerHeight };
+    })()`);
+    check(
+      '主岛固定只滚动内容',
+      fixedShell.before.card === fixedShell.after.card && fixedShell.before.bar === fixedShell.after.bar && fixedShell.winY === 0 && fixedShell.scroll > 0,
+      JSON.stringify(fixedShell),
+    );
+    check('主岛高度适配视口', fixedShell.before.bottom === fixedShell.viewport - 16, JSON.stringify(fixedShell));
+    await page.send('Emulation.setDeviceMetricsOverride', { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false });
+    await goto('/page.md');
+    check('1280 仍为目录岛', await waitFor('document.body?.dataset.hasToc === "1" && getComputedStyle(document.getElementById("toc-island")).display === "flex"', 3000));
+    check('1280 目录岛最小宽度', Math.round(await evaluate('document.getElementById("toc-island").getBoundingClientRect().width')) >= 160);
+
+    console.log('== three columns ==');
+    await page.send('Emulation.setDeviceMetricsOverride', { width: 1200, height: 900, deviceScaleFactor: 1, mobile: false });
     await goto('/page.md');
     check('正文与 TOC 两列', (await evaluate('getComputedStyle(document.getElementById("shell")).gridTemplateColumns.split(" ").length')) === 2);
-    check('1440 无横向溢出', (await evaluate('document.documentElement.scrollWidth <= innerWidth + 1')) === true);
+    check('1200 无横向溢出', (await evaluate('document.documentElement.scrollWidth <= innerWidth + 1')) === true);
     check('TOC 细轨可见', (await evaluate('getComputedStyle(document.querySelector(".toc-rail")).display')) !== 'none');
     check('TOC 细轨与返回顶部错开', (await evaluate('getComputedStyle(document.querySelector(".totop")).right')) === '46px');
     check('正文面使用宽布局', (await evaluate('Math.round(document.querySelector(".doc-card").getBoundingClientRect().width)')) >= 1000);
@@ -769,7 +847,7 @@ async function main() {
       'TOC 焦点无蓝色整框',
       (await evaluate('(() => { const s = getComputedStyle(document.querySelectorAll(".toc-pop .toc-link")[3]); return s.outlineStyle === "none"; })()')) === true,
     );
-    await evaluate('window.scrollTo(0, document.body.scrollHeight)');
+    await scrollContentToBottom();
     await evaluate('document.querySelectorAll(".toc-pop .toc-link")[0].click()');
     check(
       'TOC 点击 h1 跳转',
@@ -780,7 +858,7 @@ async function main() {
     );
     await evaluate('document.getElementById("toc-rail").querySelector(".toc-rail-btn").click()');
     await waitFor('document.querySelectorAll(".toc-pop .toc-link").length === 7', 2000);
-    await evaluate('window.scrollTo(0, document.body.scrollHeight)');
+    await scrollContentToBottom();
     await evaluate('document.querySelectorAll(".toc-pop .toc-link")[1].click()');
     check(
       'TOC 点击 h2 跳转',
@@ -791,14 +869,26 @@ async function main() {
     );
     await evaluate('document.getElementById("toc-rail").querySelector(".toc-rail-btn").click()');
     await waitFor('document.querySelectorAll(".toc-pop .toc-link").length === 7', 2000);
-    await evaluate('(() => { const t = document.getElementById("toc-7"); window.scrollTo(0, t.getBoundingClientRect().top + scrollY - 60); })()');
+    await evaluate(`(() => {
+      const card = document.querySelector('.content-card');
+      const t = document.getElementById('toc-7');
+      if (card && getComputedStyle(card).overflowY === 'auto') {
+        card.scrollTop += t.getBoundingClientRect().top - card.getBoundingClientRect().top - 20;
+      } else {
+        window.scrollTo(0, t.getBoundingClientRect().top + scrollY - 20);
+      }
+    })()`);
     check('TOC 定位到 Section B', await waitFor('document.getElementById("toc-7").getBoundingClientRect().top < 120', 3000));
     await evaluate('window.dispatchEvent(new Event("scroll")); window.dispatchEvent(new Event("resize"))');
     const tocActive = await waitFor('document.querySelector(".toc-tick.is-active")?.getAttribute("data-target") === "toc-7"', 3000);
     check(
       'TOC 跟随滚动',
       tocActive,
-      await evaluate('JSON.stringify({ y: window.scrollY, active: document.querySelector(".toc-tick.is-active")?.getAttribute("data-target"), top: document.getElementById("toc-7").getBoundingClientRect().top })'),
+      await evaluate(`(() => {
+        const card = document.querySelector('.content-card');
+        const y = card && getComputedStyle(card).overflowY === 'auto' ? card.scrollTop : window.scrollY;
+        return JSON.stringify({ y, active: document.querySelector('.toc-tick.is-active')?.getAttribute('data-target'), top: document.getElementById('toc-7').getBoundingClientRect().top });
+      })()`),
     );
     await evaluate('document.querySelector(".toc-close").click()');
     check('TOC 面板可收起', await waitFor('document.querySelector(".toc-pop") === null', 2000));
@@ -815,8 +905,8 @@ async function main() {
     await page.send('Emulation.setDeviceMetricsOverride', { width: 1600, height: 900, deviceScaleFactor: 1, mobile: false });
     await goto('/page.md');
     check('1600 常驻目录岛', (await evaluate('getComputedStyle(document.getElementById("toc-island")).display')) === 'flex');
-    check('1600 目录岛宽度', Math.round(await evaluate('document.getElementById("toc-island").getBoundingClientRect().width')) >= 220);
-    check('1600 正文卡片宽度不变', Math.round(await evaluate('document.querySelector(".doc-card").getBoundingClientRect().width')) === 1240);
+    check('1600 目录岛宽度', Math.round(await evaluate('document.getElementById("toc-island").getBoundingClientRect().width')) >= 180);
+    check('1600 正文卡片撑满可用宽度', Math.round(await evaluate('document.querySelector(".doc-card").getBoundingClientRect().width')) > 1240);
     check('1600 细轨按钮隐藏', (await evaluate('getComputedStyle(document.querySelector(".toc-rail-btn")).display')) === 'none');
     check(
       '1600 返回顶部在目录岛',
@@ -832,7 +922,7 @@ async function main() {
       '1600 当前项无整行底色',
       (await evaluate('getComputedStyle(document.querySelector("#toc-island .toc-link.active")).backgroundColor')) === 'rgba(0, 0, 0, 0)',
     );
-    await evaluate('window.scrollTo(0, document.body.scrollHeight)');
+    await scrollContentToBottom();
     await evaluate('document.querySelector("#toc-island .toc-link").click()');
     check(
       '1600 目录岛点击 h1 跳转',
@@ -848,7 +938,7 @@ async function main() {
 
     await goto('/multi-h1.md');
     check('多 h1 文档目录项', (await evaluate('document.querySelectorAll("#toc-island .toc-link").length')) === 13);
-    await evaluate('window.scrollTo(0, 0)');
+    await scrollContentTo(0);
     await evaluate('document.querySelectorAll("#toc-island .toc-link")[3].click()');
     check(
       '多 h1 从顶部点 h1 B',
@@ -857,16 +947,26 @@ async function main() {
         3000,
       ),
     );
-    await evaluate('window.scrollTo(0, 0)');
+    await scrollContentTo(0);
     await evaluate('document.querySelectorAll("#toc-island .toc-link")[11].click()');
     check(
       '多 h1 从顶部点 h1 D',
       await waitFor(
-        '(() => { const h = document.getElementById("toc-12"); const top = h.getBoundingClientRect().top; const nearBottom = Math.abs((scrollY + innerHeight) - document.body.scrollHeight) < 4; return (top >= 60 && top <= 120) || (nearBottom && top > 0 && top < innerHeight); })()',
+        `(() => {
+          const card = document.querySelector('.content-card');
+          const inner = card && getComputedStyle(card).overflowY === 'auto';
+          const h = document.getElementById('toc-12');
+          const top = h.getBoundingClientRect().top;
+          const y = inner ? card.scrollTop : scrollY;
+          const vh = inner ? card.clientHeight : innerHeight;
+          const sh = inner ? card.scrollHeight : document.body.scrollHeight;
+          const nearBottom = Math.abs((y + vh) - sh) < 4;
+          return (top >= 60 && top <= 120) || (nearBottom && top > 0 && top < vh);
+        })()`,
         3000,
       ),
     );
-    await evaluate('window.scrollTo(0, document.body.scrollHeight)');
+    await scrollContentToBottom();
     await evaluate('document.querySelectorAll("#toc-island .toc-link")[0].click()');
     check(
       '多 h1 从底部点 h1 A',
@@ -880,7 +980,7 @@ async function main() {
       '1600 长文档目录岛可滚动',
       (await evaluate('(() => { const list = document.querySelector(".toc-island-list"); return Boolean(list) && list.scrollHeight > list.clientHeight + 1; })()')) === true,
     );
-    await evaluate('window.scrollTo(0, document.body.scrollHeight)');
+    await scrollContentToBottom();
     check(
       '1600 长文档当前项在岛内',
       await waitFor(`(() => {
@@ -892,7 +992,7 @@ async function main() {
         return ab.top >= lb.top - 1 && ab.bottom <= lb.bottom + 1;
       })()`, 3000),
     );
-    await page.send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+    await page.send('Emulation.setDeviceMetricsOverride', { width: 1200, height: 900, deviceScaleFactor: 1, mobile: false });
 
     await goto('/long.md');
     check('长文档刻度数完整', (await evaluate('document.querySelectorAll(".toc-tick").length')) === 61);
@@ -983,16 +1083,17 @@ async function main() {
     check('无标题时不显示 TOC' , await waitFor('document.getElementById("toc-rail")?.hidden === true && document.getElementById("toc-slot")?.hidden === true', 2000));
     check('无标题时正文单列', (await evaluate('getComputedStyle(document.getElementById("shell")).gridTemplateColumns.split(" ").length')) === 1);
     await goto('/page.md');
-    await evaluate('window.scrollTo(0, 500)');
+    await scrollContentTo(500);
     await sleep(250);
     check('顶栏 sticky', (await evaluate('Math.round(document.querySelector(".topbar").getBoundingClientRect().top)')) === 12);
     check('TOC 细轨 sticky', (await evaluate('Math.round(document.querySelector(".toc-rail").getBoundingClientRect().top)')) === 84);
-    await page.send('Emulation.setDeviceMetricsOverride', { width: 1200, height: 320, deviceScaleFactor: 1, mobile: false });
+    await page.send('Emulation.setDeviceMetricsOverride', { width: 1000, height: 320, deviceScaleFactor: 1, mobile: false });
     await goto('/page.md');
-    check('1200 单列', (await evaluate('getComputedStyle(document.getElementById("shell")).gridTemplateColumns.split(" ").length')) === 1);
-    check('1200 细轨隐藏', (await evaluate('getComputedStyle(document.querySelector(".toc-rail")).display')) === 'none');
-    check('1200 内联目录', (await evaluate('getComputedStyle(document.querySelector(".toc-inline")).display')) !== 'none');
-    check('1200 无横向溢出', (await evaluate('document.documentElement.scrollWidth <= innerWidth + 1')) === true);
+    check('1000 单列', (await evaluate('getComputedStyle(document.getElementById("shell")).gridTemplateColumns.split(" ").length')) === 1);
+    check('1000 细轨隐藏', (await evaluate('getComputedStyle(document.querySelector(".toc-rail")).display')) === 'none');
+    check('1000 内联目录', (await evaluate('getComputedStyle(document.querySelector(".toc-inline")).display')) !== 'none');
+    check('1000 无横向溢出', (await evaluate('document.documentElement.scrollWidth <= innerWidth + 1')) === true);
+    await page.send('Emulation.setDeviceMetricsOverride', { width: 1200, height: 900, deviceScaleFactor: 1, mobile: false });
 
     console.log('== chunked source ==');
     await goto('/plain.txt');
@@ -1018,12 +1119,12 @@ async function main() {
     );
     await page.send('Page.removeScriptToEvaluateOnNewDocument', { identifier: noReplaceChildren.identifier });
     await goto('/big.txt');
-    await evaluate('window.scrollTo(0, document.body.scrollHeight)');
+    await scrollContentToBottom();
     check('源码滚动到末行', await waitFor('!!document.getElementById("L15001")', 3000));
     await goto('/big.txt#L12000');
     check('源码行锚点', await waitFor('!!document.querySelector(".source-chunk .gutter a.target")', 3000));
     check('源码行高亮', (await evaluate('!!document.querySelector(".source-target-line")')) === true);
-    check('源码锚点滚动', (await evaluate('window.scrollY')) > 0);
+    check('源码锚点滚动', (await currentScrollTop()) > 0);
     await goto('/wide.txt');
     check('源码长行横向滚动', await waitFor('document.querySelector(".source-wrap").scrollWidth > document.querySelector(".source-wrap").clientWidth + 100', 3000));
     await goto('/big.rs');
@@ -1094,7 +1195,7 @@ async function main() {
     check('Markdown 后段行链接', /^\/page\.md#L\d+$/.test(lateHit || ''), lateHit);
     await goto(lateHit || '/page.md');
     check('渲染页行定位高亮', await waitFor('!!document.querySelector(".line-target")', 2000));
-    check('渲染页滚动到命中行', (await evaluate('window.scrollY')) > 0);
+    check('渲染页滚动到命中行', (await currentScrollTop()) > 0);
     await goto('/search?__mdview=search&q=plain');
     const textHit = await evaluate(`(() => {
       const group = Array.from(document.querySelectorAll('.result-group')).find((node) => node.textContent.includes('plain.txt'));
@@ -1159,12 +1260,12 @@ async function main() {
     check('目录页面包屑完整', await crumbsComplete('.dir-head .crumbs', 'sub'));
     check('目录页头显示目录名', (await evaluate('document.querySelector(".dir-head h1")?.textContent')) === 'sub');
     check('目录页头项目数徽标', (await evaluate('(() => { const text = document.querySelector(".dir-head .page-meta")?.textContent || ""; return text.includes("个项目"); })()')) === true);
-    check('目录页可滚动', (await evaluate('document.documentElement.scrollHeight > innerHeight')) === true);
-    await evaluate('window.scrollTo(0, 500)');
+    check('目录页可滚动', (await evaluate('(() => { const card = document.querySelector(".content-card"); return card && getComputedStyle(card).overflowY === "auto" ? card.scrollHeight > card.clientHeight : document.documentElement.scrollHeight > innerHeight; })()')) === true);
+    await scrollContentTo(500);
     await sleep(100);
-    check('目录页已滚动', (await evaluate('window.scrollY')) > 0);
+    check('目录页已滚动', (await currentScrollTop()) > 0);
     await evaluate('document.querySelector(".totop").click()');
-    check('点击回到顶部', await waitFor('window.scrollY === 0', 3000));
+    check('点击回到顶部', await waitFor('(() => { const card = document.querySelector(".content-card"); return card && getComputedStyle(card).overflowY === "auto" ? card.scrollTop === 0 : window.scrollY === 0; })()', 3000));
 
     await goto('/page.md?raw=1');
     check('源码页回到顶部按钮', (await evaluate('document.querySelectorAll(".totop").length')) === 1);
@@ -1173,6 +1274,7 @@ async function main() {
     check('源码页类型标签', (await evaluate('document.querySelector(".source-kind")?.textContent.trim()')) === 'Markdown');
     check('源码页信息标签', (await evaluate('(() => { const text = document.querySelector(".source-head .page-meta")?.textContent || ""; return text.includes("KB") && text.includes("行") && text.includes("更新于"); })()')) === true);
     check('源码页预览按钮', (await evaluate('document.querySelector(".page-actions .action.primary")?.textContent.trim()')) === '预览');
+    check('源码页无下载按钮', (await evaluate(`document.querySelectorAll('.page-actions a.action[href*="?download=1"]').length`)) === 0);
     check('源码页 H1 无下划线', (await evaluate('getComputedStyle(document.querySelector(".page-head h1")).borderBottomWidth')) === '0px');
     check('源码页头铺满内容面', (await evaluate(`(() => {
       const card = document.querySelector('.content-card').getBoundingClientRect();
