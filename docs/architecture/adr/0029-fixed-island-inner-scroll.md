@@ -23,6 +23,8 @@
   - TOC 跳转与 scroll-spy 使用容器 `scrollTop` 和容器顶部偏移；
   - 大源码懒高亮使用容器可视区域，并把 `IntersectionObserver` 的 `root` 指向容器；
   - 行定位继续用 `scrollIntoView`，由最近滚动容器处理。
+- `.content-card` 只设置 `overscroll-behavior-y: contain`，横向保持 `auto`，让双指
+  左右滑动继续触发浏览器前进/后退；
 - 打印样式恢复 `overflow: visible` 与自动高度，分页行为不变。
 
 ## 后果

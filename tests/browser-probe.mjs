@@ -800,7 +800,8 @@ async function main() {
       const before = { card: Math.round(card.getBoundingClientRect().top), bar: Math.round(bar.getBoundingClientRect().top), bottom: Math.round(card.getBoundingClientRect().bottom) };
       card.scrollTop = 40;
       const after = { card: Math.round(card.getBoundingClientRect().top), bar: Math.round(bar.getBoundingClientRect().top) };
-      return { before, after, winY: window.scrollY, scroll: card.scrollTop, viewport: innerHeight };
+      const style = getComputedStyle(card);
+      return { before, after, winY: window.scrollY, scroll: card.scrollTop, viewport: innerHeight, overscrollX: style.overscrollBehaviorX, overscrollY: style.overscrollBehaviorY };
     })()`);
     check(
       '主岛固定只滚动内容',
@@ -808,6 +809,7 @@ async function main() {
       JSON.stringify(fixedShell),
     );
     check('主岛高度适配视口', fixedShell.before.bottom === fixedShell.viewport - 16, JSON.stringify(fixedShell));
+    check('主岛放行横向回退手势', fixedShell.overscrollX === 'auto' && fixedShell.overscrollY === 'contain', JSON.stringify(fixedShell));
     await page.send('Emulation.setDeviceMetricsOverride', { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false });
     await goto('/page.md');
     check('1280 仍为目录岛', await waitFor('document.body?.dataset.hasToc === "1" && getComputedStyle(document.getElementById("toc-island")).display === "flex"', 3000));

@@ -23,7 +23,7 @@
 | 单元 / 集成 | `cargo test` | 96 + 134 + 27 passed |
 | 黑盒 HTTP | `bash tests/selftest-rust.sh` | PASS=292 FAIL=0 |
 | TTY Trust | `bash tests/trust-tty.sh` | PASS=9 FAIL=0 |
-| 浏览器探针 | `node tests/browser-probe.mjs` | **PASS=329 FAIL=0** |
+| 浏览器探针 | `node tests/browser-probe.mjs` | **PASS=330 FAIL=0** |
 | 源码页性能 | `node tests/perf-source.mjs` | 4 项预算通过 |
 | artifact 冒烟 | `bash tests/artifact-smoke.sh` | PASS=7 FAIL=0 |
 
@@ -44,6 +44,7 @@
 | F-52 | 1000px 内联 | 1000px 打开 `/all-levels.md` | 单列，目录回到正文顶部可折叠块 | 通过 | 浏览器探针 `1000 单列/内联目录` |
 | F-35 | 源码无下载 | 打开任意 `.txt?raw=1` | 页头没有 `.page-actions a[href*="?download=1"]`；仍可直接请求 `?download=1` 下载 | 通过 | 浏览器探针、黑盒 `源码页无下载入口` |
 | F-98 | 目录岛回顶 | 打开短文档 | 「回到顶部」固定在 TOC 岛底部，不紧跟标题列表悬在岛中间 | 通过 | [F-50_shell-split-1440.png](../evidence/2026-11-06/F-50_shell-split-1440.png) |
+| F-98 | 横向回退手势 | 在主岛上双指左右滑 | 不拦截浏览器前进/后退；竖向上滑仍只在岛内滚动 | 通过 | 浏览器探针 `主岛放行横向回退手势` |
 | F-98 | 固定主岛 | 1440px 打开 `/all-levels.md`，滚动正文 | 主岛、顶栏、TOC 岛位置不变；只有 `.content-card` 的 `scrollTop` 变化，`window.scrollY` 恒为 0 | 通过 | [F-98_fixed-island-top-1440.png](../evidence/2026-11-06/F-98_fixed-island-top-1440.png) · [滚动后](../evidence/2026-11-06/F-98_fixed-island-scrolled-1440.png) |
 | F-98 | 岛内滚动 | 滚动目录页、源码页、搜索结果 | 内容在岛内滚动，主岛高度固定为视口剩余高度 | 通过 | 浏览器探针 `主岛固定只滚动内容` / `主岛高度适配视口` |
 
