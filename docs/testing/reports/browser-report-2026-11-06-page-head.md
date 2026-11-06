@@ -38,8 +38,8 @@
 | F-45 | 目录页头 | 打开 `/` | 面包屑 + 目录名 H1 + 项目数徽标 | 通过 | [F-45_page-head-dir.png](../evidence/2026-11-06/F-45_page-head-dir.png) |
 | F-45 | 搜索页头 | 1440px 打开搜索页 | 查询标题 + 文件数/结果数徽标；搜索表单在右侧同一行 | 通过 | [F-45_page-head-search.png](../evidence/2026-11-06/F-45_page-head-search.png) |
 | F-45 | 窄屏搜索页头 | 800px 打开搜索页 | 表单换到标题下方，保持紧凑，不被挤到页面底部 | 通过 | [F-45_page-head-search-800.png](../evidence/2026-11-06/F-45_page-head-search-800.png) |
-| F-95 | 下载完成反馈 | 点击文档页「下载」 | 图标换成绿色对勾，`aria-disabled=true`；100ms 内再次点击被阻止；约 100ms 后恢复原图标 | 通过 | 浏览器探针断言；图标状态见 [F-95_toolbar-download-done.png](../evidence/2026-11-06/F-95_toolbar-download-done.png) |
-| F-95 | 导出图片完成反馈 | 点击「导出图片」 | 生成完成后图标换成绿色对勾、按钮短暂 `disabled`；只显示“图片已导出”约 100ms；随后恢复 | 通过 | 浏览器探针断言（MutationObserver + disabled/status） |
+| F-95 | 下载完成反馈 | 点击文档页「下载」 | 图标换成绿色对勾，`aria-disabled=true`；500ms 内再次点击被阻止；约 500ms 后恢复原图标 | 通过 | 浏览器探针断言；图标状态见 [F-95_toolbar-download-done.png](../evidence/2026-11-06/F-95_toolbar-download-done.png) |
+| F-95 | 导出图片完成反馈 | 点击「导出图片」 | 生成完成后图标换成绿色对勾、按钮短暂 `disabled`；只显示“图片已导出”约 500ms；随后恢复 | 通过 | 浏览器探针断言（MutationObserver + disabled/status） |
 
 浏览器探针新增/更新断言：
 
@@ -59,19 +59,19 @@
 - 页头 CSS 已收敛到 `.page-head` / `.page-head-inner` / `.page-meta` /
   `.page-actions` 一套；删除了 `article-toolbar`、`doc-meta`、`source-tags`、
   `dir-head-main`、`search-head-inner` 等旧规则。
-- 下载/导出完成反馈改为约 100ms 的完成图标 + 禁用窗口，防止连续点击；导出成功后
+- 下载/导出完成反馈改为约 500ms 的完成图标 + 禁用窗口，防止连续点击；导出成功后
   只短暂显示“图片已导出”，不再使用“图片已生成”长提示；错误提示（过长/失败）仍保留。
 
-真实鼠标连点验证（1440px，下载按钮中心点，两次点击间隔 25ms）：
+真实鼠标连点验证（1440px，下载按钮中心点，两次点击间隔 150ms）：
 
 ```text
 Network ?download=1 requests: 1
-第一次点击后: is-done=true, aria-disabled=true, pointer-events=none
-第二次点击时: is-done=true, aria-disabled=true, pointer-events=none
-400ms 后:     is-done=false, aria-disabled=null, pointer-events=auto
+第一次点击后:   is-done=true, aria-disabled=true, pointer-events=none
+第二次点击时:   is-done=true, aria-disabled=true, pointer-events=none
+再等 600ms 后: is-done=false, aria-disabled=null, pointer-events=auto
 ```
 
-说明第二次点击命中不到链接，只产生一次下载请求；100ms 窗口结束后才恢复。
+说明第二次点击命中不到链接，只产生一次下载请求；500ms 窗口结束后才恢复。
 
 ## 覆盖缺口
 

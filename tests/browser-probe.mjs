@@ -624,7 +624,7 @@ async function main() {
     check('导出 PNG 完成图标是勾', (await evaluate('window.__exportDonePath')) === 'M20 6 9 17l-5-5');
     check('导出完成期间禁用按钮', (await evaluate('window.__exportDoneDisabled')) === true);
     check('导出完成提示图片已导出', (await evaluate('window.__exportDoneStatus')) === '图片已导出');
-    await sleep(250);
+    await sleep(650);
     check('导出按钮图标恢复', (await evaluate('(() => { const png = document.getElementById("export-png"); return png?.disabled === false && png?.classList.contains("is-done") === false; })()')) === true);
     check('导出完成提示自动消失', (await evaluate('document.querySelector(".export-status")?.textContent || ""')) === '');
     const downloadDone = await evaluate(`(() => {
@@ -642,7 +642,7 @@ async function main() {
     })()`);
     check('下载完成图标是勾', downloadDone.path === 'M20 6 9 17l-5-5', JSON.stringify(downloadDone));
     check('下载完成期间禁用点击', downloadDone.done === true && downloadDone.aria === 'true' && downloadDone.pointerEvents === 'none' && downloadDone.secondPrevented === true, JSON.stringify(downloadDone));
-    await sleep(250);
+    await sleep(650);
     check(
       '下载图标恢复',
       (await evaluate('(() => { const link = [...document.querySelectorAll(".page-actions a.action")].find((a) => a.href.includes("?download=1")); return link?.classList.contains("is-done") === false && link?.getAttribute("aria-disabled") === null && link?.querySelector("svg.icon path")?.getAttribute("d") === "M12 3v12"; })()')) === true,

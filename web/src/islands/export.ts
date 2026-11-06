@@ -72,7 +72,7 @@ function safeName(name: string): string {
 
 const CHECK_ICON =
   '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>';
-const DONE_MS = 100;
+const DONE_MS = 500;
 const doneTimers = new WeakMap<HTMLElement, number>();
 
 /// Swap the action icon to a check, disable it briefly, then restore it.
