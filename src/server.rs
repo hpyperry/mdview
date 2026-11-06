@@ -1108,7 +1108,13 @@ async fn handle_archive(
     let entry = request.entry_rel.trim_matches('/');
     if entry.is_empty() {
         if mode == ServeMode::Static {
-            return plain_error(StatusCode::NOT_FOUND, "Not Found");
+            // The static origin mirrors the container as a normal file. A
+            // trailing slash still names the archive directory, so 404 it.
+            if raw_path.ends_with('/') {
+                return plain_error(StatusCode::NOT_FOUND, "Not Found");
+            }
+            let info = classify(&request.path).await;
+            return serve_file(state, &request.path, &info, request.size, false, is_head).await;
         }
         if explicit_download {
             let info = classify(&request.path).await;
@@ -4805,6 +4811,21 @@ mod tests {
             headers.get(header::LOCATION).unwrap().to_str().unwrap(),
             "http://127.0.0.1:8001/sample.zip/docs/page.html"
         );
+
+        let (status, headers, body) = call(static_app.clone(), Method::GET, "/sample.zip").await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            headers
+                .get(header::CONTENT_TYPE)
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .contains("zip")
+        );
+        assert!(body.starts_with(b"PK"), "archive bytes");
+
+        let (status, _, _) = call(static_app.clone(), Method::GET, "/sample.zip/").await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
 
         let (status, _, body) = call(static_app, Method::GET, "/sample.zip/docs/page.html").await;
         assert_eq!(status, StatusCode::OK);

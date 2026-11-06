@@ -557,6 +557,9 @@ chk "第二 origin 资产 404" "$(code "$HTML_ORIGIN/_assets/app.js")" "404"
 chk "第二 origin 包内 HTML" "$(curl -s "$HTML_ORIGIN/sample.zip/docs/page.html")" '<h1>Archive HTML</h1>'
 chk "主 origin 包内 HTML 302" "$(code "$UNTRUST/sample.zip/docs/page.html")" "302"
 chk "包内 HTML 302 到第二 origin" "$(header "$UNTRUST/sample.zip/docs/page.html" location)" "$HTML_ORIGIN/sample.zip/docs/page.html"
+chk "第二 origin 压缩包文件" "$(code "$HTML_ORIGIN/sample.zip")" "200"
+chk "第二 origin 压缩包 MIME" "$(ctype "$HTML_ORIGIN/sample.zip")" "application/zip"
+chk "第二 origin 压缩包目录 404" "$(code "$HTML_ORIGIN/sample.zip/")" "404"
 
 echo "== filesystem edge cases =="
 SEC="$TMP/security"
