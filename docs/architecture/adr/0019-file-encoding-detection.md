@@ -42,8 +42,8 @@
 - 编码标签：BOM 追加 ` BOM`（如 `UTF-8 BOM`、`UTF-16LE BOM`）；有替换字符时
   追加 `（有替换）`。`title`/`aria-label` 写明“检测编码”。
 - 目录列表不加编码列；搜索页不显示编码标签。
-- **HTML 原文/沙箱 iframe 不显示、不转码**：trusted 根仍原字节、无 charset；
-  untrusted iframe 仍由浏览器按 BOM/meta 解码。
+- **HTML 原文不显示、不转码**：trusted 根与未信任的 HTML 第二 origin 都按原字节、
+  无 charset 返回，由浏览器按文档自己的 BOM/meta 解码（ADR 0025）。
 
 ### 4. 下载与子资源
 

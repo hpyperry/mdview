@@ -521,9 +521,11 @@ fi
 
 echo "== untrusted server =="
 UNTRUST_PORT="$((BASE_PORT + 7))"
-start_server "$UNTRUST_PORT" --untrusted --port-tries 0
+HTML_PORT="$((BASE_PORT + 9))"
+start_server "$UNTRUST_PORT" --untrusted --port-tries 0 --html-port "$HTML_PORT"
 wait_http "$UNTRUST_PORT" || { echo "untrusted server failed"; exit 2; }
 UNTRUST="http://127.0.0.1:$UNTRUST_PORT"
+HTML_ORIGIN="http://127.0.0.1:$HTML_PORT"
 PAGE="$(curl -s "$UNTRUST/a.md")"
 chk "未信任拦截面" "$PAGE" "仍要打开"
 chk "Trust 页面文案" "$PAGE" "此目录尚未受信任"
@@ -535,16 +537,29 @@ REUSED="$(curl -s "$UNTRUST/a.md?open=$TOKEN")"
 chk "令牌复用再次拦截" "$REUSED" "仍要打开"
 chk "raw 绕过拦截" "$(curl -s "$UNTRUST/a.md?raw=1")" "<h1>a.md</h1>"
 chk "download 绕过拦截" "$(curl -s "$UNTRUST/a.md?download=1")" "# Hello"
-UNTRUST_HTML="$(curl -s "$UNTRUST/page.html")"
-chk "未信任 HTML 是沙箱外壳" "$UNTRUST_HTML" 'data-page="html"'
-chk "未信任 HTML 有 tabs" "$UNTRUST_HTML" 'html-toolbar'
-chk "未信任 HTML iframe" "$UNTRUST_HTML" 'src="/page.html?view=1"'
-chk "未信任 HTML sandbox" "$UNTRUST_HTML" 'sandbox="allow-scripts allow-forms allow-modals allow-popups"'
-chk "未信任 HTML frame-src self" "$(header "$UNTRUST/page.html" content-security-policy)" "frame-src 'self'"
-chk "未信任裸页原文" "$(curl -s "$UNTRUST/page.html?view=1")" '<h1>HTML Probe</h1>'
-chk "未信任裸页 CSP sandbox" "$(header "$UNTRUST/page.html?view=1" content-security-policy)" "sandbox allow-scripts"
-chk "未信任裸页 Referrer-Policy" "$(header "$UNTRUST/page.html?view=1" referrer-policy)" "no-referrer"
+chk "未信任 HTML 302 到第二 origin" "$(code "$UNTRUST/page.html")" "302"
+chk "未信任 HTML Location" "$(header "$UNTRUST/page.html" location)" "$HTML_ORIGIN/page.html"
+chk "未信任 ?view=1 也是 302" "$(code "$UNTRUST/page.html?view=1")" "302"
+chk "未信任 ?view=1 Location" "$(header "$UNTRUST/page.html?view=1" location)" "$HTML_ORIGIN/page.html"
+chk "未信任 object 不绕过" "$(curl -s -o /dev/null -w '%{http_code}' -H 'Sec-Fetch-Dest: object' "$UNTRUST/page.html")" "302"
 chk "未信任 HTML 源码 tabs" "$(curl -s "$UNTRUST/page.html?raw=1")" 'html-toolbar'
+chk "未信任源码预览指向第二 origin" "$(curl -s "$UNTRUST/page.html?raw=1")" "href=\"$HTML_ORIGIN/page.html\""
+chk "第二 origin 原文" "$(curl -s "$HTML_ORIGIN/page.html")" '<h1>HTML Probe</h1>'
+chk "第二 origin HTML MIME" "$(ctype "$HTML_ORIGIN/page.html")" "text/html"
+nchk "第二 origin HTML 无 CSP" "$(header "$HTML_ORIGIN/page.html" content-security-policy)" "sandbox"
+chk "第二 origin CSS MIME" "$(ctype "$HTML_ORIGIN/style.css")" "text/css; charset=utf-8"
+chk "第二 origin JS MIME" "$(ctype "$HTML_ORIGIN/docs.js")" "text/javascript; charset=utf-8"
+chk "第二 origin 目录 404" "$(code "$HTML_ORIGIN/")" "404"
+nchk "第二 origin 无 mdview 导航 JSON" "$(curl -s "$HTML_ORIGIN/_nav?__mdview=nav")" '"tree"'
+chk "第二 origin 同名 _nav 文件优先" "$(curl -s "$HTML_ORIGIN/_nav?__mdview=nav")" "a real nav file"
+chk "第二 origin 缺失路径 404" "$(code "$HTML_ORIGIN/__missing__")" "404"
+chk "第二 origin 资产 404" "$(code "$HTML_ORIGIN/_assets/app.js")" "404"
+chk "第二 origin 包内 HTML" "$(curl -s "$HTML_ORIGIN/sample.zip/docs/page.html")" '<h1>Archive HTML</h1>'
+chk "主 origin 包内 HTML 302" "$(code "$UNTRUST/sample.zip/docs/page.html")" "302"
+chk "包内 HTML 302 到第二 origin" "$(header "$UNTRUST/sample.zip/docs/page.html" location)" "$HTML_ORIGIN/sample.zip/docs/page.html"
+chk "第二 origin 压缩包文件" "$(code "$HTML_ORIGIN/sample.zip")" "200"
+chk "第二 origin 压缩包 MIME" "$(ctype "$HTML_ORIGIN/sample.zip")" "application/zip"
+chk "第二 origin 压缩包目录 404" "$(code "$HTML_ORIGIN/sample.zip/")" "404"
 
 echo "== filesystem edge cases =="
 SEC="$TMP/security"

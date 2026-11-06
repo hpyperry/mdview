@@ -46,13 +46,14 @@ cargo build --release
 [0012](docs/architecture/adr/0012-island-frontend-architecture.md)（岛屿前端与全宽外壳）、
 [0013](docs/architecture/adr/0013-full-site-navigation-island.md)（全站导航浮岛与默认收起）、
 [0014](docs/architecture/adr/0014-markdown-line-target.md)（Markdown 搜索结果行定位到渲染块）、
-[0015](docs/architecture/adr/0015-html-file-preview-and-sandbox.md)（HTML 文件双模式与沙箱预览）、
+[0015](docs/architecture/adr/0015-html-file-preview-and-sandbox.md)（HTML 文件双模式；未信任部分由 0025 取代）、
 [0016](docs/architecture/adr/0016-archive-virtual-paths.md)（压缩包虚拟路径与解压缓存）、
 [0017](docs/architecture/adr/0017-internal-url-query-disambiguation.md)（内部 URL 查询参数消歧）、
 [0018](docs/architecture/adr/0018-markdown-extension-scope.md)（Markdown 扩展名口径）、
 [0019](docs/architecture/adr/0019-file-encoding-detection.md)（文件编码检测与 UTF-8 预览）、
 [0020](docs/architecture/adr/0020-nav-layered-preload.md)（全站导航三层预载与按需展开）、
-[0021](docs/architecture/adr/0021-archive-format-expansion.md)（tar 家族与 ZIP 容器扩展）。
+[0021](docs/architecture/adr/0021-archive-format-expansion.md)（tar 家族与 ZIP 容器扩展）、
+[0025](docs/architecture/adr/0025-html-second-origin.md)（未信任 HTML 的第二 origin 静态镜像）。
 完整索引见 [`docs/architecture/adr/README.md`](docs/architecture/adr/README.md)。
 
 ## 功能
@@ -120,9 +121,10 @@ cargo build --release
 | `GET /x.md` | 渲染为 HTML（未信任目录先出现一次确认页）；页头显示检测编码 |
 | `GET /x.md?raw=1` | 源码查看页：文件名为标题，类型/大小/行数/编码名/时间标签、行号、`id="L<n>"` 行锚点、预览/下载入口 |
 | `GET /x.md?download=1` | 原始字节 + `Content-Disposition`；非 HTML 文本 charset 用检测值 |
-| `GET /x.html` | 已信任根：原字节 `text/html` 顶层返回，无外壳/沙箱；未信任根：外壳 + 沙箱 iframe（可切源码） |
-| `GET /x.html?raw=1` | HTML 源码页；可信/未信任都可用 |
-| `GET /x.html?view=1` | 裸页：已信任根是原文；未信任根是沙箱裸页（CSP `sandbox`） |
+| `GET /x.html` | 已信任根：原字节 `text/html` 顶层返回，无外壳/沙箱；未信任根：302 到 HTML 第二 origin |
+| `GET /x.html?raw=1` | HTML 源码页；可信/未信任都可用，“预览”tab 指向对应 origin |
+| `GET /x.html?view=1` | 不再有独立语义；按普通 HTML 请求处理（未信任时同样 302） |
+| `GET :htmlPort/x.html` | HTML 第二 origin（未信任根）：只读静态镜像，真实 MIME；无外壳/导航/搜索；存储、Service Worker、module 正常 |
 | `GET /x.html?download=1` | 原始字节 + `Content-Disposition`；保持 `text/html` 不带 charset |
 | `GET /a.zip/` | 压缩包虚拟目录：包名/格式/大小/条目数与“下载压缩包”；包内目录与文件复用目录列表 |
 | `GET /a.zip/docs/x.md` | 包内条目；Markdown/源码/图片/PDF/HTML 走现有管线；相对链接保持在包内 |
@@ -157,9 +159,10 @@ cargo build --release
 HTML 文件内部的 CSS/JS/图片等子资源按真实 MIME 返回，不受该限制（否则大图或
 相对样式表会把页面弄坏）。已信任根的 HTML 是顶层同源原文：脚本、localStorage、
 同源 fetch、下载和顶层链接都正常，和 Python 版/静态服务器一致；它也能读到站点
-内的同源数据，所以只对可信目录开放。未信任根才使用 opaque-origin 沙箱，脚本
-读不到 `/_nav?__mdview=nav`、搜索、同源文件、localStorage 或父页面；`--safe`
-下只提供源码。
+内的同源数据，所以只对可信目录开放。未信任根的独立 HTML 交接到第二 origin
+（只读静态镜像）：脚本、storage、Service Worker、module 与同源 fetch 正常，但
+读不到主 origin 的 `/_nav?__mdview=nav`、搜索或 localStorage；`--safe` 下只提供
+源码，不启动第二 origin。
 超过 **256 KB** 的文本源码页仍由服务端输出**全文**，按 500 行分块并用
 `content-visibility: auto` 跳过离屏布局与绘制；无 JS 时同样能读到全文。
 行锚点与语法高亮由脚本按可见分块懒加载。
@@ -192,18 +195,25 @@ HTML 文件内部的 CSS/JS/图片等子资源按真实 MIME 返回，不受该�
 
 独立 `.html` 由 Trust 决定：**已信任根**直接以 `text/html` 顶层返回原字节，无
 mdview 外壳、无沙箱、无 CSP；脚本同源运行，链接、localStorage、同源 fetch 与
-下载都像 Python 版/静态服务器。**未信任根**才用外壳 + 沙箱 iframe（`?view=1`
-是沙箱裸页），脚本处于 opaque origin，读不到本站同源数据。`?raw=1` 始终是源码页；
-`--safe` 下只显示源码。独立 HTML 不走 Markdown 的一次性令牌拦截面。
-压缩包条目沿用服务根 Trust：trusted 包内 HTML 是原文，untrusted 包内 HTML 走沙箱。
+下载都像 Python 版/静态服务器。**未信任根**返回 302，交接到 **HTML 第二 origin**
+（默认主端口 + 1，`--html-port` 可覆盖）：第二 origin 是整个服务根的只读静态镜像，
+返回真实 MIME，不暴露 mdview 导航/搜索/资产；因为端口不同，它是独立 origin，
+存储、Service Worker、module 与同源 fetch 正常工作，同时读不到主 origin 的存储。
+`?raw=1` 始终是主 origin 的源码页；`--safe` 下只显示源码且不启动第二 origin。
+独立 HTML 不走 Markdown 的一次性令牌拦截面。
+压缩包条目沿用服务根 Trust：trusted 包内 HTML 是原文，untrusted 包内 HTML 同样
+302 到第二 origin。
 SVG 直开始终带 `CSP: sandbox`，`<script>` 不执行（`<img>` 内嵌不受影响）。
 
 CSP 四档：0 Strict（默认）、1 允许 HTTP、2 关闭（不推荐）、3 允许 localhost HTTP。
 所有 mdview 生成页面带 `X-Content-Type-Options: nosniff`；`script-src` 只信任每个
-响应新生成的 nonce，**没有 `'self'`**；`frame/base/object 'none'`（未信任 HTML
-外壳仅把 `frame-src` 放宽为 `'self'`，用于自己的沙箱 iframe）；`form-action 'self'`
-（仅用于本站搜索表单）。已信任 HTML 原文不套这条 CSP；未信任沙箱预览用自己的
-`sandbox` CSP。
+响应新生成的 nonce，**没有 `'self'`**；`frame/base/object 'none'`；`form-action
+'self'`（仅用于本站搜索表单）。独立 HTML 原文（trusted 主 origin 或未信任的
+HTML 第二 origin）不套这条 CSP；只有直开的 SVG 保留自己的 `sandbox` CSP。
+
+第二 origin 是**整个服务根**的静态镜像，能读隐藏文件与 `.git`；不要在含机密的
+根里运行未信任 HTML，或改用 `--safe`（只给源码）。端口隔离也不是 cookie 隔离：
+cookie 按 domain 共享。反向代理只转发主端口时，第二端口需要单独暴露。
 
 ## 与 VS Code 的一致性
 
@@ -249,11 +259,11 @@ Chromium 86/87 不再承诺。页面不使用 `light-dark()`/`color-mix()` 等�
 ```bash
 npm --prefix web ci
 npm --prefix web run typecheck
-cargo test                      # 90 单元 + 134 渲染兼容 + 27 golden
+cargo test                      # 94 单元 + 134 渲染兼容 + 27 golden
 cargo clippy --all-targets -- -D warnings
-bash tests/selftest-rust.sh     # 278 项真二进制 HTTP 断言
+bash tests/selftest-rust.sh     # 292 项真二进制 HTTP 断言
 node tests/check-css-baseline.mjs # Chromium 88 基线黑名单 + 深色色板同步
-node tests/browser-probe.mjs      # 262 项 headless Chrome 验收
+node tests/browser-probe.mjs      # 271 项 headless Chrome 验收
 node tests/perf-source.mjs        # 4 项源码页性能预算
 bash tests/trust-tty.sh           # 9 项真实 pty 信任测试
 ```

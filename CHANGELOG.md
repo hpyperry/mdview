@@ -1,5 +1,14 @@
 # Changelog
 
+## 未发布
+
+### 变更
+
+- 未信任根的独立 HTML 不再使用 `sandbox` iframe，改为 302 到 **HTML 第二 origin**
+  的只读静态镜像（默认主端口 + 1，`--html-port` 可覆盖）。module、sessionStorage、
+  Service Worker、同源 fetch 与真实 MIME 恢复正常；主 origin 不直出未信任 HTML。
+- 移除沙箱外壳、`?view=1` 裸页与相关 CSS；`?raw=1` 源码页与 `?download=1` 不变。
+
 ## 2.3.0（2026-11-05）
 
 ### 新增

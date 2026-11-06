@@ -27,7 +27,7 @@ sevenz-rust2 = "0.20"
 tar = "0.4"
 tempfile = "3"
 time = { version = "0.3", features = ["formatting", "local-offset"] }
-tokio = { version = "1", features = ["fs", "io-util", "macros", "net", "rt-multi-thread", "signal"] }
+tokio = { version = "1", features = ["fs", "io-util", "macros", "net", "rt-multi-thread", "signal", "sync"] }
 tokio-util = { version = "0.7", features = ["io"] }
 toml = "0.8"
 walkdir = "2"

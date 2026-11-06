@@ -162,7 +162,6 @@ const SOURCE_CHUNK_LINES: usize = 500;
 
 /// The standalone HTML preview runs in an opaque origin: scripts may execute,
 /// but they cannot read the mdview origin, local files or storage.
-const HTML_PREVIEW_CSP: &str = "sandbox allow-scripts allow-forms allow-modals allow-popups; frame-ancestors 'self'; object-src 'none'";
 /// Direct SVG navigation is sandboxed as well. Links still work after a user
 /// click, but embedded `<script>` elements do not run.
 const SVG_SANDBOX_CSP: &str = "sandbox allow-top-navigation-by-user-activation";
@@ -175,6 +174,10 @@ pub struct AppState {
     pub max_preview: u64,
     pub trust: TrustState,
     pub verbose: bool,
+    /// Port of the read-only HTML origin used for untrusted HTML. `None` means
+    /// the second listener is unavailable (trusted/safe, or every port busy);
+    /// untrusted HTML then falls back to the source page.
+    pub html_port: Option<u16>,
     pub archives: ArchiveStore,
     tokens: Arc<Mutex<HashMap<String, TokenEntry>>>,
     cache: Arc<Mutex<HashMap<PathBuf, CacheEntry>>>,
@@ -209,6 +212,7 @@ impl AppState {
             max_preview,
             trust,
             verbose: false,
+            html_port: None,
             archives: ArchiveStore::new(),
             tokens: Arc::new(Mutex::new(HashMap::new())),
             cache: Arc::new(Mutex::new(HashMap::new())),
@@ -217,6 +221,11 @@ impl AppState {
 
     pub fn with_verbose(mut self, verbose: bool) -> Self {
         self.verbose = verbose;
+        self
+    }
+
+    pub fn with_html_port(mut self, port: Option<u16>) -> Self {
+        self.html_port = port;
         self
     }
 
@@ -268,6 +277,17 @@ pub fn app(state: AppState) -> Router {
         .route("/_assets/app.css", get(asset_app_css))
         .route("/_assets/app.js", get(asset_app_js))
         .fallback(handle)
+        .with_state(state.clone())
+        .layer(middleware::from_fn_with_state(state, log_request))
+}
+
+/// Read-only static server for the HTML origin. It deliberately has no mdview
+/// routes: no search, no nav JSON, no embedded assets. Everything under the
+/// root is served as raw bytes with its real MIME, and HTML runs as a normal
+/// top-level document on this separate origin.
+pub fn app_static(state: AppState) -> Router {
+    Router::new()
+        .fallback(handle_static)
         .with_state(state.clone())
         .layer(middleware::from_fn_with_state(state, log_request))
 }
@@ -461,9 +481,8 @@ pub async fn run(
     max_preview: u64,
     trust: TrustState,
 ) -> anyhow::Result<()> {
-    let state =
+    let mut state =
         AppState::new(root, cli.safe, cli.no_search, max_preview, trust).with_verbose(cli.verbose);
-    let app = app(state.clone());
 
     let mut bound = None;
     let mut last_err = None;
@@ -490,11 +509,88 @@ pub async fn run(
         )
     })?;
 
-    print_banner(&cli, &state.root, max_preview, state.trust, port);
-    axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal())
-        .await?;
+    // Untrusted HTML runs on its own origin. Trusted roots keep the plain
+    // top-level raw path, and --safe never starts the second listener.
+    let (html_listener, html_port) = if !cli.safe && !trust.trusted {
+        bind_html(&cli, port).await
+    } else {
+        (None, None)
+    };
+    state = state.with_html_port(html_port);
+
+    let app = app(state.clone());
+    let html_app = html_listener.as_ref().map(|_| app_static(state.clone()));
+
+    print_banner(&cli, &state.root, max_preview, state.trust, port, html_port);
+
+    let (shutdown_tx, _) = tokio::sync::broadcast::channel::<()>(1);
+    let mut tasks = tokio::task::JoinSet::new();
+    {
+        let mut rx = shutdown_tx.subscribe();
+        tasks.spawn(async move {
+            axum::serve(listener, app)
+                .with_graceful_shutdown(async move {
+                    let _ = rx.recv().await;
+                })
+                .await
+        });
+    }
+    if let (Some(html_listener), Some(html_app)) = (html_listener, html_app) {
+        let mut rx = shutdown_tx.subscribe();
+        tasks.spawn(async move {
+            axum::serve(html_listener, html_app)
+                .with_graceful_shutdown(async move {
+                    let _ = rx.recv().await;
+                })
+                .await
+        });
+    }
+
+    tokio::select! {
+        _ = shutdown_signal() => {
+            let _ = shutdown_tx.send(());
+        }
+        result = tasks.join_next() => {
+            let _ = shutdown_tx.send(());
+            if let Some(result) = result {
+                result??;
+            }
+        }
+    }
+    while let Some(result) = tasks.join_next().await {
+        result??;
+    }
     Ok(())
+}
+
+/// The HTML origin gets its own fixed retry budget: `--port-tries` describes
+/// the main listener, and a caller that pins the main port to one attempt
+/// should still let the HTML origin move out of the way.
+const HTML_PORT_TRIES: u16 = 10;
+
+async fn bind_html(cli: &Cli, main_port: u16) -> (Option<tokio::net::TcpListener>, Option<u16>) {
+    let start = cli.html_port.unwrap_or_else(|| main_port.saturating_add(1));
+    for offset in 0..HTML_PORT_TRIES {
+        let Some(port) = start.checked_add(offset) else {
+            break;
+        };
+        if port == main_port {
+            continue;
+        }
+        let addr = format_addr(&cli.host, port);
+        if let Ok(listener) = tokio::net::TcpListener::bind(&addr).await {
+            let actual = listener
+                .local_addr()
+                .map(|addr| addr.port())
+                .unwrap_or(port);
+            return (Some(listener), Some(actual));
+        }
+    }
+    eprintln!(
+        "warning: HTML 第二 origin 无法绑定 {}:{} 起 {} 个端口；未信任 HTML 将回退源码页",
+        cli.host, start, HTML_PORT_TRIES
+    );
+    (None, None)
 }
 
 fn format_addr(host: &str, port: u16) -> String {
@@ -505,7 +601,14 @@ fn format_addr(host: &str, port: u16) -> String {
     }
 }
 
-fn print_banner(cli: &Cli, root: &Path, max_preview: u64, trust: TrustState, port: u16) {
+fn print_banner(
+    cli: &Cli,
+    root: &Path,
+    max_preview: u64,
+    trust: TrustState,
+    port: u16,
+    html_port: Option<u16>,
+) {
     if APP_CSS.is_empty() || APP_JS.is_empty() {
         eprintln!(
             "warning: 内嵌 web 资产为空（app.css={} bytes, app.js={} bytes）；页面会丢样式或交互，请重新构建 web 资产",
@@ -528,7 +631,20 @@ fn print_banner(cli: &Cli, root: &Path, max_preview: u64, trust: TrustState, por
         env!("CARGO_PKG_VERSION")
     );
     println!("  root:        {}", root.display());
-    println!("  listen:      http://{}:{}", cli.host, port);
+    println!("  listen:      http://{}", format_addr(&cli.host, port));
+    if !cli.safe && !trust.trusted {
+        match html_port {
+            Some(html_port) => {
+                println!(
+                    "  html:        http://{}",
+                    format_addr(&cli.host, html_port)
+                );
+            }
+            None => {
+                println!("  html:        (未启动，未信任 HTML 回退源码页)");
+            }
+        }
+    }
     println!(
         "  max preview: {}",
         if max_preview == 0 {
@@ -590,9 +706,32 @@ async fn handle(
     headers: HeaderMap,
     Query(query): Query<HashMap<String, String>>,
 ) -> Response {
+    handle_inner(state, method, uri, headers, query, ServeMode::Preview).await
+}
+
+async fn handle_static(
+    State(state): State<AppState>,
+    method: Method,
+    uri: Uri,
+    headers: HeaderMap,
+    Query(query): Query<HashMap<String, String>>,
+) -> Response {
+    handle_inner(state, method, uri, headers, query, ServeMode::Static).await
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn handle_inner(
+    state: AppState,
+    method: Method,
+    uri: Uri,
+    headers: HeaderMap,
+    query: HashMap<String, String>,
+    mode: ServeMode,
+) -> Response {
     if method != Method::GET && method != Method::HEAD {
-        return error_page(
+        return mode_error(
             &state,
+            mode,
             StatusCode::METHOD_NOT_ALLOWED,
             "这个操作暂时不支持",
             false,
@@ -605,18 +744,35 @@ async fn handle(
     let decoded = match percent_decode_str(raw_path).decode_utf8() {
         Ok(value) => value,
         Err(_) => {
-            return error_page(&state, StatusCode::BAD_REQUEST, "地址格式不正确", is_head).await;
+            return mode_error(
+                &state,
+                mode,
+                StatusCode::BAD_REQUEST,
+                "地址格式不正确",
+                is_head,
+            )
+            .await;
         }
     };
     let rel = decoded.trim_start_matches('/');
     if rel.contains('\0') || rel.contains('\\') {
-        return error_page(&state, StatusCode::BAD_REQUEST, "地址格式不正确", is_head).await;
+        return mode_error(
+            &state,
+            mode,
+            StatusCode::BAD_REQUEST,
+            "地址格式不正确",
+            is_head,
+        )
+        .await;
     }
 
     if !state.safe
         && let Some(request) = archive::detect(&state.root, rel).await
     {
-        return handle_archive(&state, &request, raw_path, &uri, &query, &headers, is_head).await;
+        return handle_archive(
+            &state, &request, raw_path, &uri, &query, &headers, is_head, mode,
+        )
+        .await;
     }
 
     let target = match resolve_path(&state.root, rel).await {
@@ -627,15 +783,16 @@ async fn handle(
             } else {
                 "这个文件不存在，或已被移动"
             };
-            return error_page(&state, status, message, is_head).await;
+            return mode_error(&state, mode, status, message, is_head).await;
         }
     };
 
     let metadata = match tokio::fs::metadata(&target).await {
         Ok(meta) => meta,
         Err(_) => {
-            return error_page(
+            return mode_error(
                 &state,
+                mode,
                 StatusCode::NOT_FOUND,
                 "这个文件不存在，或已被移动",
                 is_head,
@@ -645,6 +802,11 @@ async fn handle(
     };
 
     if metadata.is_dir() {
+        // The static HTML origin mirrors files only. Directory browsing stays
+        // on the main origin, so the two origins cannot drift into two UIs.
+        if mode == ServeMode::Static {
+            return plain_error(StatusCode::NOT_FOUND, "Not Found", is_head);
+        }
         if !raw_path.ends_with('/') {
             let location = match uri.query() {
                 Some(q) => format!("{raw_path}/?{q}"),
@@ -656,14 +818,22 @@ async fn handle(
     }
 
     if !metadata.is_file() {
-        return error_page(&state, StatusCode::NOT_FOUND, "这个文件无法预览", is_head).await;
+        return mode_error(
+            &state,
+            mode,
+            StatusCode::NOT_FOUND,
+            "这个文件无法预览",
+            is_head,
+        )
+        .await;
     }
 
     // A file path ending in `/` (literal or encoded `%2f`) names a collection,
     // not the file. Python's static server and our archive entries both 404 it.
     if decoded.ends_with('/') {
-        return error_page(
+        return mode_error(
             &state,
+            mode,
             StatusCode::NOT_FOUND,
             "这个文件不存在，或已被移动",
             is_head,
@@ -672,8 +842,9 @@ async fn handle(
     }
 
     if state.safe && !allowed_in_safe_mode(&target) {
-        return error_page(
+        return mode_error(
             &state,
+            mode,
             StatusCode::NOT_FOUND,
             "这个文件不存在，或已被移动",
             is_head,
@@ -688,8 +859,10 @@ async fn handle(
         metadata.len(),
         metadata.modified().unwrap_or(SystemTime::UNIX_EPOCH),
         &headers,
+        &uri,
         &query,
         is_head,
+        mode,
     )
     .await;
 }
@@ -702,10 +875,20 @@ async fn handle_file(
     size: u64,
     mtime: SystemTime,
     headers: &HeaderMap,
+    uri: &Uri,
     query: &HashMap<String, String>,
     is_head: bool,
+    mode: ServeMode,
 ) -> Response {
     let info = classify(path).await;
+
+    // The second origin is a pure static mirror: never render, never show the
+    // source page, never enforce `--max-preview`. HTML is raw and scripts run
+    // on that origin, isolated from the mdview origin by the port boundary.
+    if mode == ServeMode::Static {
+        return serve_static_file(state, path, &info, size, is_head).await;
+    }
+
     let fetch = fetch_kind(headers, path);
     let explicit_download = query.get("download").map(|v| v == "1").unwrap_or(false);
 
@@ -727,7 +910,7 @@ async fn handle_file(
     match info.kind {
         Kind::Markdown => {
             if query.get("raw").map(|value| value == "1").unwrap_or(false) {
-                return source_page(state, path, rel, &info, mtime, is_head).await;
+                return source_page(state, path, rel, &info, mtime, headers, None, is_head).await;
             }
             if state.trust.trusted {
                 return render_page(state, path, rel, is_head).await;
@@ -740,27 +923,138 @@ async fn handle_file(
             interstitial_page(state, rel, is_head).await
         }
         Kind::Html => {
-            if state.safe {
-                return source_page(state, path, rel, &info, mtime, is_head).await;
-            }
-            if query.get("raw").map(|value| value == "1").unwrap_or(false) {
-                return source_page(state, path, rel, &info, mtime, is_head).await;
+            if state.safe || query.get("raw").map(|value| value == "1").unwrap_or(false) {
+                return source_page(state, path, rel, &info, mtime, headers, None, is_head).await;
             }
             // A trusted root is the "simple static server" path: serve the
             // original HTML as a top-level document, like the Python version.
-            // Only untrusted roots fall back to the sandbox preview shell.
             if state.trust.trusted {
                 return html_trusted_document(state, path, size, is_head).await;
             }
-            if query.get("view").map(|value| value == "1").unwrap_or(false)
-                || fetch == FetchKind::Iframe
-            {
-                return html_preview_document(state, path, size, is_head).await;
+            // Untrusted HTML runs on a separate origin, not in a sandboxed
+            // iframe on this one. That is what makes storage, service workers
+            // and module scripts work without giving the page mdview's origin.
+            if let Some(origin) = html_origin(state, headers) {
+                return temporary_redirect(&html_redirect_location(&origin, uri));
             }
-            html_preview_page(state, rel, &info, size, mtime, is_head).await
+            let notice = "HTML 第二 origin 未启动（端口被占用或不可用），已回退到源码页；\
+                          修复端口后刷新即可直接运行。";
+            source_page(
+                state,
+                path,
+                rel,
+                &info,
+                mtime,
+                headers,
+                Some(notice),
+                is_head,
+            )
+            .await
         }
-        Kind::Text => source_page(state, path, rel, &info, mtime, is_head).await,
+        Kind::Text => source_page(state, path, rel, &info, mtime, headers, None, is_head).await,
         Kind::Binary => serve_file(state, path, &info, size, false, is_head).await,
+    }
+}
+
+async fn serve_static_file(
+    state: &AppState,
+    path: &Path,
+    info: &FileInfo,
+    size: u64,
+    is_head: bool,
+) -> Response {
+    match info.kind {
+        Kind::Binary => serve_file(state, path, info, size, false, is_head).await,
+        _ => serve_raw(state, path, info, size, is_head).await,
+    }
+}
+
+fn html_origin(state: &AppState, headers: &HeaderMap) -> Option<String> {
+    let port = state.html_port?;
+    let host = headers
+        .get(header::HOST)
+        .and_then(|value| value.to_str().ok())
+        .map(host_without_port)
+        .filter(|host| !host.is_empty())
+        .unwrap_or("127.0.0.1");
+    Some(format!("http://{host}:{port}"))
+}
+
+fn host_without_port(host: &str) -> &str {
+    let host = host.trim();
+    if host.starts_with('[') {
+        return host.find(']').map(|end| &host[..=end]).unwrap_or(host);
+    }
+    match host.rsplit_once(':') {
+        Some((name, port)) if !name.is_empty() && port.chars().all(|ch| ch.is_ascii_digit()) => {
+            name
+        }
+        _ => host,
+    }
+}
+
+fn html_redirect_location(origin: &str, uri: &Uri) -> String {
+    let mut location = format!("{origin}{}", uri.path());
+    let kept: Vec<&str> = uri
+        .query()
+        .map(|query| {
+            query
+                .split('&')
+                .filter(|part| {
+                    !part.is_empty()
+                        && !part.starts_with("view=")
+                        && !part.starts_with("raw=")
+                        && !part.starts_with("download=")
+                        && !part.starts_with("open=")
+                        && !part.starts_with("__mdview=")
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    if !kept.is_empty() {
+        location.push('?');
+        location.push_str(&kept.join("&"));
+    }
+    location
+}
+
+fn temporary_redirect(location: &str) -> Response {
+    Response::builder()
+        .status(StatusCode::FOUND)
+        .header(header::LOCATION, location)
+        .header(header::CONTENT_LENGTH, "0")
+        .header(header::CACHE_CONTROL, "no-store")
+        .header("X-Content-Type-Options", "nosniff")
+        .body(Body::empty())
+        .unwrap()
+}
+
+fn plain_error(status: StatusCode, message: &str, is_head: bool) -> Response {
+    let body = if is_head {
+        Body::empty()
+    } else {
+        Body::from(message.to_string())
+    };
+    Response::builder()
+        .status(status)
+        .header(header::CONTENT_TYPE, "text/plain; charset=utf-8")
+        .header(header::CONTENT_LENGTH, message.len().to_string())
+        .header(header::CACHE_CONTROL, "no-store")
+        .header("X-Content-Type-Options", "nosniff")
+        .body(body)
+        .unwrap()
+}
+
+async fn mode_error(
+    state: &AppState,
+    mode: ServeMode,
+    status: StatusCode,
+    message: &str,
+    is_head: bool,
+) -> Response {
+    match mode {
+        ServeMode::Preview => error_page(state, status, message, is_head).await,
+        ServeMode::Static => plain_error(status, message, is_head),
     }
 }
 
@@ -768,6 +1062,7 @@ async fn load_archive(
     state: &AppState,
     request: &ArchiveRequest,
     is_head: bool,
+    mode: ServeMode,
 ) -> Result<Arc<Extracted>, Box<Response>> {
     let store = state.archives.clone();
     let request = request.clone();
@@ -780,8 +1075,9 @@ async fn load_archive(
                 StatusCode::BAD_REQUEST
             };
             Err(Box::new(
-                error_page(
+                mode_error(
                     state,
+                    mode,
                     status,
                     &format!("压缩包无法预览：{}", error.message),
                     is_head,
@@ -790,8 +1086,9 @@ async fn load_archive(
             ))
         }
         Err(_) => Err(Box::new(
-            error_page(
+            mode_error(
                 state,
+                mode,
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "压缩包解压失败",
                 is_head,
@@ -801,6 +1098,7 @@ async fn load_archive(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn handle_archive(
     state: &AppState,
     request: &ArchiveRequest,
@@ -809,10 +1107,20 @@ async fn handle_archive(
     query: &HashMap<String, String>,
     headers: &HeaderMap,
     is_head: bool,
+    mode: ServeMode,
 ) -> Response {
     let explicit_download = query.get("download").is_some_and(|value| value == "1");
     let entry = request.entry_rel.trim_matches('/');
     if entry.is_empty() {
+        if mode == ServeMode::Static {
+            // The static origin mirrors the container as a normal file. A
+            // trailing slash still names the archive directory, so 404 it.
+            if raw_path.ends_with('/') {
+                return plain_error(StatusCode::NOT_FOUND, "Not Found", is_head);
+            }
+            let info = classify(&request.path).await;
+            return serve_file(state, &request.path, &info, request.size, false, is_head).await;
+        }
         if explicit_download {
             let info = classify(&request.path).await;
             return serve_file(state, &request.path, &info, request.size, true, is_head).await;
@@ -824,7 +1132,7 @@ async fn handle_archive(
             };
             return redirect(&location);
         }
-        let extracted = match load_archive(state, request, is_head).await {
+        let extracted = match load_archive(state, request, is_head, mode).await {
             Ok(extracted) => extracted,
             Err(response) => return *response,
         };
@@ -844,22 +1152,30 @@ async fn handle_archive(
         .await;
     }
 
-    let extracted = match load_archive(state, request, is_head).await {
+    let extracted = match load_archive(state, request, is_head, mode).await {
         Ok(extracted) => extracted,
         Err(response) => return *response,
     };
     let entry_path = match archive::safe_entry_path(entry) {
         Ok(path) => path,
         Err(_) => {
-            return error_page(state, StatusCode::BAD_REQUEST, "压缩包路径不正确", is_head).await;
+            return mode_error(
+                state,
+                mode,
+                StatusCode::BAD_REQUEST,
+                "压缩包路径不正确",
+                is_head,
+            )
+            .await;
         }
     };
     let target = extracted.root.join(&entry_path);
     let canonical = match tokio::fs::canonicalize(&target).await {
         Ok(path) => path,
         Err(_) => {
-            return error_page(
+            return mode_error(
                 state,
+                mode,
                 StatusCode::NOT_FOUND,
                 "压缩包中没有这个条目",
                 is_head,
@@ -868,13 +1184,21 @@ async fn handle_archive(
         }
     };
     if !canonical.starts_with(&extracted.root) {
-        return error_page(state, StatusCode::FORBIDDEN, "无法打开这个地址", is_head).await;
+        return mode_error(
+            state,
+            mode,
+            StatusCode::FORBIDDEN,
+            "无法打开这个地址",
+            is_head,
+        )
+        .await;
     }
     let metadata = match tokio::fs::metadata(&canonical).await {
         Ok(metadata) => metadata,
         Err(_) => {
-            return error_page(
+            return mode_error(
                 state,
+                mode,
                 StatusCode::NOT_FOUND,
                 "压缩包中没有这个条目",
                 is_head,
@@ -888,6 +1212,9 @@ async fn handle_archive(
         entry_path.to_string_lossy().replace('\\', "/")
     );
     if metadata.is_dir() {
+        if mode == ServeMode::Static {
+            return plain_error(StatusCode::NOT_FOUND, "Not Found", is_head);
+        }
         if !raw_path.ends_with('/') {
             let location = match uri.query() {
                 Some(q) => format!("{raw_path}/?{q}"),
@@ -898,8 +1225,9 @@ async fn handle_archive(
         return list_dir_with(state, &canonical, &virtual_rel, is_head, None).await;
     }
     if !metadata.is_file() || decoded_path_ends_with_slash(raw_path) {
-        return error_page(
+        return mode_error(
             state,
+            mode,
             StatusCode::NOT_FOUND,
             "压缩包中没有这个条目",
             is_head,
@@ -913,8 +1241,10 @@ async fn handle_archive(
         metadata.len(),
         metadata.modified().unwrap_or(SystemTime::UNIX_EPOCH),
         headers,
+        uri,
         query,
         is_head,
+        mode,
     )
     .await
 }
@@ -924,6 +1254,12 @@ enum FetchKind {
     Navigation,
     Iframe,
     Subresource,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum ServeMode {
+    Preview,
+    Static,
 }
 
 /// Text files that an HTML page may load as a subresource. `.md` / `.txt`
@@ -1981,12 +2317,15 @@ fn source_chunked(text: &str, chunk_lines: usize, code_class: &str) -> (String, 
     (out, number)
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn source_page(
     state: &AppState,
     path: &Path,
     rel: &str,
     info: &FileInfo,
     mtime: SystemTime,
+    headers: &HeaderMap,
+    notice: Option<&str>,
     is_head: bool,
 ) -> Response {
     let bytes = match tokio::fs::read(path).await {
@@ -2023,11 +2362,27 @@ async fn source_page(
     } else {
         String::new()
     };
-    let html_toolbar = if info.kind == Kind::Html && !state.safe {
-        html_toolbar_html(rel, "source", false)
+    let preview_href = if info.kind == Kind::Html && !state.safe {
+        if state.trust.trusted {
+            Some(format!("/{}", encode_path(rel)))
+        } else {
+            html_origin(state, headers).map(|origin| format!("{origin}/{}", encode_path(rel)))
+        }
     } else {
-        String::new()
+        None
     };
+    let html_toolbar = preview_href
+        .as_deref()
+        .map(|href| html_toolbar_html(rel, href))
+        .unwrap_or_default();
+    let notice_html = notice
+        .map(|text| {
+            format!(
+                "<p class=\"source-note source-notice\">{}</p>",
+                escape_html(text)
+            )
+        })
+        .unwrap_or_default();
     let code_class = highlight_language(path)
         .map(|lang| format!(" class=\"language-{lang}\""))
         .unwrap_or_default();
@@ -2076,7 +2431,7 @@ async fn source_page(
          </div></div>\
          <div class=\"page-actions\">{render_link}\
          <a class=\"action\" href=\"{download}\" aria-label=\"下载\">{download_icon}<span>下载</span></a>\
-         </div></div></div>{html_toolbar}{source_markup}</div>",
+         </div></div></div>{html_toolbar}{notice_html}{source_markup}</div>",
         crumbs = crumbs,
         name = escape_html(name),
         kind_icon = icon("code"),
@@ -2104,99 +2459,14 @@ async fn source_page(
     .await
 }
 
-async fn html_preview_page(
-    state: &AppState,
-    rel: &str,
-    _info: &FileInfo,
-    size: u64,
-    mtime: SystemTime,
-    is_head: bool,
-) -> Response {
+fn html_toolbar_html(rel: &str, preview_href: &str) -> String {
     let encoded = encode_path(rel);
-    let name = Path::new(rel)
-        .file_name()
-        .and_then(OsStr::to_str)
-        .unwrap_or("HTML");
-    let bare_href = escape_html(&format!("/{encoded}?view=1"));
-    let download_href = escape_html(&format!("/{encoded}?download=1"));
-    let crumbs = page_crumbs(state, rel, PageKind::Html);
-    let meta = format!(
-        "HTML · {} · 更新于 {}",
-        format_size(size),
-        format_mtime(mtime)
-    );
-    let toolbar = html_toolbar_html(rel, "preview", true);
-    let body = format!(
-        "<div class=\"content-card\"><div class=\"page-head\"><div class=\"head-inner page-head-inner\"><div class=\"grow\">\
-         <nav class=\"crumbs\" aria-label=\"面包屑\">{crumbs}</nav>\
-         <h1>{name}</h1><p>{meta}</p></div>\
-         <div class=\"page-actions\">\
-         <a class=\"action\" href=\"{bare_href}\" target=\"_blank\" rel=\"noopener\" aria-label=\"在新标签页打开\">{external}<span>新标签页</span></a>\
-         <a class=\"action\" href=\"{download_href}\" aria-label=\"下载\">{download}<span>下载</span></a>\
-         </div></div></div>{toolbar}\
-         <div class=\"html-preview-wrap\"><div class=\"html-frame-bar\">{file_icon}<span class=\"html-frame-name\">{name}</span>\
-         <span class=\"badge\">独立 HTML</span></div>\
-         <iframe class=\"html-frame\" src=\"{bare_href}\" sandbox=\"allow-scripts allow-forms allow-modals allow-popups\" \
-         title=\"HTML 预览：{name}\" referrerpolicy=\"no-referrer\"></iframe></div></div>",
-        crumbs = crumbs,
-        name = escape_html(name),
-        meta = escape_html(&meta),
-        external = icon("external"),
-        download = icon("download"),
-        file_icon = icon("file-code"),
-        toolbar = toolbar,
-        bare_href = bare_href,
-        download_href = download_href
-    );
-    html_page(
-        state,
-        StatusCode::OK,
-        Page {
-            title: name.to_string(),
-            rel: rel.to_string(),
-            query: String::new(),
-            kind: PageKind::Html,
-            body,
-        },
-        is_head,
-    )
-    .await
-}
-
-fn html_toolbar_html(rel: &str, active: &str, show_sandbox: bool) -> String {
-    let encoded = encode_path(rel);
-    let preview_href = escape_html(&format!("/{encoded}"));
     let source_href = escape_html(&format!("/{encoded}?raw=1"));
-    let preview_active = if active == "preview" {
-        " is-active"
-    } else {
-        ""
-    };
-    let source_active = if active == "source" { " is-active" } else { "" };
-    let preview_current = if active == "preview" {
-        " aria-current=\"page\""
-    } else {
-        ""
-    };
-    let source_current = if active == "source" {
-        " aria-current=\"page\""
-    } else {
-        ""
-    };
-    let sandbox = if show_sandbox {
-        format!(
-            "<span class=\"badge badge-html\">{shield}<span>沙箱预览</span></span>\
-             <span class=\"badge\">{lock}<span>脚本隔离</span></span>",
-            shield = icon("shield"),
-            lock = icon("lock")
-        )
-    } else {
-        String::new()
-    };
     format!(
         "<div class=\"html-toolbar\"><div class=\"segmented\" role=\"group\" aria-label=\"HTML 文件视图\">\
-         <a class=\"seg{preview_active}\" href=\"{preview_href}\"{preview_current}>预览</a>\
-         <a class=\"seg{source_active}\" href=\"{source_href}\"{source_current}>源码</a></div>{sandbox}</div>"
+         <a class=\"seg\" href=\"{preview_href}\">预览</a>\
+         <a class=\"seg is-active\" href=\"{source_href}\" aria-current=\"page\">源码</a></div></div>",
+        preview_href = escape_html(preview_href)
     )
 }
 
@@ -2504,27 +2774,6 @@ async fn html_trusted_document(
     stream_file(state, path, "text/html", size, false, &[], is_head).await
 }
 
-async fn html_preview_document(
-    state: &AppState,
-    path: &Path,
-    size: u64,
-    is_head: bool,
-) -> Response {
-    stream_file(
-        state,
-        path,
-        "text/html",
-        size,
-        false,
-        &[
-            ("Content-Security-Policy", HTML_PREVIEW_CSP),
-            ("Referrer-Policy", "no-referrer"),
-        ],
-        is_head,
-    )
-    .await
-}
-
 async fn stream_file(
     state: &AppState,
     path: &Path,
@@ -2574,7 +2823,6 @@ async fn stream_file(
 enum PageKind {
     Dir,
     Doc,
-    Html,
     Source,
     Search,
     Other,
@@ -2747,7 +2995,6 @@ async fn html_page(state: &AppState, status: StatusCode, page: Page, is_head: bo
     let page_class = match page.kind {
         PageKind::Dir => "dir",
         PageKind::Doc => "doc",
-        PageKind::Html => "html",
         PageKind::Source => "source",
         PageKind::Search => "search",
         PageKind::Other => "other",
@@ -2766,7 +3013,7 @@ async fn html_page(state: &AppState, status: StatusCode, page: Page, is_head: bo
     let islands = islands.join(" ");
     let root = escape_html(&root_name(state));
     let current_path = match page.kind {
-        PageKind::Dir | PageKind::Doc | PageKind::Html | PageKind::Source => page.rel.as_str(),
+        PageKind::Dir | PageKind::Doc | PageKind::Source => page.rel.as_str(),
         _ => "",
     };
     let current_is_dir = if page.kind == PageKind::Dir { "1" } else { "0" };
@@ -2820,11 +3067,7 @@ async fn html_page(state: &AppState, status: StatusCode, page: Page, is_head: bo
         .header(header::CONTENT_LENGTH, length.to_string())
         .header(header::CACHE_CONTROL, "no-store")
         .header("X-Content-Type-Options", "nosniff");
-    if let Some(csp) = csp_header(
-        state.trust.security_level,
-        &nonce,
-        page.kind == PageKind::Html,
-    ) {
+    if let Some(csp) = csp_header(state.trust.security_level, &nonce) {
         builder = builder.header("Content-Security-Policy", csp);
     }
     let body = if is_head {
@@ -3009,6 +3252,9 @@ fn guess_binary_mime(ext: &str) -> String {
     if ext.is_empty() {
         return "application/octet-stream".to_string();
     }
+    if ext.eq_ignore_ascii_case("wasm") {
+        return "application/wasm".to_string();
+    }
     mime_guess::from_ext(ext)
         .first_raw()
         .unwrap_or("application/octet-stream")
@@ -3072,7 +3318,19 @@ fn raw_mime(path: &Path, info: &FileInfo) -> String {
         "html" | "htm" => "text/html",
         "md" => "text/markdown; charset=utf-8",
         "txt" => "text/plain; charset=utf-8",
-        _ => return content_type(info),
+        "wasm" => "application/wasm",
+        _ => {
+            // The static HTML origin is a real file server: prefer the
+            // extension MIME (e.g. .xhtml) over `classify`'s generic text MIME.
+            // An extensionless file keeps `classify`'s text/binary decision.
+            if ext.is_empty() {
+                return content_type(info);
+            }
+            return mime_guess::from_ext(&ext)
+                .first_raw()
+                .map(str::to_string)
+                .unwrap_or_else(|| content_type(info));
+        }
     };
     mime.to_string()
 }
@@ -3149,7 +3407,7 @@ fn escape_html_into(out: &mut String, value: &str) {
     }
 }
 
-fn csp_header(level: u8, nonce: &str, allow_frame: bool) -> Option<String> {
+fn csp_header(level: u8, nonce: &str) -> Option<String> {
     if level == 2 {
         return None;
     }
@@ -3162,12 +3420,11 @@ fn csp_header(level: u8, nonce: &str, allow_frame: bool) -> Option<String> {
         1 => (" http:", " http:", " http:"),
         _ => ("", "", ""),
     };
-    let frame_src = if allow_frame { "'self'" } else { "'none'" };
     Some(format!(
         "default-src 'none'; img-src 'self' https: data:{img_extra}; \
          media-src 'self' https: data:{img_extra}; script-src 'nonce-{nonce}'; \
          style-src 'self' 'unsafe-inline' https: data:{style_extra}; \
-         font-src 'self' https: data:{font_extra}; frame-src {frame_src}; \
+         font-src 'self' https: data:{font_extra}; frame-src 'none'; \
          form-action 'self'; connect-src 'self'; base-uri 'none'; object-src 'none'"
     ))
 }
@@ -3898,99 +4155,132 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn html_file_modes_and_subresources() {
+    async fn html_untrusted_redirects_to_second_origin() {
         let dir = fixture();
-        let app = app(state_untrusted(dir.path(), false, 0, 0));
+        let state = state_untrusted(dir.path(), false, 0, 0).with_html_port(Some(8001));
+        let app = app(state.clone());
+        let static_app = app_static(state);
 
-        let (status, headers, body) = call(app.clone(), Method::GET, "/page.html").await;
+        let (status, headers, _) = call_with_headers(
+            app.clone(),
+            Method::GET,
+            "/page.html",
+            &[("Host", "localhost:8000")],
+        )
+        .await;
+        assert_eq!(status, StatusCode::FOUND);
+        assert_eq!(
+            headers.get(header::LOCATION).unwrap().to_str().unwrap(),
+            "http://localhost:8001/page.html"
+        );
+
+        // <object>/<embed> frame navigations must not bypass the handoff.
+        let (status, headers, _) = call_with_headers(
+            app.clone(),
+            Method::GET,
+            "/page.html",
+            &[("Host", "localhost:8000"), ("Sec-Fetch-Dest", "iframe")],
+        )
+        .await;
+        assert_eq!(status, StatusCode::FOUND);
+        assert_eq!(
+            headers.get(header::LOCATION).unwrap().to_str().unwrap(),
+            "http://localhost:8001/page.html"
+        );
+
+        // The obsolete ?view=1 parameter follows the same handoff and is dropped.
+        let (status, headers, _) = call_with_headers(
+            app.clone(),
+            Method::GET,
+            "/page.html?view=1",
+            &[("Host", "localhost:8000")],
+        )
+        .await;
+        assert_eq!(status, StatusCode::FOUND);
+        assert_eq!(
+            headers.get(header::LOCATION).unwrap().to_str().unwrap(),
+            "http://localhost:8001/page.html"
+        );
+
+        // ?raw=1 stays on the main origin and links its preview tab to the
+        // second origin.
+        let (status, _, body) = call_with_headers(
+            app.clone(),
+            Method::GET,
+            "/page.html?raw=1",
+            &[("Host", "localhost:8000")],
+        )
+        .await;
         assert_eq!(status, StatusCode::OK);
-        let csp = headers
-            .get("Content-Security-Policy")
-            .unwrap()
-            .to_str()
-            .unwrap();
-        assert!(csp.contains("frame-src 'self'"), "{csp}");
         let html = String::from_utf8(body).unwrap();
-        assert!(html.contains("data-page=\"html\""), "{html}");
         assert!(html.contains("html-toolbar"), "{html}");
         assert!(
-            html.contains("<iframe class=\"html-frame\" src=\"/page.html?view=1\""),
+            html.contains("href=\"http://localhost:8001/page.html\""),
             "{html}"
         );
-        assert!(
-            html.contains("sandbox=\"allow-scripts allow-forms allow-modals allow-popups\""),
-            "{html}"
-        );
-        assert!(html.contains("沙箱预览"), "{html}");
-        assert!(html.contains("新标签页"), "{html}");
-        assert!(!html.contains("toc-rail"), "{html}");
+        assert!(html.contains("id=\"L1\""), "{html}");
+        assert!(!html.contains("<iframe"), "{html}");
 
-        let (status, headers, body) = call(app.clone(), Method::GET, "/page.html?view=1").await;
+        // The static origin serves the original document, not the source page
+        // and not an mdview shell.
+        let (status, headers, body) = call(static_app.clone(), Method::GET, "/page.html").await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(
             headers.get(header::CONTENT_TYPE).unwrap().to_str().unwrap(),
             "text/html"
         );
+        assert!(!headers.contains_key("Content-Security-Policy"));
+        let html = String::from_utf8(body).unwrap();
+        assert!(html.starts_with("<!doctype html>"), "{html}");
+        assert!(html.contains("<h1>Page</h1>"), "{html}");
+        assert!(!html.contains("html-toolbar"), "{html}");
+        assert!(!html.contains("<iframe"), "{html}");
+
+        // Real asset MIME on the static origin.
+        let (status, headers, body) = call(static_app.clone(), Method::GET, "/style.css").await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            headers
+                .get(header::CONTENT_TYPE)
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .starts_with("text/css")
+        );
+        assert_eq!(String::from_utf8(body).unwrap(), "body { color: red; }\n");
+
+        // Directories and mdview's internal routes do not exist there.
+        for uri in [
+            "/",
+            "/sub/",
+            "/_nav?__mdview=nav",
+            "/search?__mdview=search",
+        ] {
+            let (status, _, body) = call(static_app.clone(), Method::GET, uri).await;
+            assert_eq!(status, StatusCode::NOT_FOUND, "{uri}");
+            let text = String::from_utf8(body).unwrap();
+            assert!(!text.contains("mdview"), "{uri}: {text}");
+        }
+
+        // Static errors still honour HEAD.
+        let (status, headers, body) = call(static_app.clone(), Method::HEAD, "/missing").await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert!(body.is_empty());
+        assert!(headers.contains_key(header::CONTENT_LENGTH));
+
+        // SVG keeps the existing direct-navigation sandbox CSP.
+        let (status, headers, _) = call(static_app.clone(), Method::GET, "/evil.svg").await;
+        assert_eq!(status, StatusCode::OK);
         let csp = headers
             .get("Content-Security-Policy")
             .unwrap()
             .to_str()
             .unwrap();
-        assert!(csp.starts_with("sandbox allow-scripts"), "{csp}");
-        assert!(csp.contains("object-src 'none'"), "{csp}");
-        assert_eq!(
-            headers.get("Referrer-Policy").unwrap().to_str().unwrap(),
-            "no-referrer"
-        );
-        let html = String::from_utf8(body).unwrap();
-        assert!(html.starts_with("<!doctype html>"), "{html}");
-        assert!(!html.contains("html-toolbar"), "{html}");
+        assert!(csp.starts_with("sandbox"), "{csp}");
 
-        let (status, _, body) = call_with_headers(
-            app.clone(),
-            Method::GET,
-            "/page.html",
-            &[("Sec-Fetch-Dest", "iframe")],
-        )
-        .await;
-        assert_eq!(status, StatusCode::OK);
-        assert!(
-            String::from_utf8(body)
-                .unwrap()
-                .starts_with("<!doctype html>")
-        );
-
-        let (status, headers, body) = call_with_headers(
-            app.clone(),
-            Method::GET,
-            "/page.html",
-            &[("Sec-Fetch-Dest", "object")],
-        )
-        .await;
-        assert_eq!(status, StatusCode::OK);
-        assert!(
-            headers
-                .get("Content-Security-Policy")
-                .unwrap()
-                .to_str()
-                .unwrap()
-                .starts_with("sandbox"),
-            "object must not get raw unsandboxed HTML"
-        );
-        assert!(
-            String::from_utf8(body)
-                .unwrap()
-                .starts_with("<!doctype html>")
-        );
-
-        let (status, _, body) = call(app.clone(), Method::GET, "/page.html?raw=1").await;
-        assert_eq!(status, StatusCode::OK);
-        let html = String::from_utf8(body).unwrap();
-        assert!(html.contains("html-toolbar"), "{html}");
-        assert!(html.contains("href=\"/page.html?raw=1\""), "{html}");
-        assert!(html.contains("id=\"L1\""), "{html}");
-        assert!(!html.contains("<iframe"), "{html}");
-
+        // The main origin still treats CSS as a subresource when an HTML page
+        // asks for it, and still shows the source page for a document
+        // navigation.
         let (status, headers, body) = call_with_headers(
             app.clone(),
             Method::GET,
@@ -4025,10 +4315,42 @@ mod tests {
                 .contains("<h1>style.css</h1>")
         );
 
+        // Directory listing keeps the source entry.
         let (_, _, body) = call(app, Method::GET, "/").await;
         let html = String::from_utf8(body).unwrap();
         assert!(html.contains("href=\"/page.html?raw=1\""), "{html}");
         assert!(html.contains("查看 page.html 源码"), "{html}");
+    }
+
+    #[tokio::test]
+    async fn html_second_origin_unavailable_falls_back_to_source() {
+        let dir = fixture();
+        let app = app(state_untrusted(dir.path(), false, 0, 0));
+
+        let (status, headers, body) = call(app.clone(), Method::GET, "/page.html").await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            headers.get(header::CONTENT_TYPE).unwrap().to_str().unwrap(),
+            "text/html; charset=utf-8"
+        );
+        let html = String::from_utf8(body).unwrap();
+        assert!(html.contains("HTML 第二 origin 未启动"), "{html}");
+        assert!(html.contains("<h1>page.html</h1>"), "{html}");
+        assert!(!html.contains("<iframe"), "{html}");
+    }
+
+    #[test]
+    fn html_origin_helpers_strip_ports_and_keep_ipv6() {
+        assert_eq!(host_without_port("localhost:8000"), "localhost");
+        assert_eq!(host_without_port("[::1]:8000"), "[::1]");
+        assert_eq!(host_without_port("example.com"), "example.com");
+        assert_eq!(
+            html_redirect_location(
+                "http://localhost:8001",
+                &"/a%20b.html?x=1&view=1".parse().unwrap()
+            ),
+            "http://localhost:8001/a%20b.html?x=1"
+        );
     }
 
     #[tokio::test]
@@ -4492,14 +4814,41 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn archive_html_entry_uses_root_trust() {
+    async fn archive_html_entry_uses_second_origin() {
         let dir = archive_fixture();
-        let app = app(state_untrusted(dir.path(), false, 0, 0));
-        let (status, _, body) = call(app, Method::GET, "/sample.zip/docs/page.html").await;
+        let state = state_untrusted(dir.path(), false, 0, 0).with_html_port(Some(8001));
+        let app = app(state.clone());
+        let static_app = app_static(state);
+
+        let (status, headers, _) = call(app, Method::GET, "/sample.zip/docs/page.html").await;
+        assert_eq!(status, StatusCode::FOUND);
+        assert_eq!(
+            headers.get(header::LOCATION).unwrap().to_str().unwrap(),
+            "http://127.0.0.1:8001/sample.zip/docs/page.html"
+        );
+
+        let (status, headers, body) = call(static_app.clone(), Method::GET, "/sample.zip").await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            headers
+                .get(header::CONTENT_TYPE)
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .contains("zip")
+        );
+        assert!(body.starts_with(b"PK"), "archive bytes");
+
+        let (status, _, _) = call(static_app.clone(), Method::GET, "/sample.zip/").await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+
+        let (status, _, body) = call(static_app, Method::GET, "/sample.zip/docs/page.html").await;
         assert_eq!(status, StatusCode::OK);
         let html = String::from_utf8(body).unwrap();
-        assert!(html.contains("data-page=\"html\""), "{html}");
-        assert!(html.contains("iframe class=\"html-frame\""), "{html}");
+        assert!(html.starts_with("<!doctype html>"), "{html}");
+        assert!(html.contains("<h1>Archive HTML</h1>"), "{html}");
+        assert!(!html.contains("html-toolbar"), "{html}");
+        assert!(!html.contains("<iframe"), "{html}");
     }
 
     #[tokio::test]
@@ -5115,6 +5464,29 @@ mod tests {
         let (_, _, body) = call(app, Method::GET, "/search?__mdview=search&q=second").await;
         let html = String::from_utf8(body).unwrap();
         assert!(html.contains("a.md"), "{html}");
+    }
+
+    #[test]
+    fn wasm_uses_the_webassembly_mime() {
+        assert_eq!(guess_binary_mime("wasm"), "application/wasm");
+        assert_eq!(guess_binary_mime("WASM"), "application/wasm");
+    }
+
+    #[test]
+    fn raw_mime_prefers_the_real_extension() {
+        let text = FileInfo {
+            kind: Kind::Text,
+            mime: "text/plain; charset=utf-8".to_string(),
+        };
+        assert_eq!(
+            raw_mime(Path::new("chapter.xhtml"), &text),
+            "application/xhtml+xml"
+        );
+        assert_eq!(raw_mime(Path::new("app.wasm"), &text), "application/wasm");
+        assert_eq!(
+            raw_mime(Path::new("README"), &text),
+            "text/plain; charset=utf-8"
+        );
     }
 
     #[test]

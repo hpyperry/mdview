@@ -81,6 +81,9 @@ mdview --root docs --host 127.0.0.1
 | `/<file>.md?open=<一次性令牌>` | 跳过本次拦截面，强制渲染；令牌用后立即失效 |
 | `/<file>.md?raw=1` | 源码查看页（HTML；行锚点 `id="L<n>"`），不做 Markdown 渲染 |
 | `/<file>.md?download=1` | 原始 Markdown 字节，`Content-Disposition: attachment` |
+| `/<file>.html` | trusted 根：原字节原文；untrusted 根：302 到 HTML 第二 origin（ADR 0025） |
+| `/<file>.html?raw=1` | 主 origin 的 HTML 源码页；“预览”tab 指向 trusted 原文或第二 origin |
+| `<html-origin>/<any-file>` | 第二 origin：只读静态镜像，真实 MIME；无 mdview 路由/外壳 |
 | `/<text-file>` | 统一源码查看页（HTML）；`?raw=1` 同为源码页；`?download=1` 下载原始字节 |
 | `/<binary-file>` | 原样发送，正确 `Content-Type`；`?download=1` 强制附件 |
 | `/search?__mdview=search&q=…` | 全文搜索，扫 Markdown 文档（`.md`/`.markdown`）与文本 |
@@ -94,7 +97,8 @@ CLI：
 ```text
 --host <addr>            默认 0.0.0.0
 --port <port>            默认 8000；占用时向后重试
---port-tries <n>         默认 10
+--port-tries <n>         默认 10（只作用于主监听）
+--html-port <port>       HTML 第二 origin 起点；默认主端口 + 1，冲突时最多 10 个候选端口
 --root <dir>             默认当前目录
 --safe                   只服务 .md + 图片
 --max-preview <size>     默认 20M；0 = 不限制
@@ -106,7 +110,8 @@ CLI：
 ```
 
 `--trust` / `--untrusted` 只影响本次运行；启动时的交互回答才会写入配置。
-`--security-level` 同时写入该根目录的配置项。
+`--security-level` 同时写入该根目录的配置项。未信任且非 `--safe` 时，启动横幅
+额外打印 `html:` 第二 origin；端口全部占用时打印回退提示。
 
 ## 6. Markdown 渲染
 

@@ -18,7 +18,7 @@
 | [0012](0012-island-frontend-architecture.md) | 岛屿前端与内容主导的全宽外壳 | accepted |
 | [0013](0013-full-site-navigation-island.md) | 全站导航浮岛：默认收起、空闲预取、只导航文件 | accepted |
 | [0014](0014-markdown-line-target.md) | Markdown 搜索命中定位到渲染块 | accepted |
-| [0015](0015-html-file-preview-and-sandbox.md) | HTML 文件：Trust 门控的静态原文与未信任沙箱 | accepted |
+| [0015](0015-html-file-preview-and-sandbox.md) | HTML 文件：Trust 门控的静态原文与未信任沙箱 | superseded（未信任部分）by [0025](0025-html-second-origin.md) |
 | [0016](0016-archive-virtual-paths.md) | 压缩包预览：虚拟包路径 + 临时解压缓存 | accepted；格式由 [0021](0021-archive-format-expansion.md) 扩展 |
 | [0017](0017-internal-url-query-disambiguation.md) | 内部 URL 用查询参数消歧，真实文件优先 | accepted |
 | [0018](0018-markdown-extension-scope.md) | Markdown 扩展名口径：`.md`/`.markdown` 渲染，`.mdx` 源码 | accepted |
@@ -28,3 +28,4 @@
 | [0022](0022-browser-baseline-chromium-86.md) | 浏览器兼容基线：Chromium 86 与静态色板 | superseded by [0024](0024-browser-baseline-chromium-88.md) |
 | [0023](0023-dev-build-artifact-size.md) | 开发构建体积：`debug = 1` 与清理纪律 | accepted |
 | [0024](0024-browser-baseline-chromium-88.md) | 浏览器兼容基线：Chromium 88 | accepted |
+| [0025](0025-html-second-origin.md) | 未信任 HTML：第二 origin 静态镜像 | accepted |
