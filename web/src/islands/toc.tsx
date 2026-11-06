@@ -2,7 +2,6 @@ import { createPortal } from 'preact/compat';
 import { render } from 'preact';
 import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import { Icon } from '../icons';
-import { prefersReducedMotion } from '../utils';
 
 type HeadingLevel = 1 | 2 | 3 | 4 | 5 | 6;
 
@@ -16,6 +15,11 @@ interface TocProps {
   headings: Heading[];
   inlineNav: HTMLElement | null;
   rail: HTMLElement;
+}
+
+interface Tip {
+  text: string;
+  top: number;
 }
 
 function collectHeadings(): Heading[] {
@@ -41,13 +45,26 @@ function collectHeadings(): Heading[] {
   });
 }
 
+/// TOC jumps are navigation, not decoration. Some embedded/older Chromium
+/// builds stall or ignore smooth scrolling, so always jump immediately.
+function scrollWindowTo(top: number): void {
+  window.scrollTo({ top: Math.max(0, top), behavior: 'auto' });
+}
+
+function headingOffset(): number {
+  const bar = document.querySelector<HTMLElement>('.topbar');
+  return (bar?.getBoundingClientRect().height || 56) + 32;
+}
+
 function scrollToHeading(id: string): void {
   const target = document.getElementById(id);
   if (!target) return;
-  target.scrollIntoView({
-    behavior: prefersReducedMotion() ? 'auto' : 'smooth',
-    block: 'start',
-  });
+  const top = window.scrollY + target.getBoundingClientRect().top - headingOffset();
+  scrollWindowTo(top);
+}
+
+function scrollToTop(): void {
+  scrollWindowTo(0);
 }
 
 function TocLinks({
@@ -67,6 +84,7 @@ function TocLinks({
           class={`toc-link toc-h${heading.level}${active === heading.id ? ' active' : ''}`}
           href={`#${heading.id}`}
           data-target={heading.id}
+          title={heading.text}
           onClick={(event) => {
             event.preventDefault();
             onSelect(heading.id);
@@ -82,20 +100,35 @@ function TocLinks({
 function Toc({ headings, inlineNav, rail }: TocProps) {
   const [active, setActive] = useState(headings[0]?.id || '');
   const [pinned, setPinned] = useState(false);
-  const [hovered, setHovered] = useState(false);
+  const [tip, setTip] = useState<Tip | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const ticksRef = useRef<HTMLDivElement>(null);
-  const expanded = pinned || hovered;
+  const islandListRef = useRef<HTMLDivElement>(null);
 
   function close(): void {
     setPinned(false);
-    setHovered(false);
+    setTip(null);
   }
 
   function select(id: string): void {
     setActive(id);
     close();
     scrollToHeading(id);
+  }
+
+  function showTip(heading: Heading, event: Event): void {
+    const target = event.currentTarget as HTMLElement | null;
+    if (!target) return;
+    const railRect = rail.getBoundingClientRect();
+    const rect = target.getBoundingClientRect();
+    setTip({
+      text: heading.text,
+      top: rect.top - railRect.top + rect.height / 2,
+    });
+  }
+
+  function hideTip(): void {
+    setTip(null);
   }
 
   useEffect(() => {
@@ -135,41 +168,7 @@ function Toc({ headings, inlineNav, rail }: TocProps) {
   }, [headings]);
 
   useLayoutEffect(() => {
-    let closeTimer = 0;
-    function clearClose(): void {
-      if (closeTimer) {
-        window.clearTimeout(closeTimer);
-        closeTimer = 0;
-      }
-    }
-    function show(): void {
-      clearClose();
-      setHovered(true);
-    }
-    function scheduleClose(): void {
-      clearClose();
-      closeTimer = window.setTimeout(() => setHovered(false), 160);
-    }
-    function onFocusOut(event: FocusEvent): void {
-      const next = event.relatedTarget as Node | null;
-      if (next && rail.contains(next)) return;
-      scheduleClose();
-    }
-    rail.addEventListener('pointerenter', show);
-    rail.addEventListener('pointerleave', scheduleClose);
-    rail.addEventListener('focusin', show);
-    rail.addEventListener('focusout', onFocusOut);
-    return () => {
-      clearClose();
-      rail.removeEventListener('pointerenter', show);
-      rail.removeEventListener('pointerleave', scheduleClose);
-      rail.removeEventListener('focusin', show);
-      rail.removeEventListener('focusout', onFocusOut);
-    };
-  }, [rail]);
-
-  useLayoutEffect(() => {
-    if (!expanded) return;
+    if (!pinned) return;
     function onKey(event: KeyboardEvent): void {
       if (event.key === 'Escape') close();
     }
@@ -183,7 +182,7 @@ function Toc({ headings, inlineNav, rail }: TocProps) {
       document.removeEventListener('keydown', onKey);
       document.removeEventListener('click', onPointer);
     };
-  }, [expanded]);
+  }, [pinned]);
 
   useEffect(() => {
     const container = ticksRef.current;
@@ -199,7 +198,7 @@ function Toc({ headings, inlineNav, rail }: TocProps) {
   }, [active]);
 
   useEffect(() => {
-    if (!expanded) return;
+    if (!pinned) return;
     const panel = panelRef.current;
     if (!panel) return;
     const link = panel.querySelector<HTMLElement>(`.toc-link[data-target="${CSS.escape(active)}"]`);
@@ -208,15 +207,25 @@ function Toc({ headings, inlineNav, rail }: TocProps) {
     const linkRect = link.getBoundingClientRect();
     if (linkRect.top < panelRect.top + 8) panel.scrollTop += linkRect.top - panelRect.top - 8;
     else if (linkRect.bottom > panelRect.bottom - 8) panel.scrollTop += linkRect.bottom - panelRect.bottom + 8;
-  }, [active, expanded]);
+  }, [active, pinned]);
+
+  useEffect(() => {
+    const container = islandListRef.current;
+    if (!container) return;
+    const link = container.querySelector<HTMLElement>(
+      `.toc-link[data-target="${CSS.escape(active)}"]`,
+    );
+    if (!link) return;
+    const box = container.getBoundingClientRect();
+    const rect = link.getBoundingClientRect();
+    if (rect.top < box.top) container.scrollTop += rect.top - box.top;
+    else if (rect.bottom > box.bottom) container.scrollTop += rect.bottom - box.bottom;
+  }, [active]);
 
   useEffect(() => {
     const narrow = window.matchMedia('(max-width: 1359px)');
     function onNarrow(): void {
-      if (narrow.matches) {
-        setPinned(false);
-        setHovered(false);
-      }
+      if (narrow.matches) close();
     }
     narrow.addEventListener('change', onNarrow);
     return () => narrow.removeEventListener('change', onNarrow);
@@ -224,20 +233,29 @@ function Toc({ headings, inlineNav, rail }: TocProps) {
 
   return (
     <>
+      <div class="toc-island" id="toc-island" aria-label="本页目录">
+        <div class="toc-island-head">
+          <span>本页目录</span>
+          <span class="toc-island-count">{headings.length}</span>
+        </div>
+        <div class="toc-island-list" ref={islandListRef}>
+          <TocLinks headings={headings} active={active} onSelect={select} />
+        </div>
+        <button class="toc-top" type="button" onClick={scrollToTop}>
+          <span aria-hidden="true">↑</span>
+          <span>回到顶部</span>
+        </button>
+      </div>
       <button
         class="toc-rail-btn"
         type="button"
         aria-label="本页目录"
-        aria-expanded={expanded}
+        aria-expanded={pinned}
         aria-pressed={pinned}
-        title={pinned ? '收起本页目录' : '固定本页目录'}
-        onClick={() => {
-          const next = !pinned;
-          setPinned(next);
-          if (!next) setHovered(false);
-        }}
+        title={pinned ? '收起本页目录' : '展开本页目录'}
+        onClick={() => setPinned((current) => !current)}
       >
-        <Icon name="list" />
+        <Icon name="toc" />
       </button>
       <div class="toc-ticks" ref={ticksRef}>
         {headings.map((heading) => (
@@ -248,11 +266,20 @@ function Toc({ headings, inlineNav, rail }: TocProps) {
             data-target={heading.id}
             aria-label={heading.text}
             title={heading.text}
+            onPointerEnter={(event) => showTip(heading, event)}
+            onPointerLeave={hideTip}
+            onFocus={(event) => showTip(heading, event)}
+            onBlur={hideTip}
             onClick={() => select(heading.id)}
           />
         ))}
       </div>
-      {expanded && (
+      {tip && (
+        <div class="toc-tip" role="tooltip" style={{ top: `${tip.top}px` }}>
+          {tip.text}
+        </div>
+      )}
+      {pinned && (
         <div class="toc-pop" ref={panelRef}>
           <div class="toc-pop-head">
             <span>本页目录</span>
@@ -281,8 +308,11 @@ export function mountToc(): void {
     if (rail) rail.hidden = true;
     if (slot) slot.hidden = true;
     document.getElementById('shell')?.classList.add('no-toc');
+    delete document.body.dataset.hasToc;
     return;
   }
+  document.body.dataset.hasToc = '1';
+  document.getElementById('shell')?.classList.remove('no-toc');
   if (rail) {
     rail.hidden = false;
     render(<Toc headings={headings} inlineNav={inlineNav} rail={rail} />, rail);

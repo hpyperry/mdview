@@ -141,9 +141,12 @@ Single-context: root `GLOSSARY.md` + `docs/architecture/adr/`. See
    不得添加标题 id。
 
    外壳布局约束：`.app` 最大 1680、外边距 16；顶栏 sticky `top:12`；正文始终是
-   主网格；≥1360px 才增加 24px TOC 细轨，悬停/聚焦展开带文字大纲；901–1359 单列，
-   ≤900 单列。全站导航是默认收起的浮层（桌面浮岛 / 移动抽屉），不占用正文列。
-   内容面最大 1240、阅读行最大 1000。改布局后跑浏览器探针。
+   主网格；**≥1560px** 正文 1240 与 ≥220px 常驻 TOC 岛并排（间距 24，正文岛左移，
+   宽度不缩，目录岛按剩余宽度伸展，两岛外缘与顶栏同 padding）；**1360–1559px** 才使用 24px TOC 细轨，悬停刻度显示单条标题浮层，
+   点击顶部按钮展开大纲；901–1359 与 ≤900 单列。常驻 TOC 岛的“回到顶部”在岛内，
+   细轨模式全局回顶按钮右移 46px，<1360 保持右下。全站导航是默认收起的浮层
+   （桌面浮岛 / 移动抽屉），不占用正文列。内容面最大 1240、阅读行最大 1000。
+   改布局后跑浏览器探针。
 6. **目录 `rel` 带尾斜杠**：`list_dir` 入口会 `trim_end_matches('/')`；新增目录页逻辑
    注意不要拼出 `//` 或把 `/sub/` 的上级算成 `/sub/`。
 7. **搜索范围**：文件名覆盖所有文件；正文只扫 Markdown 文档（`.md`/`.markdown`）
@@ -245,6 +248,7 @@ Single-context: root `GLOSSARY.md` + `docs/architecture/adr/`. See
 | 目录行列对齐 | `list_dir` 的五列模板 + `web/src/styles/app.css` 的 `.dir-row` grid |
 | 搜索结果行定位 | `render_markdown_with_sourcepos` + `web/src/islands/linetarget.ts` |
 | 顶部栏/导航/页面 chrome/内容面 | `html_page`、`crumbs_html`、`nav.tsx` |
+| TOC 常驻岛/细轨/返回顶部 | `web/src/islands/toc.tsx` + `app.css` 的 `.toc-island`/`.toc-tip`/`.totop` 媒体查询 |
 | TOC/行定位/代码条/主题/导航/大源码分块 | `web/src/islands/*` |
 | 导出图片 / 打印 PDF | `web/src/islands/export.ts` + `web/src/styles/app.css` 的 `@media print` + 文档页工具栏 |
 | 岛屿清单/水合策略 | `src/server.rs` 的 `data-islands` + `web/src/app.ts` |

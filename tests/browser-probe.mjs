@@ -245,6 +245,7 @@ async function writeFixture(root) {
   await copyFile(join(REPO, 'tests', 'fixtures', 'blockquote-spacing', 'quote.md'), join(root, 'quote.md'));
   await copyFile(join(REPO, 'tests', 'fixtures', 'export-artifact', 'doc.md'), join(root, 'export.md'));
   await copyFile(join(REPO, 'tests', 'fixtures', 'export-artifact', 'pic.png'), join(root, 'pic.png'));
+  await copyFile(join(REPO, 'tests', 'fixtures', 'toc-all-levels', 'root', 'multi-h1.md'), join(root, 'multi-h1.md'));
   const encodingFixtures = join(REPO, 'tests', 'fixtures', 'encodings');
   for (const name of await readdir(encodingFixtures)) {
     if (name === 'README.md') continue;
@@ -669,6 +670,7 @@ async function main() {
     check('正文与 TOC 两列', (await evaluate('getComputedStyle(document.getElementById("shell")).gridTemplateColumns.split(" ").length')) === 2);
     check('1440 无横向溢出', (await evaluate('document.documentElement.scrollWidth <= innerWidth + 1')) === true);
     check('TOC 细轨可见', (await evaluate('getComputedStyle(document.querySelector(".toc-rail")).display')) !== 'none');
+    check('TOC 细轨与返回顶部错开', (await evaluate('getComputedStyle(document.querySelector(".totop")).right')) === '46px');
     check('正文面使用宽布局', (await evaluate('Math.round(document.querySelector(".doc-card").getBoundingClientRect().width)')) >= 1000);
     check('TOC 当前项', await waitFor('!!document.querySelector(".toc-tick.is-active")', 3000));
     check(
@@ -693,11 +695,11 @@ async function main() {
     check('深色 TOC 刻度用 --border-strong', darkTick.token === '#6e7a86' && darkTick.mark === 'rgb(110, 122, 134)', JSON.stringify(darkTick));
     await evaluate('delete document.documentElement.dataset.theme');
     check('TOC 面板初始关闭', (await evaluate('document.querySelector(".toc-pop") === null')) === true);
-    await evaluate('document.getElementById("toc-rail").dispatchEvent(new PointerEvent("pointerenter"))');
-    check('TOC 悬停展开文字大纲', await waitFor('document.querySelectorAll(".toc-pop .toc-link").length === 7', 2000));
-    check('TOC 大纲标题可读', (await evaluate('document.querySelector(".toc-pop .toc-link")?.textContent')) === 'Probe');
-    await evaluate('document.getElementById("toc-rail").dispatchEvent(new PointerEvent("pointerleave"))');
-    check('TOC 移出收起', await waitFor('document.querySelector(".toc-pop") === null', 2000));
+    await evaluate('document.querySelector(".toc-tick.is-h1").dispatchEvent(new PointerEvent("pointerenter", { bubbles: false }))');
+    check('TOC 悬停刻度显示标题', await waitFor('document.querySelector(".toc-tip")?.textContent === "Probe"', 2000));
+    await evaluate('document.querySelector(".toc-tick.is-h1").dispatchEvent(new PointerEvent("pointerleave", { bubbles: false }))');
+    check('TOC 移出隐藏标题', await waitFor('document.querySelector(".toc-tip") === null', 2000));
+    check('TOC 悬停细轨不展开面板', (await evaluate('document.querySelector(".toc-pop") === null')) === true);
     await evaluate('document.querySelector(".toc-rail-btn").click()');
     check('TOC 可固定', await waitFor('document.querySelector(".toc-pop") !== null', 2000));
     await evaluate('document.getElementById("toc-rail").dispatchEvent(new PointerEvent("pointerleave"))');
@@ -707,7 +709,29 @@ async function main() {
     check('TOC 固定可关闭', await waitFor('document.querySelector(".toc-pop") === null', 2000));
     await evaluate('document.getElementById("toc-rail").querySelector(".toc-rail-btn").click()');
     check('TOC 面板可展开', await waitFor('document.querySelectorAll(".toc-pop .toc-link").length === 7', 2000));
-    await evaluate('document.getElementById("toc-7").scrollIntoView({ block: "start" })');
+    await evaluate('window.scrollTo(0, document.body.scrollHeight)');
+    await evaluate('document.querySelectorAll(".toc-pop .toc-link")[0].click()');
+    check(
+      'TOC 点击 h1 跳转',
+      await waitFor(
+        '(() => { const top = document.getElementById("toc-1").getBoundingClientRect().top; return top >= 60 && top <= 120; })()',
+        3000,
+      ),
+    );
+    await evaluate('document.getElementById("toc-rail").querySelector(".toc-rail-btn").click()');
+    await waitFor('document.querySelectorAll(".toc-pop .toc-link").length === 7', 2000);
+    await evaluate('window.scrollTo(0, document.body.scrollHeight)');
+    await evaluate('document.querySelectorAll(".toc-pop .toc-link")[1].click()');
+    check(
+      'TOC 点击 h2 跳转',
+      await waitFor(
+        '(() => { const top = document.getElementById("toc-2").getBoundingClientRect().top; return top >= 60 && top <= 120; })()',
+        3000,
+      ),
+    );
+    await evaluate('document.getElementById("toc-rail").querySelector(".toc-rail-btn").click()');
+    await waitFor('document.querySelectorAll(".toc-pop .toc-link").length === 7', 2000);
+    await evaluate('(() => { const t = document.getElementById("toc-7"); window.scrollTo(0, t.getBoundingClientRect().top + scrollY - 60); })()');
     check('TOC 定位到 Section B', await waitFor('document.getElementById("toc-7").getBoundingClientRect().top < 120', 3000));
     await evaluate('window.dispatchEvent(new Event("scroll")); window.dispatchEvent(new Event("resize"))');
     const tocActive = await waitFor('document.querySelector(".toc-tick.is-active")?.getAttribute("data-target") === "toc-7"', 3000);
@@ -726,6 +750,81 @@ async function main() {
     await waitFor('document.querySelector(".toc-pop") !== null', 2000);
     await evaluate('document.querySelector(".doc-prose p").click()');
     check('TOC 点外部关闭', await waitFor('document.querySelector(".toc-pop") === null', 2000));
+
+    console.log('== toc island ==');
+    await page.send('Emulation.setDeviceMetricsOverride', { width: 1600, height: 900, deviceScaleFactor: 1, mobile: false });
+    await goto('/page.md');
+    check('1600 常驻目录岛', (await evaluate('getComputedStyle(document.getElementById("toc-island")).display')) === 'flex');
+    check('1600 目录岛宽度', Math.round(await evaluate('document.getElementById("toc-island").getBoundingClientRect().width')) >= 220);
+    check('1600 正文卡片宽度不变', Math.round(await evaluate('document.querySelector(".doc-card").getBoundingClientRect().width')) === 1240);
+    check('1600 细轨按钮隐藏', (await evaluate('getComputedStyle(document.querySelector(".toc-rail-btn")).display')) === 'none');
+    check(
+      '1600 返回顶部在目录岛',
+      (await evaluate('getComputedStyle(document.querySelector(".totop")).display')) === 'none' &&
+        (await evaluate('!!document.querySelector("#toc-island .toc-top")')) === true,
+    );
+    check('1600 目录岛标题文本', (await evaluate('document.querySelector("#toc-island .toc-link")?.textContent')) === 'Probe');
+    await evaluate('window.scrollTo(0, document.body.scrollHeight)');
+    await evaluate('document.querySelector("#toc-island .toc-link").click()');
+    check(
+      '1600 目录岛点击 h1 跳转',
+      await waitFor(
+        '(() => { const top = document.getElementById("toc-1").getBoundingClientRect().top; return top >= 60 && top <= 120; })()',
+        3000,
+      ),
+    );
+    check(
+      '1600 目录岛 active 跟随',
+      await waitFor('document.querySelector("#toc-island .toc-link.active")?.getAttribute("data-target") === "toc-1"', 3000),
+    );
+
+    await goto('/multi-h1.md');
+    check('多 h1 文档目录项', (await evaluate('document.querySelectorAll("#toc-island .toc-link").length')) === 13);
+    await evaluate('window.scrollTo(0, 0)');
+    await evaluate('document.querySelectorAll("#toc-island .toc-link")[3].click()');
+    check(
+      '多 h1 从顶部点 h1 B',
+      await waitFor(
+        '(() => { const top = document.getElementById("toc-4").getBoundingClientRect().top; return top >= 60 && top <= 120; })()',
+        3000,
+      ),
+    );
+    await evaluate('window.scrollTo(0, 0)');
+    await evaluate('document.querySelectorAll("#toc-island .toc-link")[11].click()');
+    check(
+      '多 h1 从顶部点 h1 D',
+      await waitFor(
+        '(() => { const h = document.getElementById("toc-12"); const top = h.getBoundingClientRect().top; const nearBottom = Math.abs((scrollY + innerHeight) - document.body.scrollHeight) < 4; return (top >= 60 && top <= 120) || (nearBottom && top > 0 && top < innerHeight); })()',
+        3000,
+      ),
+    );
+    await evaluate('window.scrollTo(0, document.body.scrollHeight)');
+    await evaluate('document.querySelectorAll("#toc-island .toc-link")[0].click()');
+    check(
+      '多 h1 从底部点 h1 A',
+      await waitFor(
+        '(() => { const top = document.getElementById("toc-1").getBoundingClientRect().top; return top >= 60 && top <= 120; })()',
+        3000,
+      ),
+    );
+    await goto('/long.md');
+    check(
+      '1600 长文档目录岛可滚动',
+      (await evaluate('(() => { const list = document.querySelector(".toc-island-list"); return Boolean(list) && list.scrollHeight > list.clientHeight + 1; })()')) === true,
+    );
+    await evaluate('window.scrollTo(0, document.body.scrollHeight)');
+    check(
+      '1600 长文档当前项在岛内',
+      await waitFor(`(() => {
+        const list = document.querySelector('.toc-island-list');
+        const link = list?.querySelector('.toc-link.active');
+        if (!list || !link) return false;
+        const lb = list.getBoundingClientRect();
+        const ab = link.getBoundingClientRect();
+        return ab.top >= lb.top - 1 && ab.bottom <= lb.bottom + 1;
+      })()`, 3000),
+    );
+    await page.send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
 
     await goto('/long.md');
     check('长文档刻度数完整', (await evaluate('document.querySelectorAll(".toc-tick").length')) === 61);

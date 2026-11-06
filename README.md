@@ -60,9 +60,10 @@ cargo build --release
 
 ### 文档站外壳与搜索
 
-- 所有页面共用全宽顶部栏 + 内容面；Markdown 页在 ≥1360px 增加 24px TOC 细轨，
-  悬停或键盘聚焦时向左展开带文字大纲；901–1359px 为单列，≤900px 单列；导航是
-  默认收起的浮层，不占用正文网格；
+- 所有页面共用全宽顶部栏 + 内容面；Markdown 页在 **≥1560px** 显示 ≥220px 常驻
+  目录岛，正文保持 1240px 并整体左移；**1360–1559px** 收成 24px 细轨，悬停刻度
+  显示单条标题，点击按钮展开大纲；<1360px 回正文顶部内联目录；导航是默认收起的
+  浮层，不占用正文网格；
 - 内容面最大 1240px、阅读行最大 1000px；页头横跨内容面（左右 30px），正文仍
   保持阅读行；搜索页表单在页头右侧，窄屏自动换行；代码块、表格随内容面变宽；
 - 全站导航树只预载根 + 三层目录，更深目录按需展开；空闲预取带当前路径脊柱，
@@ -78,9 +79,9 @@ cargo build --release
 无 JS 时搜索图标直接进入搜索页、导航入口隐藏；
 - 主题：跟随系统 / 浅色 / 深色，手动选择持久化；点击后按钮旁短暂显示当前模式，
   存储写入失败也仍可继续切换；
-- 页内目录由浏览器从 h2/h3 生成（服务端不生成标题 id）；宽屏 TOC 细轨支持刻度
-  跳转、悬停展开文字大纲、固定/收起与 scroll-spy；窄屏回正文顶部；代码块有
-  语言条与复制按钮；
+- 页内目录由浏览器从 h1–h6 生成（服务端不生成标题 id）；宽屏常驻目录岛直接列出
+  标题文字并支持 scroll-spy，1360–1559px 用细轨 + 单条标题浮层，窄屏回正文顶部；
+  常驻岛底部有“回到顶部”，细轨模式回顶按钮右移避开刻度；代码块有语言条与复制按钮；
 - 文档页可「导出图片」（白底 PNG 长图）与「导出 PDF」（浏览器打印 / 另存为）；
   两者都去掉外壳、固定浅色，打印样式自动分页，深色主题下导出仍是浅色。
 
@@ -263,7 +264,7 @@ cargo test                      # 94 单元 + 134 渲染兼容 + 27 golden
 cargo clippy --all-targets -- -D warnings
 bash tests/selftest-rust.sh     # 292 项真二进制 HTTP 断言
 node tests/check-css-baseline.mjs # Chromium 88 基线黑名单 + 深色色板同步
-node tests/browser-probe.mjs      # 271 项 headless Chrome 验收
+node tests/browser-probe.mjs      # 288 项 headless Chrome 验收
 node tests/perf-source.mjs        # 4 项源码页性能预算
 bash tests/trust-tty.sh           # 9 项真实 pty 信任测试
 ```
@@ -324,7 +325,7 @@ md-preview/
   `.xhtml` 按源码页显示，不扩展 HTML 预览。
 - `.tar.xz` 的字典/解码内存上限为 128 MiB；异常大字典的包会被拒绝。大型
   `.apk`/`.jar` 仍受 2 万条目与 1 GB 解压总量限制。
-- 无 JS 时没有 TOC 细轨/浮层、代码工具条与图片放大；正文与搜索页仍可读。
+- 无 JS 时没有 TOC 岛/细轨/浮层、代码工具条与图片放大；正文与搜索页仍可读。
 - 许可证为 MIT，见 [`LICENSE`](LICENSE)；第三方组件见 [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md)。
 
 更细的边界见 [`docs/guides/advanced.md`](docs/guides/advanced.md)。

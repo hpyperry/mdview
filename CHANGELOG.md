@@ -8,6 +8,9 @@
   的只读静态镜像（默认主端口 + 1，`--html-port` 可覆盖）。module、sessionStorage、
   Service Worker、同源 fetch 与真实 MIME 恢复正常；主 origin 不直出未信任 HTML。
 - 移除沙箱外壳、`?view=1` 裸页与相关 CSS；`?raw=1` 源码页与 `?download=1` 不变。
+- 右侧 TOC 重新设计：≥1560px 正文 1240 固定 + 220px 常驻目录岛并排；1360–1559px
+  细轨悬停只显示单条标题，点击按钮展开大纲；返回顶部不再与目录重叠。TOC 跳转
+  改为顶栏偏移的即时滚动，不再依赖 smooth scroll。
 
 ## 2.3.0（2026-11-05）
 
