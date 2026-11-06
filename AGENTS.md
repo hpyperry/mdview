@@ -30,21 +30,26 @@ bash tests/run-all.sh
 [`docs/guides/build-hygiene.md`](docs/guides/build-hygiene.md)，取舍见
 [ADR 0023](docs/architecture/adr/0023-dev-build-artifact-size.md)。
 
-必须全绿：`cargo test`（90 单元 + 134 渲染兼容 + 27 golden）、278 项黑盒 HTTP、
-9 项 pty 信任测试、262 项 headless Chrome 验收、4 项源码页性能预算。
+必须全绿：`cargo test`（94 单元 + 134 渲染兼容 + 27 golden）、292 项黑盒 HTTP、
+9 项 pty 信任测试、271 项 headless Chrome 验收、4 项源码页性能预算。
 
 ## 协作流程
 
 1. **需求先建 Issue**：写清目标、范围与验收标准；Issue 是需求的唯一入口。
 2. **从 main 拉分支**：分支名用 `feat/…`、`fix/…`、`docs/…`、`chore/…` 或
    `release/…`；不在 main 上直接开发。
-3. **feature/fix 配测试文档**：功能或修复完成前，在 `tests/` 下新增/更新一份人工
-   复测文档。有夹具的 feature 用 `tests/fixtures/<slug>/README.md`，夹具根应能作为
-   `--root` 启动（使用子目录 root 的在 README 写明确切命令）；没有新夹具的纯修复也
-   建 README-only 目录，并在文档里给出实际使用的 root/入口。文档必须写清关联
-   Issue/PR、启动命令、复测步骤与预期、自动化覆盖与已知限制。PR 描述链接它；新增/
-   修改 F-xx 时 `docs/reference/features.md` 的测试映射也链接它。`docs/testing/`
-   只放执行记录与报告，不复用为复测文档。
+3. **feature/fix 配夹具与测试报告**：功能或修复完成前必须交付：
+   - 复测夹具：`tests/fixtures/<slug>/README.md`，夹具根应能作为 `--root` 启动
+     （子目录 root 在 README 写明确切命令）；没有新夹具的纯修复也建 README-only
+     目录，写清实际使用的现有 root/入口与现有夹具路径；
+   - 测试报告：`docs/testing/reports/browser-report-<YYYY-MM-DD>-<slug>.md`
+     （浏览器/视觉）或 `test-report-<YYYY-MM-DD>-<slug>.md`（后端/其他），写清关联
+     Issue/PR 与 F-xx、环境、命令与结果、夹具入口、复测步骤/证据、覆盖缺口与结论；
+   - 证据：浏览器可见改动把已查看的截图放 `docs/testing/evidence/<YYYY-MM-DD>/`；
+     非可视化改动在报告里附关键命令输出与 CI run 链接；
+   - 在 `docs/testing/reports/README.md` 登记；PR 描述、F-xx 的测试映射与夹具
+     README 都链接报告。`docs/testing/` 只放执行记录与报告，不复用为复测文档。
+   纯文档改动可以只更新 `docs/testing/selftest.md`。
 4. **PR 关联 Issue**：PR 描述写 `Closes #N`；CI 全绿、required checks 通过后合并。
    main 由 ruleset 保护：必须 PR、禁 force push/删除、禁止直接 push；审批数为 0
    （单人维护者可自我合并）；合并方式固定 **squash**，main 保持线性。
@@ -367,13 +372,18 @@ Single-context: root `GLOSSARY.md` + `docs/architecture/adr/`. See
   新功能追加编号，不重排旧编号。
 - 渲染层断言放 `tests/render_compat.rs`；路由/安全放 `src/server.rs` 的测试模块；
   真二进制行为放 `tests/selftest-rust.sh`。
-- 每个 feature/fix 的人工复测文档放 `tests/fixtures/<slug>/README.md`；有夹具时目录
-  带启动命令和可直接服务的文件，纯修复可 README-only。README 是复测文档（步骤、
-  预期、自动化覆盖、已知限制），不是 `docs/testing/` 的执行报告；PR 与 `F-xx` 链接它。
-- 涉及浏览器可见行为、布局或交互的 feature/fix，除更新 `docs/testing/selftest.md`
-  的自动结果外，还要在 `docs/testing/reports/` 新增报告，把已查看的截图放进
-  `docs/testing/evidence/<YYYY-MM-DD>/`，并在 `reports/README.md` 登记；纯后端/
-  文档改动可以只更新 `selftest.md`。
+- **每个 feature/fix 的测试交付物，缺一不算完成**：
+  1. `tests/fixtures/<slug>/README.md`（复测夹具；纯修复可 README-only）；
+  2. `docs/testing/reports/` 里的测试报告（环境、命令/结果、夹具入口、步骤/证据、
+     覆盖缺口、结论），并在 `reports/README.md` 登记；
+  3. `docs/testing/evidence/<YYYY-MM-DD>/` 的已查看截图（浏览器可见改动），或
+     报告内的关键命令输出 + CI run 链接（非可视化改动）。
+  PR 描述、`docs/reference/features.md` 的 F-xx 映射与夹具 README 都要链接报告。
+- 报告命名：浏览器/视觉用 `browser-report-<YYYY-MM-DD>-<slug>.md`，后端/其他用
+  `test-report-<YYYY-MM-DD>-<slug>.md`；模板见
+  [`docs/testing/reports/TEMPLATE.md`](docs/testing/reports/TEMPLATE.md)，
+  夹具模板见 [`tests/fixtures/TEMPLATE.md`](tests/fixtures/TEMPLATE.md)。
+- 纯文档改动可以只更新 `docs/testing/selftest.md`，不需要夹具/报告。
 - 自动测试从夹具目录复制，不把唯一夹具散落在临时脚本里。
 - 全量本地验收跑 `bash tests/run-all.sh`；文档移动/改链接后先跑
   `node tests/check-doc-links.mjs`。
