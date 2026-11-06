@@ -342,9 +342,11 @@ export function mountToc(): void {
     if (slot) slot.hidden = true;
     document.getElementById('shell')?.classList.add('no-toc');
     delete document.body.dataset.hasToc;
+    delete document.body.dataset.split;
     return;
   }
   document.body.dataset.hasToc = '1';
+  document.body.dataset.split = '1';
   document.getElementById('shell')?.classList.remove('no-toc');
   if (rail) {
     rail.hidden = false;

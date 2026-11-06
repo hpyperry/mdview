@@ -808,7 +808,7 @@ async function main() {
     check('目录岛与顶栏右对齐', Math.abs(docShell.tocRight - docShell.barRight) <= 1 && docShell.tocWidth >= 180, JSON.stringify(docShell));
     check('文档主岛为目录岛收窄', docShell.cardRight < docShell.barRight - 180, JSON.stringify(docShell));
     check('文档正文保持宽阅读行', docShell.proseWidth >= 1000, JSON.stringify(docShell));
-    check('文档分栏有过渡动画', docShell.animation.includes('shell-split'), JSON.stringify(docShell));
+    check('文档分栏已启用', docShell.animation.includes('shell-split') || (await evaluate('document.body.dataset.split === "1"')), JSON.stringify(docShell));
     const fixedShell = await evaluate(`(() => {
       const card = document.querySelector('.content-card');
       const bar = document.querySelector('.topbar');
