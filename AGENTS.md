@@ -30,8 +30,8 @@ bash tests/run-all.sh
 [`docs/guides/build-hygiene.md`](docs/guides/build-hygiene.md)，取舍见
 [ADR 0023](docs/architecture/adr/0023-dev-build-artifact-size.md)。
 
-必须全绿：`cargo test`（94 单元 + 134 渲染兼容 + 27 golden）、292 项黑盒 HTTP、
-9 项 pty 信任测试、271 项 headless Chrome 验收、4 项源码页性能预算。
+必须全绿：`cargo test`（95 单元 + 134 渲染兼容 + 27 golden）、292 项黑盒 HTTP、
+9 项 pty 信任测试、306 项 headless Chrome 验收、4 项源码页性能预算。
 
 ## 协作流程
 
@@ -108,7 +108,7 @@ Single-context: root `GLOSSARY.md` + `docs/architecture/adr/`. See
 | `src/main.rs` / `src/lib.rs` | 二进制入口；`lib.rs` 暴露模块给集成测试 |
 | `src/cli.rs` | clap 参数与大小解析 |
 | `src/trust.rs` | Trust 配置读写、flag/存储/询问优先级 |
-| `src/server.rs` | axum 路由、目录索引、分层全站导航 JSON、源码页/大源码分块、搜索、下载、CSP、token、缓存 |
+| `src/server.rs` | axum 路由、`PageHead` 页头构建器、目录索引、分层全站导航 JSON、源码页/大源码分块、搜索、下载、CSP、token、缓存 |
 | `src/encoding.rs` | BOM/UTF-8/UTF-16 启发式/chardetng 检测、UTF-32 拒绝、UTF-8 解码与编码标签 |
 | `src/render.rs` | comrak 配置 + 自定义 formatter（链接/图片/表格/删除线）+ URL 重写 |
 | `src/assets.rs` | 内嵌 vendor 资产与 `OUT_DIR` 的 `app.js`/`app.css` |
@@ -247,6 +247,7 @@ Single-context: root `GLOSSARY.md` + `docs/architecture/adr/`. See
 | 搜索范围/结果 | `search_files` / `render_search`；正文按检测编码解码后只扫文本文件 |
 | 目录行列对齐 | `list_dir` 的五列模板 + `web/src/styles/app.css` 的 `.dir-row` grid |
 | 搜索结果行定位 | `render_markdown_with_sourcepos` + `web/src/islands/linetarget.ts` |
+| 页头（文档/源码/目录/搜索） | `PageHead`/`PageMeta`/`PageAction` + `app.css` 的 `.page-head`/`.page-meta`/`.page-actions` |
 | 顶部栏/导航/页面 chrome/内容面 | `html_page`、`crumbs_html`、`nav.tsx` |
 | TOC 常驻岛/细轨/返回顶部 | `web/src/islands/toc.tsx` + `app.css` 的 `.toc-island`/`.toc-tip`/`.totop` 媒体查询 |
 | TOC/行定位/代码条/主题/导航/大源码分块 | `web/src/islands/*` |
@@ -305,8 +306,11 @@ Single-context: root `GLOSSARY.md` + `docs/architecture/adr/`. See
   `npm --prefix web run typecheck`，`cargo build` 会自动重跑 esbuild。
 - **岛清单**：`body[data-islands]` 与页面实际控制区必须一致；源码页不要挂 `toc`，
   非文档页不要挂 `toc`/`linetarget`/`code`/`zoom`，否则会出现空岛或错误初始化。
-- **页头统一逻辑**：所有页头用 `.head-inner` 横跨内容面（左右 30px），正文阅读行
-  仍由 `.markdown-body` 限制为 1000px；搜索页表单在页头右侧。不要再给页头套
+- **页头统一逻辑**：Markdown/源码/目录/搜索都走服务端 `PageHead` 构建器；不要
+  再分别拼四套 header，也不要在某个页面单独补标题/徽标。所有页头用 `.head-inner`
+  横跨内容面（左右 30px），正文阅读行仍由 `.markdown-body` 限制为 1000px；搜索页
+  表单在页头右侧。Markdown 页头的 H1 是文件名，正文自己的 H1 才是文档标题；不要
+  恢复 `sr-only` 文件名副本。信任/错误页保留专用面板。不要再给页头套
   `max-width: 1000px` 的容器。
 - **搜索结果行**：整条 `.hit` 是链接；Markdown 内容行到渲染页 `#L<n>`，文件标题
   与文件条目到文件开头。不要恢复独立的“打开文档/源码 Ln”按钮。

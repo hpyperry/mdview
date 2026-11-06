@@ -391,6 +391,15 @@ async function main() {
     await goto('/page.md');
     check('标题渲染', (await evaluate('document.querySelector("article.markdown-body h1").textContent')) === 'Probe');
     check('文档面包屑完整', await crumbsComplete('.doc-head .crumbs', 'page.md'));
+    check('文档页头显示文件名', (await evaluate('document.querySelector(".doc-head h1")?.textContent')) === 'page.md');
+    check(
+      '文档页头元信息徽标',
+      (await evaluate(`(() => {
+        const badges = [...document.querySelectorAll('.doc-head .page-meta .badge')];
+        return badges.length >= 3 && badges.some((badge) => badge.textContent.includes('Markdown'));
+      })()`)) === true,
+    );
+    check('文档页头操作齐全', (await evaluate('[...document.querySelectorAll(".doc-head .page-actions .action")].map((a) => a.textContent.trim()).join(",")')) === '源码,下载,导出图片,导出 PDF');
     check('文档岛已按需水合', await waitFor('["toc", "linetarget", "code", "zoom"].every((name) => window.__mdviewIslands?.mounted.includes(name))', 3000));
     check('渲染页带行定位数据', (await evaluate('document.querySelectorAll(".markdown-body [data-sourcepos]").length')) > 0);
     check(
@@ -1044,8 +1053,10 @@ async function main() {
     check('搜索词高亮', await waitFor('document.querySelectorAll(".hit-snippet mark").length > 0', 3000));
     check('搜索页有独立表单', (await evaluate('!!document.querySelector(".search-page-form input")')) === true);
     check('搜索页面包屑完整', await crumbsComplete('.search-head .crumbs', '搜索'));
+    check('搜索页头显示查询', (await evaluate('document.querySelector(".search-head h1")?.textContent')) === '搜索 “Probe”');
+    check('搜索页头结果徽标', (await evaluate('(() => { const text = document.querySelector(".search-head .page-meta")?.textContent || ""; return text.includes("个文件") && text.includes("条结果"); })()')) === true);
     check('搜索摘要用结果计数', (await evaluate(`(() => {
-      const text = document.querySelector('.search-head p')?.textContent || '';
+      const text = document.querySelector('.search-head .page-meta')?.textContent || '';
       return text.includes('条结果') && !text.includes('命中') && !text.includes('实时扫描');
     })()`)) === true);
     check('搜索无命中字样', (await evaluate('!document.body.innerText.includes("命中")')) === true);
@@ -1098,7 +1109,7 @@ async function main() {
     console.log('== encodings ==');
     await goto('/gbk.md');
     check('GBK Markdown 文本', (await evaluate('document.querySelector("article.markdown-body h1")?.textContent')) === '中文标题');
-    check('GBK Markdown 标签', (await evaluate('document.querySelector(".doc-meta")?.textContent'))?.includes('GBK') === true);
+    check('GBK Markdown 标签', (await evaluate('document.querySelector(".doc-head .page-meta")?.textContent'))?.includes('GBK') === true);
     await goto('/gbk.txt');
     check('GBK 源码文本', (await evaluate('document.querySelector(".source code")?.textContent'))?.includes('编码测试 GBK 文本') === true);
     check('GBK 源码编码标签', (await evaluate('document.querySelector(".source-encoding")?.textContent')) === 'GBK');
@@ -1139,6 +1150,8 @@ async function main() {
       return Math.round(title.x - card.x) <= 32 && getComputedStyle(document.querySelector('.dir-head .head-inner')).paddingLeft === '30px';
     })()`)) === true);
     check('目录页面包屑完整', await crumbsComplete('.dir-head .crumbs', 'sub'));
+    check('目录页头显示目录名', (await evaluate('document.querySelector(".dir-head h1")?.textContent')) === 'sub');
+    check('目录页头项目数徽标', (await evaluate('(() => { const text = document.querySelector(".dir-head .page-meta")?.textContent || ""; return text.includes("个项目"); })()')) === true);
     check('目录页可滚动', (await evaluate('document.documentElement.scrollHeight > innerHeight')) === true);
     await evaluate('window.scrollTo(0, 500)');
     await sleep(100);
@@ -1151,7 +1164,7 @@ async function main() {
     check('源码页标题文件名', (await evaluate('document.querySelector(".page-head h1")?.textContent')) === 'page.md');
     check('源码页浏览器标题', (await evaluate('document.title')) === 'page.md · 源码 · mdview');
     check('源码页类型标签', (await evaluate('document.querySelector(".source-kind")?.textContent.trim()')) === 'Markdown');
-    check('源码页信息标签', (await evaluate('(() => { const text = document.querySelector(".source-tags")?.textContent || ""; return text.includes("KB") && text.includes("行") && text.includes("更新于"); })()')) === true);
+    check('源码页信息标签', (await evaluate('(() => { const text = document.querySelector(".source-head .page-meta")?.textContent || ""; return text.includes("KB") && text.includes("行") && text.includes("更新于"); })()')) === true);
     check('源码页预览按钮', (await evaluate('document.querySelector(".page-actions .action.primary")?.textContent.trim()')) === '预览');
     check('源码页 H1 无下划线', (await evaluate('getComputedStyle(document.querySelector(".page-head h1")).borderBottomWidth')) === '0px');
     check('源码页头铺满内容面', (await evaluate(`(() => {
@@ -1237,7 +1250,7 @@ async function main() {
     console.log('== archives ==');
     await goto('/sample.zip/');
     check('压缩包页面标题', (await evaluate('document.querySelector("h1")?.textContent')) === 'sample.zip');
-    check('压缩包格式头', (await evaluate('document.querySelector(".dir-head p")?.textContent'))?.includes('ZIP ·'));
+    check('压缩包格式头', (await evaluate('document.querySelector(".dir-head .page-meta")?.textContent'))?.includes('ZIP'));
     check('压缩包下载入口', (await evaluate('[...document.querySelectorAll(".page-actions .action")].some((a) => a.textContent.includes("下载压缩包"))')) === true);
     check('包内目录入口', (await evaluate(`document.querySelector('a[href="/sample.zip/docs/"]') !== null`)) === true);
     await goto('/sample.zip/docs/a.md');
@@ -1259,19 +1272,19 @@ async function main() {
     await goto('/sample.tar.bz2/docs/a.md');
     check('tar.bz2 包内渲染', (await evaluate('document.querySelector("article.markdown-body h1")?.textContent')) === 'Archive A');
     await goto('/sample.jar/');
-    check('JAR 页面标签', (await evaluate('document.querySelector(".dir-head p")?.textContent'))?.includes('JAR ·'));
+    check('JAR 页面标签', (await evaluate('document.querySelector(".dir-head .page-meta")?.textContent'))?.includes('JAR'));
     await goto('/sample.jar/META-INF/MANIFEST.MF');
     check('JAR 清单源码页', (await evaluate('document.querySelector("h1")?.textContent')) === 'MANIFEST.MF');
     check('JAR 清单内容', (await evaluate('document.body.textContent'))?.includes('Manifest-Version'));
     check('JAR 清单标签', (await evaluate('document.body.textContent'))?.includes('Manifest'));
     await goto('/sample.epub/');
-    check('EPUB 页面标签', (await evaluate('document.querySelector(".dir-head p")?.textContent'))?.includes('EPUB ·'));
+    check('EPUB 页面标签', (await evaluate('document.querySelector(".dir-head .page-meta")?.textContent'))?.includes('EPUB'));
     await goto('/sample.epub/OEBPS/chapter1.xhtml');
     check('EPUB 章节源码页', (await evaluate('document.querySelector("h1")?.textContent')) === 'chapter1.xhtml');
     check('EPUB 章节内容', (await evaluate('document.body.textContent'))?.includes('xhtmlneedle'));
     check('EPUB 章节行锚点', (await evaluate('document.querySelector("#L1")?.textContent')) === '1');
     await goto('/sample.cbz/');
-    check('CBZ 页面标签', (await evaluate('document.querySelector(".dir-head p")?.textContent'))?.includes('CBZ ·'));
+    check('CBZ 页面标签', (await evaluate('document.querySelector(".dir-head .page-meta")?.textContent'))?.includes('CBZ'));
     await goto('/sample.cbz/page-01.png');
     check('CBZ 图片内联', (await evaluate('document.contentType')) === 'image/png');
     await goto('/page.xhtml');

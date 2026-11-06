@@ -30,3 +30,4 @@
 | [0024](0024-browser-baseline-chromium-88.md) | 浏览器兼容基线：Chromium 88 | accepted |
 | [0025](0025-html-second-origin.md) | 未信任 HTML：第二 origin 静态镜像 | accepted |
 | [0026](0026-toc-island-layout.md) | 右侧 TOC：常驻目录岛 + 折叠细轨 | accepted |
+| [0027](0027-page-head-component.md) | 四类页面共用服务端 PageHead 构建器 | accepted |

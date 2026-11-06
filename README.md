@@ -64,8 +64,10 @@ cargo build --release
   目录岛，正文保持 1240px 并整体左移；**1360–1559px** 收成 24px 细轨，悬停刻度
   显示单条标题，点击按钮展开大纲；<1360px 回正文顶部内联目录；导航是默认收起的
   浮层，不占用正文网格；
-- 内容面最大 1240px、阅读行最大 1000px；页头横跨内容面（左右 30px），正文仍
-  保持阅读行；搜索页表单在页头右侧，窄屏自动换行；代码块、表格随内容面变宽；
+- 内容面最大 1240px、阅读行最大 1000px；Markdown/源码/目录/搜索共用同一页头
+  结构（面包屑 + 标题 + 元信息徽标 + 操作），Markdown 页头显示文件名与编码/更新
+  时间；页头横跨内容面（左右 30px），正文仍保持阅读行；搜索页表单在页头右侧，
+  窄屏自动换行；代码块、表格随内容面变宽；
 - 全站导航树只预载根 + 三层目录，更深目录按需展开；空闲预取带当前路径脊柱，
   深页打开导航也能一次定位当前文件；目录行只展开/收起，文件行才导航；当前路径
   自动展开，用户展开状态本地记忆；桌面端悬停目录会预热下一层；
@@ -260,11 +262,11 @@ Chromium 86/87 不再承诺。页面不使用 `light-dark()`/`color-mix()` 等�
 ```bash
 npm --prefix web ci
 npm --prefix web run typecheck
-cargo test                      # 94 单元 + 134 渲染兼容 + 27 golden
+cargo test                      # 95 单元 + 134 渲染兼容 + 27 golden
 cargo clippy --all-targets -- -D warnings
 bash tests/selftest-rust.sh     # 292 项真二进制 HTTP 断言
 node tests/check-css-baseline.mjs # Chromium 88 基线黑名单 + 深色色板同步
-node tests/browser-probe.mjs      # 299 项 headless Chrome 验收
+node tests/browser-probe.mjs      # 306 项 headless Chrome 验收
 node tests/perf-source.mjs        # 4 项源码页性能预算
 bash tests/trust-tty.sh           # 9 项真实 pty 信任测试
 ```
