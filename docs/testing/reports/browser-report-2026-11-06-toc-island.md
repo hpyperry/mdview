@@ -2,7 +2,7 @@
 
 关联：[Issue #63](https://github.com/hpyperry/mdview/issues/63) ·
 PR #64（待建） · [ADR 0026](../../architecture/adr/0026-toc-island-layout.md)。
-功能：F-50 / F-51 / F-52。
+功能：F-50 / F-51 / F-52；附 F-95 工具栏完成反馈。
 
 ## 环境
 
@@ -25,7 +25,7 @@ PR #64（待建） · [ADR 0026](../../architecture/adr/0026-toc-island-layout.m
 | Golden | `cargo test --test golden` | **27 cases passed** |
 | 渲染兼容 | `cargo test --test render_compat` | **134 passed** |
 | 黑盒 HTTP | `bash tests/selftest-rust.sh` | **PASS=292 FAIL=0** |
-| 浏览器探针 | `node tests/browser-probe.mjs` | **PASS=288 FAIL=0** |
+| 浏览器探针 | `node tests/browser-probe.mjs` | **PASS=299 FAIL=0** |
 | TTY 信任 | `bash tests/trust-tty.sh` | **PASS=9 FAIL=0** |
 | 源码页性能 | `node tests/perf-source.mjs` | **4 项预算通过** |
 | artifact 冒烟 | `bash tests/smoke-artifact.sh target/release/mdview` | **PASS=7 FAIL=0** |
@@ -49,12 +49,16 @@ PR #64（待建） · [ADR 0026](../../architecture/adr/0026-toc-island-layout.m
 
 | 编号 | 场景 | 操作 | 预期 | 结果 | 证据 |
 |---|---|---|---|---|---|
-| F-50 | 1600px 常驻目录岛 | 打开 `/all-levels.md`，窗口 1600×900 | 正文 1240 固定；右侧 ≥220px 文字目录岛（随剩余宽度伸展）；间距 24；两岛外缘与顶栏同 padding；目录岛内“回到顶部” | 通过 | [F-50_toc-island-1600.png](../evidence/2026-11-06/F-50_toc-island-1600.png) |
+| F-50 | 1600px 常驻目录岛 | 打开 `/all-levels.md`，窗口 1600×900 | 正文 1240 固定；右侧 ≥220px 文字目录岛（随剩余宽度伸展）；间距 24；两岛外缘与顶栏同 padding；目录岛内“回到顶部”；不显示“本页目录”标题/数量徽标 | 通过 | [F-50_toc-island-1600.png](../evidence/2026-11-06/F-50_toc-island-1600.png) |
 | F-50 | 1440px 细轨 | 打开 `/all-levels.md`，窗口 1440×900 | 正文 1240；右侧 24px 细轨；回顶按钮在细轨左侧，不重叠 | 通过 | [F-50_toc-rail-1440.png](../evidence/2026-11-06/F-50_toc-rail-1440.png) |
-| F-51 | 细轨悬停单条标题 | 悬停 h1 刻度 | 只出现该标题浮层；不展开完整面板 | 通过 | 浏览器探针断言（瞬时状态） |
+| F-51 | 常驻岛浅色选中态 | 1600px，浅色主题，打开 `/all-levels.md` | 选中项无整行底色，只用左侧强调条 + 蓝色文字；不显示“本页目录”标题/数量徽标 | 通过 | [F-51_toc-island-light-1600.png](../evidence/2026-11-06/F-51_toc-island-light-1600.png) |
+| F-51 | 细轨展开大纲浅色 | 1440px，浅色主题，点击顶部按钮 | 面板不显示“本页目录”标题文字，只保留右上角关闭图标；当前项无整行底色，点击/聚焦不再出现蓝色整框，改为浅灰底 + 左侧强调条 | 通过 | [F-51_toc-popover-light-1440.png](../evidence/2026-11-06/F-51_toc-popover-light-1440.png) |
+| F-51 | 细轨悬停单条标题 | 悬停 h1 刻度 | 只出现该标题浮层；横向排版，不展开完整面板 | 通过 | 浏览器探针断言（瞬时状态） |
 | F-51 | 细轨完整大纲 | 点击顶部按钮 | 展开 7 条文字大纲；点外部/Esc 收起；固定后移出不收起 | 通过 | 浏览器探针断言 |
 | F-50 | 多 h1 跳转 | 1600px，从顶部点 h1 B/D，从底部点 h1 A | h1 B 到 88px；h1 D 到页面最大值且可见；h1 A 回 88px | 通过 | 浏览器探针断言；夹具 `multi-h1.md` |
 | F-50 | 长文档目录岛 | 1600px，打开 `/long.md`，滚到底 | 目录岛列表独立滚动，当前项进入岛内 | 通过 | 浏览器探针断言 |
+| F-95 | 下载/导出完成反馈 | 点击文档页「下载」 | 原图标立即换成绿色对勾，1 秒后恢复；文字保持「下载」 | 通过 | [F-95_toolbar-download-done.png](../evidence/2026-11-06/F-95_toolbar-download-done.png) |
+| F-95 | 导出图片完成反馈 | 点击「导出图片」 | PNG 生成完成后原图标换成绿色对勾，1 秒后恢复 | 通过 | 浏览器探针断言（MutationObserver） |
 
 ## 发现
 
@@ -64,6 +68,7 @@ PR #64（待建） · [ADR 0026](../../architecture/adr/0026-toc-island-layout.m
   “顶栏高度 + 32px” 的即时 `window.scrollTo`，不再依赖 smooth scroll。
 - 多 h1 文档按 DOM 顺序生成多个 h1 条目，ID 唯一，跳转正常。
 - 1600px 下正文卡片实测 1240px，没有因目录岛出现而缩窄。
+- 下载/导出图片完成后只替换图标，不改按钮文案；1 秒后恢复原图标。
 
 ## 覆盖缺口
 

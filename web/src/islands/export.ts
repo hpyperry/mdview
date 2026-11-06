@@ -70,6 +70,30 @@ function safeName(name: string): string {
   return cleaned || 'document';
 }
 
+const CHECK_ICON =
+  '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>';
+const doneTimers = new WeakMap<HTMLElement, number>();
+
+/// Swap the action icon to a check for one second, then restore it.
+function flashDone(target: HTMLElement): void {
+  const icon = target.querySelector<SVGElement>('svg.icon');
+  if (!icon) return;
+  if (!target.dataset.originalIcon) target.dataset.originalIcon = icon.outerHTML;
+  const original = target.dataset.originalIcon;
+  icon.outerHTML = CHECK_ICON;
+  target.classList.add('is-done');
+  const existing = doneTimers.get(target);
+  if (existing) window.clearTimeout(existing);
+  const timer = window.setTimeout(() => {
+    const current = target.querySelector<SVGElement>('svg.icon');
+    if (current && target.dataset.originalIcon) current.outerHTML = target.dataset.originalIcon;
+    target.classList.remove('is-done');
+    delete target.dataset.originalIcon;
+    doneTimers.delete(target);
+  }, 1000);
+  doneTimers.set(target, timer);
+}
+
 function download(blob: Blob, name: string): void {
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
@@ -155,6 +179,9 @@ export function mountExport(): void {
   (pdfButton ?? pngButton)?.parentElement?.appendChild(status);
 
   const name = pngButton?.dataset.exportName || document.title.replace(/ · mdview$/, '');
+  const downloadLink = document.querySelector<HTMLAnchorElement>(
+    '.page-actions a.action[href*="?download=1"]',
+  );
   let timer = 0;
 
   const say = (message: string): void => {
@@ -162,6 +189,8 @@ export function mountExport(): void {
     window.clearTimeout(timer);
     if (message) timer = window.setTimeout(() => { status.textContent = ''; }, 4000);
   };
+
+  downloadLink?.addEventListener('click', () => flashDone(downloadLink));
 
   pdfButton?.addEventListener('click', () => {
     say('');
@@ -177,6 +206,7 @@ export function mountExport(): void {
     try {
       await renderPng(article, name);
       say('图片已生成');
+      flashDone(pngButton);
     } catch (error) {
       console.error('[mdview] export png failed', error);
       say(error instanceof Error && error.message === '文档过长'

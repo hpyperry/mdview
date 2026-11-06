@@ -15,4 +15,4 @@
 | 2026-10-27 | 文件编码检测 | [browser-report-2026-10-27-encodings.md](browser-report-2026-10-27-encodings.md) | [`../evidence/2026-10-27/`](../evidence/2026-10-27/) | F-89 / F-90 |
 | 2026-11-04 | 旧引擎（Chromium 88）兼容 | [legacy-chromium-88-2026-11-04.md](legacy-chromium-88-2026-11-04.md) | 无截图（CDP 断言） | F-31 / F-76 / F-93 |
 | 2026-11-06 | HTML 第二 origin | [browser-report-2026-11-06-html-second-origin.md](browser-report-2026-11-06-html-second-origin.md) | [`../evidence/2026-11-06/`](../evidence/2026-11-06/) | F-75 / F-77 / F-96 |
-| 2026-11-06 | 右侧 TOC 目录岛 | [browser-report-2026-11-06-toc-island.md](browser-report-2026-11-06-toc-island.md) | [`../evidence/2026-11-06/`](../evidence/2026-11-06/) | F-50 / F-51 / F-52 |
+| 2026-11-06 | 右侧 TOC 目录岛与工具栏反馈 | [browser-report-2026-11-06-toc-island.md](browser-report-2026-11-06-toc-island.md) | [`../evidence/2026-11-06/`](../evidence/2026-11-06/) | F-50 / F-51 / F-52 / F-95 |

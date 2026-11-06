@@ -103,7 +103,7 @@ function Toc({ headings, inlineNav, rail }: TocProps) {
   const [tip, setTip] = useState<Tip | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const ticksRef = useRef<HTMLDivElement>(null);
-  const islandListRef = useRef<HTMLDivElement>(null);
+  const islandListRef = useRef<HTMLElement>(null);
 
   function close(): void {
     setPinned(false);
@@ -233,14 +233,10 @@ function Toc({ headings, inlineNav, rail }: TocProps) {
 
   return (
     <>
-      <div class="toc-island" id="toc-island" aria-label="本页目录">
-        <div class="toc-island-head">
-          <span>本页目录</span>
-          <span class="toc-island-count">{headings.length}</span>
-        </div>
-        <div class="toc-island-list" ref={islandListRef}>
+      <div class="toc-island" id="toc-island">
+        <nav class="toc-island-list" aria-label="本页目录" ref={islandListRef}>
           <TocLinks headings={headings} active={active} onSelect={select} />
-        </div>
+        </nav>
         <button class="toc-top" type="button" onClick={scrollToTop}>
           <span aria-hidden="true">↑</span>
           <span>回到顶部</span>
@@ -282,7 +278,6 @@ function Toc({ headings, inlineNav, rail }: TocProps) {
       {pinned && (
         <div class="toc-pop" ref={panelRef}>
           <div class="toc-pop-head">
-            <span>本页目录</span>
             <button class="toc-close" type="button" aria-label="收起本页目录" onClick={close}>
               <Icon name="chevrons-right" />
             </button>

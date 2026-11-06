@@ -537,7 +537,17 @@ async function main() {
       URL.createObjectURL = (value) => { blob = value; return originalCreate.call(URL, value); };
       HTMLAnchorElement.prototype.click = function () {};
       try {
-        document.getElementById('export-png').click();
+        const png = document.getElementById('export-png');
+        window.__exportDoneSeen = false;
+        window.__exportDonePath = '';
+        const doneObserver = new MutationObserver(() => {
+          if (png.classList.contains('is-done')) {
+            window.__exportDoneSeen = true;
+            window.__exportDonePath = png.querySelector('svg.icon path')?.getAttribute('d') || '';
+          }
+        });
+        doneObserver.observe(png, { attributes: true, attributeFilter: ['class'] });
+        png.click();
         const deadline = Date.now() + 15000;
         while (!blob && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 100));
       } finally {
@@ -575,6 +585,26 @@ async function main() {
       JSON.stringify(exported.corner),
     );
     check('导出图片有尺寸', exported.width > 500 && exported.height > 500, JSON.stringify({ width: exported.width, height: exported.height }));
+    check('导出 PNG 完成图标', await waitFor('window.__exportDoneSeen === true', 3000));
+    check('导出 PNG 完成图标是勾', (await evaluate('window.__exportDonePath')) === 'M20 6 9 17l-5-5');
+    await evaluate(`(() => {
+      const link = [...document.querySelectorAll('.page-actions a.action')].find((a) => a.href.includes('?download=1'));
+      link.addEventListener('click', (event) => event.preventDefault(), { once: true });
+      link.click();
+    })()`);
+    check(
+      '下载完成图标',
+      await waitFor('(() => { const link = [...document.querySelectorAll(".page-actions a.action")].find((a) => a.href.includes("?download=1")); return link?.classList.contains("is-done") === true; })()', 1000),
+    );
+    check(
+      '下载完成图标是勾',
+      (await evaluate('(() => { const link = [...document.querySelectorAll(".page-actions a.action")].find((a) => a.href.includes("?download=1")); return link?.querySelector("svg.icon path")?.getAttribute("d"); })()')) === 'M20 6 9 17l-5-5',
+    );
+    await sleep(1100);
+    check(
+      '下载图标恢复',
+      (await evaluate('(() => { const link = [...document.querySelectorAll(".page-actions a.action")].find((a) => a.href.includes("?download=1")); return link?.classList.contains("is-done") === false; })()')) === true,
+    );
 
     await page.send('Emulation.setEmulatedMedia', { media: 'print' });
     await evaluate('document.documentElement.dataset.theme = "dark"');
@@ -697,6 +727,10 @@ async function main() {
     check('TOC 面板初始关闭', (await evaluate('document.querySelector(".toc-pop") === null')) === true);
     await evaluate('document.querySelector(".toc-tick.is-h1").dispatchEvent(new PointerEvent("pointerenter", { bubbles: false }))');
     check('TOC 悬停刻度显示标题', await waitFor('document.querySelector(".toc-tip")?.textContent === "Probe"', 2000));
+    check(
+      'TOC 悬停标题横向可读',
+      (await evaluate('(() => { const t = document.querySelector(".toc-tip"); if (!t) return false; const r = t.getBoundingClientRect(); return r.width > r.height; })()')) === true,
+    );
     await evaluate('document.querySelector(".toc-tick.is-h1").dispatchEvent(new PointerEvent("pointerleave", { bubbles: false }))');
     check('TOC 移出隐藏标题', await waitFor('document.querySelector(".toc-tip") === null', 2000));
     check('TOC 悬停细轨不展开面板', (await evaluate('document.querySelector(".toc-pop") === null')) === true);
@@ -709,6 +743,16 @@ async function main() {
     check('TOC 固定可关闭', await waitFor('document.querySelector(".toc-pop") === null', 2000));
     await evaluate('document.getElementById("toc-rail").querySelector(".toc-rail-btn").click()');
     check('TOC 面板可展开', await waitFor('document.querySelectorAll(".toc-pop .toc-link").length === 7', 2000));
+    check('TOC 面板无标题噪声', (await evaluate('document.querySelector(".toc-pop-head")?.textContent.trim() === ""')) === true);
+    check(
+      'TOC 面板当前项无整行底色',
+      (await evaluate('getComputedStyle(document.querySelector(".toc-pop .toc-link.active")).backgroundColor')) === 'rgba(0, 0, 0, 0)',
+    );
+    await evaluate('document.querySelectorAll(".toc-pop .toc-link")[3].focus()');
+    check(
+      'TOC 焦点无蓝色整框',
+      (await evaluate('(() => { const s = getComputedStyle(document.querySelectorAll(".toc-pop .toc-link")[3]); return s.outlineStyle === "none"; })()')) === true,
+    );
     await evaluate('window.scrollTo(0, document.body.scrollHeight)');
     await evaluate('document.querySelectorAll(".toc-pop .toc-link")[0].click()');
     check(
@@ -764,6 +808,14 @@ async function main() {
         (await evaluate('!!document.querySelector("#toc-island .toc-top")')) === true,
     );
     check('1600 目录岛标题文本', (await evaluate('document.querySelector("#toc-island .toc-link")?.textContent')) === 'Probe');
+    check(
+      '1600 目录岛无标题徽标',
+      (await evaluate('!document.querySelector("#toc-island .toc-island-head") && !document.querySelector("#toc-island .toc-island-count")')) === true,
+    );
+    check(
+      '1600 当前项无整行底色',
+      (await evaluate('getComputedStyle(document.querySelector("#toc-island .toc-link.active")).backgroundColor')) === 'rgba(0, 0, 0, 0)',
+    );
     await evaluate('window.scrollTo(0, document.body.scrollHeight)');
     await evaluate('document.querySelector("#toc-island .toc-link").click()');
     check(
