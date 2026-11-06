@@ -292,7 +292,10 @@ async function main() {
 
   const untrustedPort = await freePort();
   const untrustedBase = `http://127.0.0.1:${untrustedPort}`;
-  const htmlPort = await freePort();
+  let htmlPort = await freePort();
+  while (htmlPort === untrustedPort || htmlPort === port) {
+    htmlPort = await freePort();
+  }
   const htmlBase = `http://127.0.0.1:${htmlPort}`;
   const untrustedServer = spawn(
     binary,
