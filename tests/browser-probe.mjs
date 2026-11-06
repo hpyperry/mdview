@@ -549,10 +549,12 @@ async function main() {
         const png = document.getElementById('export-png');
         window.__exportDoneSeen = false;
         window.__exportDonePath = '';
+        window.__exportDoneDisabled = false;
         const doneObserver = new MutationObserver(() => {
           if (png.classList.contains('is-done')) {
             window.__exportDoneSeen = true;
             window.__exportDonePath = png.querySelector('svg.icon path')?.getAttribute('d') || '';
+            window.__exportDoneDisabled = png.disabled;
           }
         });
         doneObserver.observe(png, { attributes: true, attributeFilter: ['class'] });
@@ -596,23 +598,28 @@ async function main() {
     check('导出图片有尺寸', exported.width > 500 && exported.height > 500, JSON.stringify({ width: exported.width, height: exported.height }));
     check('导出 PNG 完成图标', await waitFor('window.__exportDoneSeen === true', 3000));
     check('导出 PNG 完成图标是勾', (await evaluate('window.__exportDonePath')) === 'M20 6 9 17l-5-5');
-    await evaluate(`(() => {
+    check('导出完成期间禁用按钮', (await evaluate('window.__exportDoneDisabled')) === true);
+    check('导出完成无状态文案', (await evaluate('document.querySelector(".export-status")?.textContent || ""')) === '');
+    await sleep(250);
+    check('导出按钮图标恢复', (await evaluate('(() => { const png = document.getElementById("export-png"); return png?.disabled === false && png?.classList.contains("is-done") === false; })()')) === true);
+    const downloadDone = await evaluate(`(() => {
       const link = [...document.querySelectorAll('.page-actions a.action')].find((a) => a.href.includes('?download=1'));
       link.addEventListener('click', (event) => event.preventDefault(), { once: true });
       link.click();
+      const path = link.querySelector('svg.icon path')?.getAttribute('d');
+      const aria = link.getAttribute('aria-disabled');
+      let secondPrevented = null;
+      const guard = (event) => { secondPrevented = event.defaultPrevented; link.removeEventListener('click', guard); };
+      link.addEventListener('click', guard);
+      link.click();
+      return { path, aria, secondPrevented, done: link.classList.contains('is-done') };
     })()`);
-    check(
-      '下载完成图标',
-      await waitFor('(() => { const link = [...document.querySelectorAll(".page-actions a.action")].find((a) => a.href.includes("?download=1")); return link?.classList.contains("is-done") === true; })()', 1000),
-    );
-    check(
-      '下载完成图标是勾',
-      (await evaluate('(() => { const link = [...document.querySelectorAll(".page-actions a.action")].find((a) => a.href.includes("?download=1")); return link?.querySelector("svg.icon path")?.getAttribute("d"); })()')) === 'M20 6 9 17l-5-5',
-    );
-    await sleep(1100);
+    check('下载完成图标是勾', downloadDone.path === 'M20 6 9 17l-5-5', JSON.stringify(downloadDone));
+    check('下载完成期间禁用点击', downloadDone.done === true && downloadDone.aria === 'true' && downloadDone.secondPrevented === true, JSON.stringify(downloadDone));
+    await sleep(250);
     check(
       '下载图标恢复',
-      (await evaluate('(() => { const link = [...document.querySelectorAll(".page-actions a.action")].find((a) => a.href.includes("?download=1")); return link?.classList.contains("is-done") === false; })()')) === true,
+      (await evaluate('(() => { const link = [...document.querySelectorAll(".page-actions a.action")].find((a) => a.href.includes("?download=1")); return link?.classList.contains("is-done") === false && link?.getAttribute("aria-disabled") === null && link?.querySelector("svg.icon path")?.getAttribute("d") === "M12 3v12"; })()')) === true,
     );
 
     await page.send('Emulation.setEmulatedMedia', { media: 'print' });

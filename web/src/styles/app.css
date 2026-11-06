@@ -1200,5 +1200,7 @@ html.no-js .shell.has-toc.no-toc { grid-template-columns: minmax(0, 1fr); }
   .page-head .page-actions { margin-left: 0; justify-content: flex-start; }
 }
 
-/* Toolbar completion feedback: icon-only check for one second. */
+/* Toolbar completion feedback: icon-only check with a short click lock. */
 .action.is-done .icon { stroke: var(--ok); }
+.action.is-done { pointer-events: none; cursor: default; }
+button.action:disabled { cursor: default; }

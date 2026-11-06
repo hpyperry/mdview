@@ -1,6 +1,6 @@
 # 统一页头（PageHead）测试报告（2026-11-06）
 
-- 关联：Issue [#65](https://github.com/hpyperry/mdview/issues/65) / PR（待建）/ F-29、F-45
+- 关联：Issue [#65](https://github.com/hpyperry/mdview/issues/65) / PR（待建）/ F-29、F-45、F-95
 - 夹具：`tests/fixtures/page-head/README.md`（可直接作为 `--root`）
 - 类型：browser（浏览器/视觉）
 
@@ -23,7 +23,7 @@
 | 单元 / 集成 | `cargo test` | 95 + 134 + 27 passed |
 | 黑盒 HTTP | `bash tests/selftest-rust.sh` | PASS=292 FAIL=0 |
 | TTY Trust | `bash tests/trust-tty.sh` | PASS=9 FAIL=0 |
-| 浏览器探针 | `node tests/browser-probe.mjs` | **PASS=306 FAIL=0** |
+| 浏览器探针 | `node tests/browser-probe.mjs` | **PASS=309 FAIL=0** |
 | 源码页性能 | `node tests/perf-source.mjs` | 4 项预算通过 |
 | artifact 冒烟 | `bash tests/artifact-smoke.sh` | PASS=7 FAIL=0 |
 
@@ -38,6 +38,8 @@
 | F-45 | 目录页头 | 打开 `/` | 面包屑 + 目录名 H1 + 项目数徽标 | 通过 | [F-45_page-head-dir.png](../evidence/2026-11-06/F-45_page-head-dir.png) |
 | F-45 | 搜索页头 | 1440px 打开搜索页 | 查询标题 + 文件数/结果数徽标；搜索表单在右侧同一行 | 通过 | [F-45_page-head-search.png](../evidence/2026-11-06/F-45_page-head-search.png) |
 | F-45 | 窄屏搜索页头 | 800px 打开搜索页 | 表单换到标题下方，保持紧凑，不被挤到页面底部 | 通过 | [F-45_page-head-search-800.png](../evidence/2026-11-06/F-45_page-head-search-800.png) |
+| F-95 | 下载完成反馈 | 点击文档页「下载」 | 图标换成绿色对勾，`aria-disabled=true`；100ms 内再次点击被阻止；约 100ms 后恢复原图标 | 通过 | 浏览器探针断言；图标状态见 [F-95_toolbar-download-done.png](../evidence/2026-11-06/F-95_toolbar-download-done.png) |
+| F-95 | 导出图片完成反馈 | 点击「导出图片」 | 生成完成后图标换成绿色对勾、按钮短暂 `disabled`；不显示“图片已生成”；约 100ms 后恢复 | 通过 | 浏览器探针断言（MutationObserver + disabled/status） |
 
 浏览器探针新增/更新断言：
 
@@ -57,6 +59,8 @@
 - 页头 CSS 已收敛到 `.page-head` / `.page-head-inner` / `.page-meta` /
   `.page-actions` 一套；删除了 `article-toolbar`、`doc-meta`、`source-tags`、
   `dir-head-main`、`search-head-inner` 等旧规则。
+- 下载/导出完成反馈改为约 100ms 的完成图标 + 禁用窗口，防止连续点击；导出成功后
+  不再写“图片已生成”，错误提示（过长/失败）仍保留。
 
 ## 覆盖缺口
 

@@ -4,6 +4,10 @@
 PR #64（待建） · [ADR 0026](../../architecture/adr/0026-toc-island-layout.md)。
 功能：F-50 / F-51 / F-52；附 F-95 工具栏完成反馈。
 
+> 后续修正：F-95 完成反馈已改为约 100ms 的完成图标 + 禁用窗口，并移除
+> “图片已生成”成功文案；最新验收见
+> [browser-report-2026-11-06-page-head.md](browser-report-2026-11-06-page-head.md)。
+
 ## 环境
 
 | 项 | 值 |
