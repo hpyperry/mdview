@@ -1,4 +1,8 @@
-# 当前浏览器验收报告
+# 当前测试报告
+
+每个 feature/fix 一份报告，按日期与主题登记在下面；浏览器/视觉用
+`browser-report-<YYYY-MM-DD>-<slug>.md`，后端/其他用
+`test-report-<YYYY-MM-DD>-<slug>.md`。模板见 [`TEMPLATE.md`](TEMPLATE.md)。
 
 当前测试计数与命令见 [`../selftest.md`](../selftest.md)，测试方法见
 [`../agent-guide.md`](../agent-guide.md)。历史快照见

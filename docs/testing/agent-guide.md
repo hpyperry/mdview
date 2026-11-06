@@ -25,10 +25,19 @@
 `browser-probe.mjs` 是回归探针，覆盖 160+ 条 DOM/行为断言；browser-use 负责
 “人眼会怎么看、真实点击会怎样”的验收。两者不能互相替代。
 
-每个 feature/fix 还必须有一份人工复测文档：有夹具的放在
-`tests/fixtures/<slug>/README.md`，纯修复可以只建 README。文档写关联 Issue/PR 与
-F-xx、启动命令、入口、复测步骤与预期、自动化覆盖、已知限制。测试计划从这份文档
-开始；`docs/testing/` 只放执行记录与报告，不复用为复测文档。
+每个 feature/fix 还必须同时交付三样东西：
+
+1. **复测夹具**：`tests/fixtures/<slug>/README.md`；有夹具时目录根能直接作为
+   `--root`，纯修复可以 README-only，但写清实际使用的 root/入口。
+2. **测试报告**：`docs/testing/reports/browser-report-<YYYY-MM-DD>-<slug>.md`
+   （浏览器/视觉）或 `test-report-<YYYY-MM-DD>-<slug>.md`（后端/其他），并在
+   [`reports/README.md`](reports/README.md) 登记。
+3. **证据**：浏览器可见改动把已查看的截图放 `docs/testing/evidence/<YYYY-MM-DD>/`；
+   非可视化改动在报告里附关键命令输出与 CI run 链接。
+
+报告写关联 Issue/PR 与 F-xx、环境、命令与结果、夹具入口、复测步骤/证据、覆盖缺口、
+结论。测试计划从夹具 README 开始；`docs/testing/` 只放执行记录与报告，不复用为
+复测文档。纯文档改动可以只更新 [`selftest.md`](selftest.md)。
 
 ## 3. 环境准备
 
@@ -148,9 +157,11 @@ bash tests/run-all.sh
 
 ## 6. 一轮测试的记录格式
 
-报告文件放 `docs/testing/reports/browser-report-<YYYY-MM-DD>-<slug>.md`，并在
+报告文件放 `docs/testing/reports/browser-report-<YYYY-MM-DD>-<slug>.md`
+（浏览器/视觉）或 `test-report-<YYYY-MM-DD>-<slug>.md`（后端/其他），并在
 [`reports/README.md`](reports/README.md) 登记；截图放
-`docs/testing/evidence/<YYYY-MM-DD>/`。纯后端/文档改动可以只更新
+`docs/testing/evidence/<YYYY-MM-DD>/`。模板见
+[`reports/TEMPLATE.md`](reports/TEMPLATE.md)。纯文档改动可以只更新
 [`selftest.md`](selftest.md)。
 
 ```text

@@ -26,16 +26,22 @@ Rust 实现的断言分多组：
 
 ## feature/fix 测试文档
 
-每个 feature/fix 必须新增或更新一份人工复测文档：
+每个 feature/fix 必须同时交付复测夹具、测试报告和证据：
 
-- 有夹具：`tests/fixtures/<slug>/README.md`，夹具根应能作为 `--root` 启动；使用
-  子目录 root 时在 README 写明确切命令；
-- 纯修复：可以只建 README，但要在文档里给出实际使用的 root/入口；
-- 必填：关联 Issue/PR 与 F-xx、启动命令、入口、复测步骤与预期、自动化覆盖、已知限制；
-- PR 描述必须链接它；新增/修改 F-xx 时 [`docs/reference/features.md`](../docs/reference/features.md)
-  的测试映射也链接它；
-- `docs/testing/` 是执行记录与报告，不复用为复测文档；
-- 模板见 [`fixtures/TEMPLATE.md`](fixtures/TEMPLATE.md)，复制为目录 README 后填写。
+- **夹具**：`tests/fixtures/<slug>/README.md`，夹具根应能作为 `--root` 启动；使用
+  子目录 root 时在 README 写明确切命令。纯修复可以只建 README，但要写清实际使用
+  的现有 root/入口。
+- **报告**：`docs/testing/reports/browser-report-<YYYY-MM-DD>-<slug>.md`
+  （浏览器/视觉）或 `test-report-<YYYY-MM-DD>-<slug>.md`（后端/其他）；包含环境、
+  命令与结果、夹具入口、复测步骤/证据、覆盖缺口、结论，并在
+  [`reports/README.md`](../docs/testing/reports/README.md) 登记。
+- **证据**：浏览器可见改动把已查看的截图放
+  `docs/testing/evidence/<YYYY-MM-DD>/`；非可视化改动在报告里附关键命令输出与
+  CI run 链接。
+- PR 描述、新增/修改 F-xx 的 [`features.md`](../docs/reference/features.md) 测试映射、
+  夹具 README 都链接报告；`node tests/check-doc-links.mjs` 必须通过。
+- 模板：报告见 [`docs/testing/reports/TEMPLATE.md`](../docs/testing/reports/TEMPLATE.md)，
+  夹具见 [`fixtures/TEMPLATE.md`](fixtures/TEMPLATE.md)。
 
 手动夹具按 feature 分目录，启动命令与预期见
 [`fixtures/README.md`](fixtures/README.md)；有夹具的目录应能直接作为 `--root`。

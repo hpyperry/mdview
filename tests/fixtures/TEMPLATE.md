@@ -1,6 +1,9 @@
 # <Feature 或 Fix 名称> 复测文档
 
 - 关联：Issue #N / PR #N / F-xx（没有 F-xx 的修复写 Issue/PR）
+- 关联测试报告：`docs/testing/reports/<kind>-report-<YYYY-MM-DD>-<slug>.md`
+- 证据：`docs/testing/evidence/<YYYY-MM-DD>/`（浏览器可见改动附截图；非可视化改动
+  在报告里附命令输出/CI run）
 - 夹具根：`tests/fixtures/<slug>/`（使用子目录 root 时写完整路径）
 - 启动：
 
