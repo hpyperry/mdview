@@ -805,7 +805,7 @@ async fn handle_inner(
         // The static HTML origin mirrors files only. Directory browsing stays
         // on the main origin, so the two origins cannot drift into two UIs.
         if mode == ServeMode::Static {
-            return plain_error(StatusCode::NOT_FOUND, "Not Found");
+            return plain_error(StatusCode::NOT_FOUND, "Not Found", is_head);
         }
         if !raw_path.ends_with('/') {
             let location = match uri.query() {
@@ -1029,14 +1029,19 @@ fn temporary_redirect(location: &str) -> Response {
         .unwrap()
 }
 
-fn plain_error(status: StatusCode, message: &str) -> Response {
+fn plain_error(status: StatusCode, message: &str, is_head: bool) -> Response {
+    let body = if is_head {
+        Body::empty()
+    } else {
+        Body::from(message.to_string())
+    };
     Response::builder()
         .status(status)
         .header(header::CONTENT_TYPE, "text/plain; charset=utf-8")
         .header(header::CONTENT_LENGTH, message.len().to_string())
         .header(header::CACHE_CONTROL, "no-store")
         .header("X-Content-Type-Options", "nosniff")
-        .body(Body::from(message.to_string()))
+        .body(body)
         .unwrap()
 }
 
@@ -1049,7 +1054,7 @@ async fn mode_error(
 ) -> Response {
     match mode {
         ServeMode::Preview => error_page(state, status, message, is_head).await,
-        ServeMode::Static => plain_error(status, message),
+        ServeMode::Static => plain_error(status, message, is_head),
     }
 }
 
@@ -1111,7 +1116,7 @@ async fn handle_archive(
             // The static origin mirrors the container as a normal file. A
             // trailing slash still names the archive directory, so 404 it.
             if raw_path.ends_with('/') {
-                return plain_error(StatusCode::NOT_FOUND, "Not Found");
+                return plain_error(StatusCode::NOT_FOUND, "Not Found", is_head);
             }
             let info = classify(&request.path).await;
             return serve_file(state, &request.path, &info, request.size, false, is_head).await;
@@ -1208,7 +1213,7 @@ async fn handle_archive(
     );
     if metadata.is_dir() {
         if mode == ServeMode::Static {
-            return plain_error(StatusCode::NOT_FOUND, "Not Found");
+            return plain_error(StatusCode::NOT_FOUND, "Not Found", is_head);
         }
         if !raw_path.ends_with('/') {
             let location = match uri.query() {
@@ -4252,6 +4257,12 @@ mod tests {
             let text = String::from_utf8(body).unwrap();
             assert!(!text.contains("mdview"), "{uri}: {text}");
         }
+
+        // Static errors still honour HEAD.
+        let (status, headers, body) = call(static_app.clone(), Method::HEAD, "/missing").await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert!(body.is_empty());
+        assert!(headers.contains_key(header::CONTENT_LENGTH));
 
         // SVG keeps the existing direct-navigation sandbox CSP.
         let (status, headers, _) = call(static_app.clone(), Method::GET, "/evil.svg").await;
