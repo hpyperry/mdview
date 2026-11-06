@@ -205,6 +205,36 @@ async function writeFixture(root) {
   );
   await writeFile(join(root, 'probe.css'), 'body { background-color: rgb(1, 2, 3); }\n');
   await writeFile(
+    join(root, 'origin.html'),
+    '<!doctype html><html><head><meta charset="utf-8"><title>Origin Probe</title><link rel="stylesheet" href="origin.css"></head><body><h1 id="origin-title">pending</h1><p id="origin-module">module: pending</p><p id="origin-storage">storage: pending</p><p id="origin-fetch">fetch: pending</p><p id="origin-sw">sw: pending</p><script type="module" src="origin.js"></script></body></html>\n',
+  );
+  await writeFile(join(root, 'origin.css'), 'body { background-color: rgb(4, 5, 6); }\n');
+  await writeFile(join(root, 'origin-module.js'), 'export const value = "ok";\n');
+  await writeFile(join(root, 'origin.json'), '{"value":"ok"}\n');
+  await writeFile(
+    join(root, 'origin-sw.js'),
+    'self.addEventListener("install", () => self.skipWaiting());\nself.addEventListener("activate", (event) => event.waitUntil(self.clients.claim()));\n',
+  );
+  await writeFile(
+    join(root, 'origin.js'),
+    [
+      'import { value } from "./origin-module.js";',
+      'const set = (id, text) => { const node = document.getElementById(id); if (node) node.textContent = text; };',
+      'set("origin-module", "module: " + value);',
+      'try { sessionStorage.setItem("origin", "ok"); set("origin-storage", "storage: " + sessionStorage.getItem("origin")); }',
+      'catch (error) { set("origin-storage", "storage: " + error.name); }',
+      'fetch("./origin.json", { cache: "no-store" }).then((response) => response.json())',
+      '  .then((data) => set("origin-fetch", "fetch: " + data.value))',
+      '  .catch((error) => set("origin-fetch", "fetch: " + error.name));',
+      'if ("serviceWorker" in navigator) {',
+      '  navigator.serviceWorker.register("./origin-sw.js").then(() => set("origin-sw", "sw: registered"))',
+      '    .catch((error) => set("origin-sw", "sw: " + error.name));',
+      '} else { set("origin-sw", "sw: unavailable"); }',
+      'set("origin-title", "HTML second origin ok");',
+      '',
+    ].join('\n'),
+  );
+  await writeFile(
     join(root, 'evil.svg'),
     '<svg xmlns="http://www.w3.org/2000/svg"><script>document.documentElement.dataset.x=1</script></svg>\n',
   );
@@ -262,9 +292,18 @@ async function main() {
 
   const untrustedPort = await freePort();
   const untrustedBase = `http://127.0.0.1:${untrustedPort}`;
+  const htmlPort = await freePort();
+  const htmlBase = `http://127.0.0.1:${htmlPort}`;
   const untrustedServer = spawn(
     binary,
-    ['--root', root, '--host', '127.0.0.1', '--port', String(untrustedPort), '--port-tries', '0', '--untrusted'],
+    [
+      '--root', root,
+      '--host', '127.0.0.1',
+      '--port', String(untrustedPort),
+      '--port-tries', '0',
+      '--untrusted',
+      '--html-port', String(htmlPort),
+    ],
     { stdio: ['ignore', 'ignore', 'pipe'] },
   );
   let untrustedErr = '';
@@ -992,7 +1031,7 @@ async function main() {
     check('HTML 源码页无 iframe', (await evaluate('!document.querySelector("iframe")')) === true);
     check('HTML 源码行锚点', (await evaluate('document.querySelector("#L1")?.textContent')) === '1');
 
-    console.log('== html untrusted sandbox ==');
+    console.log('== html untrusted second origin ==');
     const gotoUntrusted = async (path) => {
       requests.length = 0;
       await page.send('Page.navigate', { url: `${untrustedBase}${path}` });
@@ -1001,33 +1040,41 @@ async function main() {
         if ((await evaluate('document.readyState')) === 'complete') break;
         await sleep(50);
       }
-      await sleep(500);
+      await sleep(300);
     };
     await gotoUntrusted('/page.html');
-    check('未信任 HTML 页外壳', (await evaluate('document.body.dataset.page')) === 'html');
-    check('未信任 HTML 预览页 tabs', (await evaluate('document.querySelectorAll(".html-toolbar .seg").length')) === 2);
-    check('未信任 HTML iframe 存在', (await evaluate('document.querySelector("iframe.html-frame")?.getAttribute("src")')) === '/page.html?view=1');
-    check('未信任 HTML iframe sandbox', (await evaluate('document.querySelector("iframe.html-frame")?.getAttribute("sandbox")')) === 'allow-scripts allow-forms allow-modals allow-popups');
-    check('未信任 HTML 预览页无 TOC', (await evaluate('!document.querySelector(".toc-rail")')) === true);
-    await sleep(1200);
-    const htmlTargets = await browser.send('Target.getTargets');
-    const iframeTarget = htmlTargets.targetInfos.find((target) => target.type === 'iframe' && target.url.startsWith(untrustedBase) && target.url.includes('/page.html?view=1'));
-    check('未信任 HTML 沙箱 iframe 已加载', !!iframeTarget, JSON.stringify(htmlTargets.targetInfos.map((target) => target.url)));
-    if (iframeTarget) {
-      const attached = await browser.send('Target.attachToTarget', { targetId: iframeTarget.targetId, flatten: true });
-      await browser.send('Runtime.enable', {}, attached.sessionId);
-      const childEval = async (expression) => {
-        const result = await browser.send('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true }, attached.sessionId);
-        if (result.exceptionDetails) throw new Error(result.exceptionDetails.exception?.description || 'child eval failed');
-        return result.result.value;
-      };
-      check('未信任 HTML 脚本在沙箱运行', (await childEval('document.body.dataset.script')) === 'yes');
-      check('未信任 HTML 相对 CSS 生效', (await childEval('getComputedStyle(document.body).backgroundColor')) === 'rgb(1, 2, 3)');
-      check('未信任 HTML 沙箱屏蔽 localStorage', (await childEval('(() => { try { localStorage.getItem("x"); return false } catch { return true } })()')) === true);
-      check('未信任 HTML 沙箱屏蔽同源 fetch', (await childEval('fetch("/_nav?__mdview=nav").then(() => false).catch(() => true)')) === true);
-    }
+    check('未信任 HTML 跳到第二 origin', (await evaluate('location.origin')) === htmlBase);
+    check('未信任 HTML 不是 mdview 外壳', (await evaluate('document.body.dataset.page === undefined')) === true);
+    check('未信任 HTML 无 iframe/工具栏', (await evaluate('!document.querySelector("iframe") && !document.querySelector(".html-toolbar")')) === true);
+    check('未信任 HTML 原文标题', (await evaluate('document.querySelector("h1")?.textContent')) === 'HTML Probe');
+    check('未信任 HTML 脚本运行', (await evaluate('document.body.dataset.script')) === 'yes');
+    check('未信任 HTML 相对 CSS 生效', (await evaluate('getComputedStyle(document.body).backgroundColor')) === 'rgb(1, 2, 3)');
+    check(
+      '未信任 HTML localStorage 可用',
+      (await evaluate('(() => { try { localStorage.setItem("mdv", "1"); return localStorage.getItem("mdv") === "1"; } catch { return false; } })()')) === true,
+    );
+    check(
+      '未信任 HTML sessionStorage 可用',
+      (await evaluate('(() => { try { sessionStorage.setItem("mdv", "1"); return sessionStorage.getItem("mdv") === "1"; } catch { return false; } })()')) === true,
+    );
+    check('未信任 HTML 同源 fetch 原始文件', (await evaluate('fetch("/page.md").then((response) => response.status).catch(() => 0)')) === 200);
+    check('第二 origin 不暴露 mdview 导航', (await evaluate('fetch("/_nav?__mdview=nav").then((response) => response.status).catch(() => 0)')) === 404);
+    check('第二 origin 不暴露 mdview 资产', (await evaluate('fetch("/_assets/app.js").then((response) => response.status).catch(() => 0)')) === 404);
+
+    await gotoUntrusted('/origin.html');
+    check('第二 origin module 脚本', await waitFor('document.getElementById("origin-module")?.textContent === "module: ok"', 3000));
+    check('第二 origin sessionStorage', await waitFor('document.getElementById("origin-storage")?.textContent === "storage: ok"', 3000));
+    check('第二 origin fetch', await waitFor('document.getElementById("origin-fetch")?.textContent === "fetch: ok"', 3000));
+    check('第二 origin service worker', await waitFor('document.getElementById("origin-sw")?.textContent === "sw: registered"', 5000));
+    check('第二 origin 相对 CSS', (await evaluate('getComputedStyle(document.body).backgroundColor')) === 'rgb(4, 5, 6)');
+
     await gotoUntrusted('/page.html?raw=1');
+    check('未信任 HTML 源码页在主 origin', (await evaluate('location.origin')) === untrustedBase);
     check('未信任 HTML 源码页 tabs', (await evaluate('document.querySelectorAll(".html-toolbar .seg").length')) === 2);
+    check(
+      '未信任 HTML 源码页预览指向第二 origin',
+      (await evaluate('document.querySelector(".html-toolbar .seg")?.getAttribute("href")')) === `${htmlBase}/page.html`,
+    );
     check('未信任 HTML 源码页无 iframe', (await evaluate('!document.querySelector("iframe")')) === true);
     check('未信任 HTML 源码行锚点', (await evaluate('document.querySelector("#L1")?.textContent')) === '1');
     await gotoUntrusted('/evil.svg');
@@ -1048,8 +1095,12 @@ async function main() {
     await goto('/sample.zip/docs/a.md?raw=1');
     check('包内源码行锚点', (await evaluate('document.querySelector("#L1")?.textContent')) === '1');
     await gotoUntrusted('/sample.zip/docs/page.html');
-    check('包内 HTML untrusted 沙箱', (await evaluate('document.body.dataset.page')) === 'html');
-    check('包内 HTML untrusted iframe', (await evaluate('document.querySelector("iframe.html-frame") !== null')) === true);
+    check('包内 HTML untrusted 第二 origin', (await evaluate('location.origin')) === htmlBase);
+    check('包内 HTML untrusted 原文', (await evaluate('document.querySelector("h1")?.textContent')) === 'Archive HTML');
+    check(
+      '包内 HTML untrusted 无外壳',
+      (await evaluate('!document.querySelector("iframe") && !document.querySelector(".html-toolbar")')) === true,
+    );
 
     await goto('/sample.tar.bz2/docs/a.md');
     check('tar.bz2 包内渲染', (await evaluate('document.querySelector("article.markdown-body h1")?.textContent')) === 'Archive A');

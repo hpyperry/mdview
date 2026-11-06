@@ -21,6 +21,10 @@ pub struct Cli {
     #[arg(long = "port-tries", default_value_t = 10)]
     pub port_tries: u16,
 
+    /// HTML 第二 origin 的起始端口；默认实际主端口 + 1，冲突时顺延
+    #[arg(long = "html-port")]
+    pub html_port: Option<u16>,
+
     /// 服务根目录；默认当前目录
     #[arg(long)]
     pub root: Option<PathBuf>,

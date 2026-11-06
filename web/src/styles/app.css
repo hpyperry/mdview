@@ -343,29 +343,8 @@ html.no-js .export-action { display: none !important; }
   background: var(--surface); color: var(--fg);
   box-shadow: 0 1px 2px rgba(0,0,0,.08);
 }
-.html-toolbar .badge { display: inline-flex; align-items: center; gap: 4px; }
-.html-toolbar .badge .icon { width: 12px; height: 12px; }
-.html-preview-wrap { padding: 18px 30px 30px; background: var(--bg); }
-.html-frame-bar {
-  display: flex; align-items: center; gap: 8px; padding: 6px 10px;
-  border: 1px solid var(--border); border-bottom: 0;
-  border-radius: 8px 8px 0 0; background: var(--surface-2);
-  color: var(--muted); font-size: 11px;
-}
-.html-frame-bar .icon { width: 14px; height: 14px; }
-.html-frame-name {
-  font-family: var(--vscode-editor-font-family);
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.html-frame {
-  display: block; width: 100%; height: clamp(420px, calc(100vh - 410px), 760px);
-  border: 1px solid var(--border); border-radius: 0 0 8px 8px;
-  background: var(--surface);
-}
 @media (max-width: 720px) {
   .html-toolbar { padding-left: 16px; padding-right: 16px; }
-  .html-preview-wrap { padding: 14px 16px 22px; }
-  .html-frame { height: 70vh; min-height: 360px; max-height: 620px; }
 }
 
 /* code blocks */
@@ -446,6 +425,11 @@ html.no-js .export-action { display: none !important; }
   border-radius: 0 0 10px 10px;
   background: var(--surface-2); color: var(--muted); font-size: 12px;
 }
+.source-notice {
+  border-top: 0; border-radius: 0;
+  border-bottom: 1px solid var(--border);
+  background: var(--accent-wash); color: var(--fg);
+}
 
 /* search */
 .page-body { padding: 22px 30px 46px; }
@@ -464,7 +448,6 @@ html.no-js .export-action { display: none !important; }
 .result-head .path .icon { color: var(--muted); }
 .badge { border: 1px solid var(--border); border-radius: 999px; padding: 1px 8px; font-size: 11px; color: var(--muted); background: var(--surface); white-space: nowrap; }
 .badge-doc { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
-.badge-html { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
 .hit {
   display: block;
   padding: 10px 34px 10px 14px;

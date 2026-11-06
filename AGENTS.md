@@ -82,7 +82,7 @@ Single-context: root `GLOSSARY.md` + `docs/architecture/adr/`. See
 3. `docs/architecture/adr/0006-html-trust-and-csp.md`：裸 HTML 透传与 Trust/CSP；
    [ADR 0008](docs/architecture/adr/0008-docs-shell-and-reading-typography.md) 文档站外壳/排版，
    [ADR 0009](docs/architecture/adr/0009-search-scope-and-form-csp.md) 搜索与同源表单；
-   [ADR 0015](docs/architecture/adr/0015-html-file-preview-and-sandbox.md) HTML 文件双模式与沙箱，
+   [ADR 0015](docs/architecture/adr/0015-html-file-preview-and-sandbox.md) HTML 文件双模式（未信任部分由 [ADR 0025](docs/architecture/adr/0025-html-second-origin.md) 取代），
    [ADR 0016](docs/architecture/adr/0016-archive-virtual-paths.md) 压缩包虚拟路径与解压缓存，
    [ADR 0017](docs/architecture/adr/0017-internal-url-query-disambiguation.md) 内部 URL 查询参数消歧，
    [ADR 0018](docs/architecture/adr/0018-markdown-extension-scope.md) Markdown 扩展名口径，
@@ -165,20 +165,25 @@ Single-context: root `GLOSSARY.md` + `docs/architecture/adr/`. See
 11. **HTML 文件（Trust 门控）**：`trusted` 根下 `/x.html` 直接以原字节
     `text/html` 顶层返回，无 mdview 外壳、无 sandbox、无 CSP——这是 Python 版/
     静态服务器的行为，脚本、localStorage、同源 fetch、下载与顶层链接都正常。
-    只有 `untrusted` 根才用外壳 + 沙箱 iframe；`?view=1` 在 untrusted 下是沙箱
-    裸页，在 trusted 下就是原文。`?raw=1` 始终源码；`--safe` 只给源码。
-    Trusted raw 是顶层同源，脚本能读站点数据；不要给未信任根 raw，也不要把
-    Markdown 的一次性令牌扩展成 HTML raw。
-12. **未信任 HTML 沙箱**：裸页必须带
-    `Content-Security-Policy: sandbox ...; object-src 'none'`，iframe 带
-    `sandbox="allow-scripts allow-forms allow-modals allow-popups"`。不要加
-    `allow-same-origin`。`<object>`/`<embed>` 按 frame 导航处理，不能退化成无 CSP
-    原始字节。外壳页只在 `PageKind::Html` 把 `frame-src` 放宽为 `'self'`；
-    其他页面保持 `'none'`。沙箱只用于未信任根，不是可信文档的默认路径。
-13. **HTML 子资源**：相对 CSS/JS/JSON 按 `Sec-Fetch-Dest`（退化看 `Accept`）返回
-    原字节与真实 MIME；无 `Sec-Fetch-*` 时，`Accept: */*` + 子资源扩展名
-    （`js/mjs/cjs/css/json/map/webmanifest/xml`）也判为子资源；直接导航仍是源码页。
-    `--max-preview` 只限制文档，不限制子资源。HTML 内容命中在搜索里必须链到
+    `untrusted` 根下 `/x.html` **302 到 HTML 第二 origin**（见 12），不再套沙箱
+    外壳。`?raw=1` 始终是主 origin 的源码页；`?view=1` 不再有独立语义，按普通
+    HTML 请求交接；`--safe` 只给源码。Trusted raw 是顶层同源，脚本能读站点数据；
+    不要让未信任根在主 origin 直出原文，也不要把 Markdown 的一次性令牌扩展成
+    HTML raw。
+12. **HTML 第二 origin**：未信任根的独立 HTML 由第二个监听端口承载，主 origin
+    只做 302。第二 origin 是**只读静态镜像**：整个 root 按真实 MIME 返回，只
+    允许 GET/HEAD；不挂 mdview 外壳、导航、搜索、`__mdview` 内部路由与内嵌资产；
+    目录请求 404；HTML 原文、SVG 仍带现有 sandbox CSP，其他文件不套 mdview CSP。
+    端口默认实际主端口 + 1，冲突时最多尝试 10 个候选端口，可用 `--html-port` 覆盖；全部
+    占用时回退源码页并提示，不要静默回沙箱。第二 origin 的路径仍走
+    `resolve_path` 的 canonicalize + `starts_with(root)`。端口是 origin 边界，不是
+    cookie 边界；反向代理要单独暴露第二端口。`--safe` 与 trusted 根不启动第二
+    origin。
+13. **HTML 子资源**：主 origin 的相对 CSS/JS/JSON 按 `Sec-Fetch-Dest`（退化看
+    `Accept`）返回原字节与真实 MIME；无 `Sec-Fetch-*` 时，`Accept: */*` + 子资源
+    扩展名（`js/mjs/cjs/css/json/map/webmanifest/xml`）也判为子资源；直接导航仍是
+    源码页。`--max-preview` 只限制文档，不限制子资源。第二 origin 是纯静态镜像，
+    所有文件都按扩展名返回真实 MIME。HTML 内容命中在搜索里必须链到
     `?raw=1#L<n>`。
 14. **SVG 直开**：`image/svg+xml` 响应必须带
     `Content-Security-Policy: sandbox allow-top-navigation-by-user-activation`；
@@ -205,7 +210,7 @@ Single-context: root `GLOSSARY.md` + `docs/architecture/adr/`. See
 20. **目录始终列目录**：不自动寻找 `index.html`/`index.htm`；文件路径带尾斜杠
     （字面或 `%2f`）返回 404，目录缺尾斜杠仍是 301。
 21. **文件编码检测**：BOM → UTF-8 校验 → UTF-16 启发式 → chardetng；只作用于
-    mdview 生成的预览/搜索。HTML 原文/沙箱 iframe 不转码、不强制 charset；非 HTML
+    mdview 生成的预览/搜索。HTML 原文不转码、不强制 charset；非 HTML
     文本的 raw/下载 charset 用检测值，UTF-32 按二进制下载；不做手动编码覆盖。
     无 BOM 中文 UTF-16 可能识别失败，检测标签必须如实写“检测编码”。
 22. **`.xhtml`/`.xht`/`.mf` 是文本源码页**：包内 EPUB 章节与 JAR 清单只进源码页，
@@ -238,9 +243,10 @@ Single-context: root `GLOSSARY.md` + `docs/architecture/adr/`. See
 | 岛屿清单/水合策略 | `src/server.rs` 的 `data-islands` + `web/src/app.ts` |
 | 全站导航树/接口 | `src/server.rs` 的 `/_nav?__mdview=nav`、`nav_payload`/`nav_dir_payload` + `web/src/islands/nav.tsx` |
 | 内部 URL/搜索/资产路由 | `internal_marker` + `search`/`nav`/`asset_or_file`；表单用隐藏 `__mdview` 字段 |
-| HTML 文件路由 | `handle` 的 `Kind::Html`、`html_trusted_document`、`html_preview_page`、`html_preview_document` |
+| HTML 文件路由 | `handle_inner` 的 `Kind::Html`、`html_trusted_document`、`html_origin` / `temporary_redirect` |
+| HTML 第二 origin | `app_static` / `handle_static` / `bind_html` / `html_port`；`ServeMode::Static` |
 | HTML 子资源 MIME | `fetch_kind` / `raw_mime`；直接导航仍走 `source_page` |
-| HTML 页面样式 | `web/src/styles/app.css` 的 `.html-toolbar` / `.html-frame` |
+| HTML 页面样式 | `web/src/styles/app.css` 的 `.html-toolbar` / `.segmented` |
 | SVG 直开安全 | `serve_file` 的 `SVG_SANDBOX_CSP` |
 | 压缩包虚拟路径/解压 | `src/archive.rs` + `handle`/`handle_archive`/`handle_file` |
 | 新压缩格式/扩展名 | `src/archive.rs` 的 `ArchiveKind`/`ZIP_CONTAINER_EXT`/`extract_*`；先补夹具与 xz 内存上限 |
@@ -310,22 +316,24 @@ Single-context: root `GLOSSARY.md` + `docs/architecture/adr/`. See
   `source.ts` 的 `replaceChildren` 要保留回退，否则 <86 直接丢行号。
 - **H1 下划线**：`assets/markdown.css` 给全局 `h1` 加了 `border-bottom`；
   `web/src/styles/app.css` 的 `h1` 重置负责外壳标题。新增页面标题不要绕开它。
-- **HTML 信任目录**：`/x.html` 必须是原字节顶层原文，不能套外壳/沙箱/CSP；
-  这是 Python 版和静态服务器的行为。未信任根才走沙箱外壳。
+- **HTML 信任目录**：`/x.html` 在 trusted 根必须是主 origin 的原字节顶层原文，
+  不能套外壳/沙箱/CSP；未信任根 302 到第二 origin，不要在主 origin 直出或套
+  沙箱 iframe。
 - **HTML 编码**：原文强制 `text/html` 但不加 charset，让文档自己的 BOM/meta
   决定编码；不要恢复 Python 的强制 UTF-8。
-- **HTML 源码**：`?raw=1` 才是源码页；trusted 的源码页“预览”tab 指向 `/x.html`
-  原文，untrusted 指向沙箱外壳。
-- **HTML 子资源**：`style.css` 直接访问是源码页，只有 `Sec-Fetch-Dest: style`
-  之类请求才返回 `text/css`；不要把所有文本文件都改成原始 MIME。旧浏览器不发
-  `Sec-Fetch-*`，所以 `fetch_kind` 对 `Accept: */*` + 子资源扩展名兜底；扩展名
-  白名单不能加入 `.md`/`.txt`，否则源码页导航会被 raw 响应覆盖。
-- **HTML 搜索行**：HTML 内容命中要到 `?raw=1#L<n>`；默认 `/x.html` 现在是预览页，
-  不带行锚点。
+- **HTML 源码**：`?raw=1` 才是源码页；trusted 的源码页“预览”tab 指向主 origin
+  原文，untrusted 指向第二 origin。`?view=1` 不再是裸沙箱页。
+- **HTML 子资源**：主 origin 的 `style.css` 直接访问仍是源码页，只有
+  `Sec-Fetch-Dest: style` 之类请求才返回 `text/css`；第二 origin 是静态镜像，
+  不需要这套判定。旧浏览器不发 `Sec-Fetch-*`，所以 `fetch_kind` 对
+  `Accept: */*` + 子资源扩展名兜底；扩展名白名单不能加入 `.md`/`.txt`，否则源码页
+  导航会被 raw 响应覆盖。
+- **HTML 搜索行**：HTML 内容命中要到 `?raw=1#L<n>`；默认 `/x.html` 现在 302 到
+  第二 origin，不带行锚点。
 - **SVG**：`serve_file` 对 SVG 加了 CSP sandbox；不要把它挪到所有二进制响应，
   也不要删掉，否则直开 SVG 会恢复同源脚本执行。
 - **safe 模式**：`.md`/`.markdown` 渲染，`.html` 只给源码；压缩包与文本仍 404；
-  搜索也只覆盖放行类型。不要把 HTML 预览放进 safe。
+  搜索也只覆盖放行类型。safe 下不启动 HTML 第二 origin，也不要把原文预览放进 safe。
 - **触屏目录行**：`.dir-row .dl` 由 `@media (hover: none)` 常显；不要改回只靠 hover。目录操作只用图标，用 `title` + `aria-label` 提供悬浮/无障碍文本；每个图标点击区 36×36、间距 8，不要贴在一起；不要再加行内“下载”文字，否则会破坏固定列。
 - **目录行固定列**：桌面是 `图标 / 名称 / 大小 / 修改时间 / 操作` 五列；HTML 的源码图标不能挤动大小/时间列。`list_dir` 的行模板必须保持五个 grid 子项（目录行用 `row-kind` 跨 3–4 列），≤720px 才隐藏大小/时间。
 - **压缩包路径**：URL 里的条目路径也要过 `safe_entry_path`；不要只依赖解压时的

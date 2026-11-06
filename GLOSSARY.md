@@ -130,14 +130,16 @@ _Avoid_: 前言、元数据头
 
 **信任（trust）**：
 对一个**服务根**的文件夹级判断：已信任时，`.md` 预览直接渲染、独立 HTML 以原文
-顶层返回；未信任时，每次打开 `.md` 先显示**拦截面**，独立 HTML 用沙箱外壳预览。
-信任状态存在用户配置目录，按规范化根路径记录。它不改变文件可读范围。
+顶层返回；未信任时，每次打开 `.md` 先显示**拦截面**，独立 HTML 交接到
+**HTML 第二 origin** 运行。信任状态存在用户配置目录，按规范化根路径记录。它不
+改变文件可读范围。
 _Avoid_: 授权、白名单目录
 
 **拦截面**：
 未信任目录里打开 `.md` 时显示的警告页：“这个 Markdown 文件所在的目录尚未受信任。
 仍要打开吗？” + 取消 / 仍要打开。选择仍要打开会带一个**一次性令牌**放行当前请求；
-令牌用后失效，刷新或打开下一页面会再次拦截。令牌不适用于独立 HTML 的原文模式。
+令牌用后失效，刷新或打开下一页面会再次拦截。令牌不适用于独立 HTML：未信任
+HTML 走 HTML 第二 origin，不经过拦截面。
 _Avoid_: 警告弹窗、登录页
 
 **安全级别**：
@@ -154,8 +156,8 @@ _Avoid_: 只读模式、沙箱模式
 默认安全级别的响应头策略：`default-src 'none'`；图片/媒体/字体只允许本站、
 https 与 data；脚本**只允许带本次响应随机 nonce 的标签**，不使用 `'self'`；
 禁止 frame、form、base、object。裸 HTML 里的脚本与内联事件处理器因此不执行。
-它是 mdview 生成页面的策略；已信任根的独立 HTML 原文不套这条 CSP，
-未信任根的沙箱预览用自己的 `sandbox` CSP。
+它是 mdview 生成页面的策略；独立 HTML 原文（trusted 主 origin 或未信任的
+HTML 第二 origin）不套这条 CSP，只有直开的 SVG 保留自己的 `sandbox` CSP。
 _Avoid_: 严格模式、默认 CSP
 
 ## 文档站外壳与搜索
@@ -315,45 +317,45 @@ _Avoid_: 表单提交、search form
 
 **裸 HTML**：
 写在 Markdown 正文里的 HTML 片段，始终透传，由 Trust + CSP 约束。它与独立
-`.html` 文件的 **HTML 原文模式** / **HTML 沙箱预览** 不是同一条路径：前者没有
-独立文档边界，后者在可信时是顶层原文、未信任时是 opaque origin 沙箱。
+`.html` 文件的 **HTML 原文模式** / **HTML 第二 origin** 不是同一条路径：前者没有
+独立文档边界，后者是顶层文档。
 _Avoid_: HTML 预览（指独立文件时）、网页源码
 
 **HTML 原文模式**：
-已信任根下把独立 `.html` 按字节顶层返回：`text/html`、无 mdview 外壳、无 sandbox、
-无 CSP；脚本同源运行，链接、localStorage、下载与同源 fetch 都正常。它对应 Python
-版的静态文件行为。它不参与文件编码检测或转码，编码由文档自己的 BOM/`meta
+把独立 `.html` 按字节顶层返回：`text/html`、无 mdview 外壳、无 sandbox、无 CSP；
+脚本同源运行，链接、localStorage、下载与同源 fetch 都正常。trusted 根在主 origin
+直接这样返回；未信任根在 **HTML 第二 origin** 上得到同样的运行时行为。它对应
+Python 版的静态文件行为。它不参与文件编码检测或转码，编码由文档自己的 BOM/`meta
 charset` 决定。
 _Avoid_: HTML 预览、raw HTML（与 Markdown 裸 HTML 混淆）
 
-**HTML 沙箱预览**：
-未信任根下独立 `.html` 的降级查看方式：mdview 外壳 + `sandbox` iframe，脚本可运行
-但处于 opaque origin，读不到本站同源数据。
-_Avoid_: HTML 原文、安全预览
+**HTML 第二 origin**：
+未信任根下承载独立 HTML 的只读静态镜像：默认在主端口 + 1（可用 `--html-port`
+覆盖，冲突时顺延）。主 origin 的 `/x.html` 302 到这里；整个服务根按真实 MIME
+原样返回，没有 mdview 外壳、导航、搜索或 `__mdview` 内部路由。不同端口是不同
+origin，所以存储、Service Worker、module 与同源 fetch 正常工作，同时读不到主
+origin 的存储与接口。
+_Avoid_: 沙箱预览、独立站点、子站
 
-**HTML 文件页**：
-未信任根下 `.html`/`.htm` 的外壳页面：默认“预览”页签，可切“源码”；预览是
-沙箱 iframe，源码是现有源码查看页。已信任根不显示这个外壳。
-_Avoid_: HTML 预览页（仅指裸页时）、网页预览
+**HTML 源码页**：
+主 origin 上 `.html`/`.htm` 的源码查看页，对应 `?raw=1`；“预览”tab 在 trusted 时
+指向主 origin 原文，在未信任时指向 HTML 第二 origin。`--safe` 只保留源码页。
+_Avoid_: HTML 文件页、预览页
 
 **HTML 预览**：
-独立 HTML 文件的查看能力总称；可信时是 **HTML 原文模式**，未信任时是
-**HTML 沙箱预览**。两者都不是 Markdown 裸 HTML。
+独立 HTML 文件的查看能力总称；trusted 时是主 origin 的 **HTML 原文模式**，
+未信任时是 **HTML 第二 origin**。两者都不是 Markdown 裸 HTML。
 _Avoid_: 网页渲染、HTML 渲染（与裸 HTML 混淆）
 
-**裸预览页**：
-`?view=1` 返回的、没有 mdview 外壳的 HTML 文档；可信时是原文，未信任时是沙箱
-裸页。iframe 与“新标签页打开”都用它。
-_Avoid_: 原始页、独立页
-
 **源码模式 / 预览模式**：
-未信任 HTML 文件页的两个页签。源码模式对应 `?raw=1`，预览模式对应外壳页；
-可信根的“预览”直接是原文，不再套外壳。两者不是两套渲染器。
+HTML 源码页的两个页签。源码模式对应 `?raw=1`；预览模式在 trusted 时回主 origin
+原文，在未信任时去 HTML 第二 origin。`?view=1` 不再有独立语义。
 _Avoid_: 源码视图、渲染视图
 
 **子资源请求**：
-HTML 预览里的 CSS/JS/JSON 等请求，按 `Sec-Fetch-Dest`（退化时 `Accept`）识别；
-返回原始字节与真实 MIME，而不是源码页。
+HTML 页面里的 CSS/JS/JSON 等请求。主 origin 在 HTML 子资源按
+`Sec-Fetch-Dest`（退化时 `Accept`）识别，返回原始字节与真实 MIME，而不是源码页；
+HTML 第二 origin 是纯静态镜像，所有文件都直接按扩展名返回真实 MIME。
 _Avoid_: 静态资源、资产请求
 
 **压缩包容器**：
