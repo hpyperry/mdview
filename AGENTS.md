@@ -173,7 +173,8 @@ Single-context: root `GLOSSARY.md` + `docs/architecture/adr/`. See
 12. **HTML 第二 origin**：未信任根的独立 HTML 由第二个监听端口承载，主 origin
     只做 302。第二 origin 是**只读静态镜像**：整个 root 按真实 MIME 返回，只
     允许 GET/HEAD；不挂 mdview 外壳、导航、搜索、`__mdview` 内部路由与内嵌资产；
-    目录请求 404；HTML 原文、SVG 仍带现有 sandbox CSP，其他文件不套 mdview CSP。
+    目录请求 404；HTML 原文不套 mdview CSP，SVG 仍带现有 sandbox CSP，其他文件
+    也不套 mdview CSP。
     端口默认实际主端口 + 1，冲突时最多尝试 10 个候选端口，可用 `--html-port`
     覆盖；全部占用时回退源码页并提示，不要静默回沙箱。第二 origin 的路径仍走
     `resolve_path` 的 canonicalize + `starts_with(root)`。第二 origin 暴露整个
