@@ -370,6 +370,10 @@ Single-context: root `GLOSSARY.md` + `docs/architecture/adr/`. See
 - 每个 feature/fix 的人工复测文档放 `tests/fixtures/<slug>/README.md`；有夹具时目录
   带启动命令和可直接服务的文件，纯修复可 README-only。README 是复测文档（步骤、
   预期、自动化覆盖、已知限制），不是 `docs/testing/` 的执行报告；PR 与 `F-xx` 链接它。
+- 涉及浏览器可见行为、布局或交互的 feature/fix，除更新 `docs/testing/selftest.md`
+  的自动结果外，还要在 `docs/testing/reports/` 新增报告，把已查看的截图放进
+  `docs/testing/evidence/<YYYY-MM-DD>/`，并在 `reports/README.md` 登记；纯后端/
+  文档改动可以只更新 `selftest.md`。
 - 自动测试从夹具目录复制，不把唯一夹具散落在临时脚本里。
 - 全量本地验收跑 `bash tests/run-all.sh`；文档移动/改链接后先跑
   `node tests/check-doc-links.mjs`。

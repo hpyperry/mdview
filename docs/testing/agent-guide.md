@@ -148,6 +148,11 @@ bash tests/run-all.sh
 
 ## 6. 一轮测试的记录格式
 
+报告文件放 `docs/testing/reports/browser-report-<YYYY-MM-DD>-<slug>.md`，并在
+[`reports/README.md`](reports/README.md) 登记；截图放
+`docs/testing/evidence/<YYYY-MM-DD>/`。纯后端/文档改动可以只更新
+[`selftest.md`](selftest.md)。
+
 ```text
 环境：分支、commit、OS、Rust、Node、Chrome、root、端口
 自动套件：命令 → PASS/FAIL（数量）
