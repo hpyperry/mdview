@@ -136,9 +136,9 @@
 
 | ID | 功能 | 验收要点 | 测试映射 | 状态 |
 |---|---|---|---|---|
-| F-75 | HTML 文件 Trust 门控 | trusted 根：原文顶层 `text/html`，无外壳/沙箱，脚本/localStorage/同源 fetch/下载正常；untrusted 根：302 到 HTML 第二 origin；`?raw=1` 主 origin 源码；`--safe` 只给源码 | 服务端单测、黑盒、浏览器探针；[复测文档](../../tests/fixtures/html-second-origin/README.md) | ✅ 自动 |
+| F-75 | HTML 文件 Trust 门控 | trusted 根：原文顶层 `text/html`，无外壳/沙箱，脚本/localStorage/同源 fetch/下载正常；untrusted 根：302 到 HTML 第二 origin；`?raw=1` 主 origin 源码；`--safe` 只给源码 | 服务端单测、黑盒、浏览器探针；[复测文档](../../tests/fixtures/html-second-origin/README.md) · [视觉验收](../testing/reports/browser-report-2026-11-06-html-second-origin.md) | ✅ 自动 |
 | F-76 | HTML 子资源 MIME | 相对 CSS/JS/JSON 按 `Sec-Fetch-Dest`/`Accept` 返回真实 MIME；无 `Sec-Fetch-*` 的旧客户端用 `Accept: */*` + 子资源扩展名兜底；非 HTML 文本 charset 用检测值，HTML 保持无 charset；直接导航仍是源码页；第二 origin 按扩展名返回真实 MIME | 服务端单测、黑盒、浏览器探针；[复测文档](../../tests/fixtures/legacy-subresource-mime/README.md) | ✅ 自动 |
-| F-77 | HTML 第二 origin 隔离 | 仅 untrusted 根且非 `--safe`；不同端口是不同 origin；module/sessionStorage/Service Worker/同源 fetch 正常；不暴露 mdview 导航/搜索/资产；目录 404；SVG 仍 sandbox | 浏览器探针、黑盒；[复测文档](../../tests/fixtures/html-second-origin/README.md) | ✅ 自动 |
+| F-77 | HTML 第二 origin 隔离 | 仅 untrusted 根且非 `--safe`；不同端口是不同 origin；module/sessionStorage/Service Worker/同源 fetch 正常；不暴露 mdview 导航/搜索/资产；目录 404；SVG 仍 sandbox | 浏览器探针、黑盒；[复测文档](../../tests/fixtures/html-second-origin/README.md) · [视觉验收](../testing/reports/browser-report-2026-11-06-html-second-origin.md) | ✅ 自动 |
 | F-78 | SVG 直开 sandbox | `CSP: sandbox`；`<script>` 不执行；`<img>` 内嵌不受影响 | 服务端单测、黑盒、浏览器探针 | ✅ 自动 |
 | F-79 | HTML 搜索/目录入口 | 搜索正文行到 `?raw=1#L<n>`；目录行有源码入口 | 服务端单测、黑盒 | ✅ 自动 |
 | F-80 | 触屏下载可见性 | `@media (hover: none)` 下目录行动作常显 | CSS/视觉 | ◐ 部分 |
@@ -148,7 +148,7 @@
 | F-84 | 压缩包文件名编码 | UTF-8 → GBK → CP437 回退 | 单测 | ◐ 部分（GBK 单测；CP437 委托 zip） |
 | F-85 | 压缩包导航/搜索边界 | 导航只显示包文件；搜索不扫包内；`--safe` 不可见 | 黑盒 | ✅ 自动 |
 | F-86 | 导航容错 | 初始树与 `dir` 响应都跳过读不了的目录/条目并标 `partial: true`，导航浮岛显示提示；被请求目录本身不可读 500；根目录不可读 500 | 服务端单测 | ✅ 自动 |
-| F-96 | HTML 第二 origin 端口/回退 | 默认实际主端口 + 1，冲突顺延 10 次；`--html-port` 覆盖；全部占用时回退源码页并提示；压缩包内 HTML 同走第二 origin | 服务端单测、黑盒；[复测文档](../../tests/fixtures/html-second-origin/README.md) | ✅ 自动 |
+| F-96 | HTML 第二 origin 端口/回退 | 默认实际主端口 + 1，冲突时最多 10 个候选端口；`--html-port` 覆盖；全部占用时回退源码页并提示；压缩包内 HTML 同走第二 origin | 服务端单测、黑盒；[复测文档](../../tests/fixtures/html-second-origin/README.md) · [视觉验收](../testing/reports/browser-report-2026-11-06-html-second-origin.md) | ✅ 自动 |
 
 ## K. 静态服务器兼容与内部 URL
 
