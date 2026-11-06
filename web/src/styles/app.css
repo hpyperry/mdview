@@ -1237,6 +1237,29 @@ button.action:disabled { cursor: default; }
   :root { --read-width: min(1200px, calc(100vw - 92px)); }
 }
 
+
+/* -------------------------------------------------------------------------
+   Fixed page-head island: stays above the scrolling island body so source,
+   download and export actions remain reachable while reading.
+   ------------------------------------------------------------------------- */
+@media (min-width: 901px) {
+  .page-head {
+    position: sticky;
+    top: 12px;
+    z-index: 7;
+    margin: 12px 14px 0;
+    padding: 20px 0 16px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background: var(--surface);
+    box-shadow: var(--shadow), var(--shadow-float);
+  }
+  .markdown-body h1, .markdown-body h2, .markdown-body h3,
+  .markdown-body h4, .markdown-body h5, .markdown-body h6,
+  .markdown-body [data-sourcepos] { scroll-margin-top: 180px; }
+  .source .gutter a[id], .source-chunk .gutter a[id] { scroll-margin-top: 180px; }
+}
+
 /* -------------------------------------------------------------------------
    Fixed shell: the topbar and main island stay put; only the island body
    scrolls. Mobile keeps normal document scrolling.

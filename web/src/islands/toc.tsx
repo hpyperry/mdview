@@ -69,6 +69,16 @@ function headingOffset(): number {
   return (bar?.getBoundingClientRect().height || 56) + 32;
 }
 
+/// The desktop page head is sticky; headings must land below it.
+function fixedHeadOffset(): number {
+  const head = document.querySelector<HTMLElement>('.page-head');
+  if (head && getComputedStyle(head).position === 'sticky') {
+    const top = Number.parseFloat(getComputedStyle(head).top) || 0;
+    return head.getBoundingClientRect().height + top + 24;
+  }
+  return 20;
+}
+
 function scrollToHeading(id: string): void {
   const target = document.getElementById(id);
   if (!target) return;
@@ -77,7 +87,7 @@ function scrollToHeading(id: string): void {
     const top = scroller.scrollTop
       + target.getBoundingClientRect().top
       - scroller.getBoundingClientRect().top
-      - 20;
+      - fixedHeadOffset();
     scrollWindowTo(top);
     return;
   }
@@ -159,7 +169,7 @@ function Toc({ headings, inlineNav, rail }: TocProps) {
       const bar = document.querySelector('.topbar');
       const scroller = contentScroller();
       const offset = scroller
-        ? scroller.getBoundingClientRect().top + 34
+        ? scroller.getBoundingClientRect().top + fixedHeadOffset() + 14
         : (bar?.getBoundingClientRect().height || 56) + 34;
       let next = headings[0]?.id || '';
       for (const heading of headings) {

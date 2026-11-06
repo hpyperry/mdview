@@ -31,7 +31,7 @@ bash tests/run-all.sh
 [ADR 0023](docs/architecture/adr/0023-dev-build-artifact-size.md)。
 
 必须全绿：`cargo test`（96 单元 + 134 渲染兼容 + 27 golden）、292 项黑盒 HTTP、
-9 项 pty 信任测试、330 项 headless Chrome 验收、4 项源码页性能预算。
+9 项 pty 信任测试、331 项 headless Chrome 验收、4 项源码页性能预算。
 
 ## 协作流程
 
@@ -149,8 +149,9 @@ Single-context: root `GLOSSARY.md` + `docs/architecture/adr/`. See
    “回到顶部”在岛内；细轨模式全局回顶按钮右移 46px，其他宽度保持右下。
    TOC 岛挂载时用 `shell-split`/`toc-island-in` 做一次约 240ms 的分栏动画，正文
    阅读行宽度不变，只让主岛右侧空边收窄。阅读行最大 1200px。
-   **≥901px** 固定顶栏与主岛：`.content-card` 作为滚动容器，页面 body 不滚动；TOC 岛
-   与主岛同高，目录列表在岛内滚动；**≤900px** 保留普通文档滚动。
+   **≥901px** 固定顶栏与主岛：`.content-card` 作为滚动容器，页面 body 不滚动；
+   页头在内容卡内 `sticky top:12`，带 12px 外边距、圆角与阴影，形成独立页头岛；
+   TOC 岛与主岛同高，目录列表在岛内滚动；**≤900px** 保留普通文档滚动，页头不 sticky。
    全站导航是默认收起的浮层（桌面浮岛 / 移动抽屉），不占用正文列。改布局后跑浏览器探针。
 6. **目录 `rel` 带尾斜杠**：`list_dir` 入口会 `trim_end_matches('/')`；新增目录页逻辑
    注意不要拼出 `//` 或把 `/sub/` 的上级算成 `/sub/`。
@@ -321,7 +322,9 @@ Single-context: root `GLOSSARY.md` + `docs/architecture/adr/`. See
   `card.scrollTop`/`card.getBoundingClientRect()`，不要假设 `window.scrollY`。
   大源码的 `IntersectionObserver` 要用 `.content-card` 作 `root`。
 - **页头统一逻辑**：Markdown/源码/目录/搜索都走服务端 `PageHead` 构建器；不要
-  再分别拼四套 header，也不要在某个页面单独补标题/徽标。所有页头用 `.head-inner`
+  再分别拼四套 header，也不要在某个页面单独补标题/徽标。桌面端页头是 sticky
+  独立岛（top 12、左右 14 内缩、圆角/阴影）；锚点定位必须避让页头高度，不要假设
+  内容从卡片顶部开始。所有页头用 `.head-inner`
   横跨内容面（左右 30px），正文阅读行仍由 `.markdown-body` 限制为 1200px；搜索页
   表单在页头右侧。Markdown 页头的 H1 是文件名，正文自己的 H1 才是文档标题；不要
   恢复 `sr-only` 文件名副本。信任/错误页保留专用面板。不要再给页头套

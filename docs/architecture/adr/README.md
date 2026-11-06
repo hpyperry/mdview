@@ -34,3 +34,4 @@
 | [0028](0028-full-width-shell-and-toc-split.md) | 内容岛铺满外壳；Markdown 分栏只收右边缘 | accepted |
 | [0029](0029-fixed-island-inner-scroll.md) | 固定主岛：内容在岛内滚动 | accepted |
 | [0030](0030-progressive-search-batches.md) | 搜索分批扫描与渐进追加 | accepted |
+| [0031](0031-fixed-page-head-island.md) | 文档页头固定为独立页头岛 | accepted |

@@ -10,7 +10,7 @@ Rust 实现的断言分多组：
 | `web/src/` | TypeScript 类型检查（岛运行时、Preact 组件、源码岛） | `npm --prefix web run typecheck` |
 | `selftest-rust.sh` | 真二进制的 black-box HTTP 断言（278 项：目录/渲染/源码/大源码全文分块/导航分层预载与 `dir` 校验/岛清单/下载/搜索/Trust/CSP/HTML 信任原文与未信任沙箱/子资源/压缩包虚拟目录与包内条目（ZIP 容器、tar.bz2/tar.xz）/SVG sandbox/安全/文件系统边界/文件尾斜杠/内部 URL 与同名文件碰撞/.markdown 与 .mdx/safe 搜索过滤/GBK 与 UTF-16 编码/charset/旧客户端子资源 MIME） | `bash tests/selftest-rust.sh` |
 | `trust-tty.sh` + `trust-tty.exp` | 真实 pty 下的信任询问、持久化、非 TTY 默认（9 项） | `bash tests/trust-tty.sh` |
-| `browser-probe.mjs` | headless Chrome 验收（330 项）：全宽内容面与顶栏对齐/固定主岛与岛内滚动/统一 PageHead 页头/≥1280 分栏动效/源码页无下载/导航空闲预取与分层展开/三层边界与 `dir` 懒加载/悬停预热/深页 active 脊柱/目录只展开/文件导航/TOC 悬停文字大纲与 scroll-spy/搜索弹层与整行结果/渐进搜索分批与继续搜索/渲染块行定位/源码页头/HTML 信任原文与未信任第二 origin（module/storage/SW/fetch）/源码切换/右侧 TOC 常驻岛与细轨/目录列对齐/压缩包虚拟目录与包内预览（JAR/EPUB/CBZ、tar.bz2、xhtml 源码页）/SVG 直开脚本阻断/主题快速切换与状态反馈/引用块留白/导出图片与打印样式/旧引擎回退/岛水合/语言条/复制/放大/大源码分块/无 JS 全文/GBK 与 UTF-16 编码标签 | `node tests/browser-probe.mjs` |
+| `browser-probe.mjs` | headless Chrome 验收（331 项）：全宽内容面与顶栏对齐/固定主岛与岛内滚动/固定页头岛/统一 PageHead 页头/≥1280 分栏动效/源码页无下载/导航空闲预取与分层展开/三层边界与 `dir` 懒加载/悬停预热/深页 active 脊柱/目录只展开/文件导航/TOC 悬停文字大纲与 scroll-spy/搜索弹层与整行结果/渐进搜索分批与继续搜索/渲染块行定位/源码页头/HTML 信任原文与未信任第二 origin（module/storage/SW/fetch）/源码切换/右侧 TOC 常驻岛与细轨/目录列对齐/压缩包虚拟目录与包内预览（JAR/EPUB/CBZ、tar.bz2、xhtml 源码页）/SVG 直开脚本阻断/主题快速切换与状态反馈/引用块留白/导出图片与打印样式/旧引擎回退/岛水合/语言条/复制/放大/大源码分块/无 JS 全文/GBK 与 UTF-16 编码标签 | `node tests/browser-probe.mjs` |
 | `perf-source.mjs` | 源码页性能预算：100 KB / 1 MB / 10 MB / 1 MB Rust（真实 Chrome，含末行完整性检查） | `node tests/perf-source.mjs` |
 | `smoke-artifact.sh` | 对已构建二进制做目录/渲染/资产/下载/CSP 冒烟（7 项） | `bash tests/smoke-artifact.sh <二进制>` |
 | `check-doc-links.mjs` | 检查 Markdown 内部链接（跳过代码块、归档与站内根 URL） | `node tests/check-doc-links.mjs` |

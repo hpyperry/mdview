@@ -429,12 +429,13 @@ async function main() {
     check('文档岛已按需水合', await waitFor('["toc", "linetarget", "code", "zoom"].every((name) => window.__mdviewIslands?.mounted.includes(name))', 3000));
     check('渲染页带行定位数据', (await evaluate('document.querySelectorAll(".markdown-body [data-sourcepos]").length')) > 0);
     check(
-      '文档页头铺满内容面',
+      '文档页头为独立岛',
       (await evaluate(`(() => {
         const card = document.querySelector('.content-card').getBoundingClientRect();
+        const head = document.querySelector('.doc-head').getBoundingClientRect();
         const crumbs = document.querySelector('.doc-head .crumbs').getBoundingClientRect();
         const pad = getComputedStyle(document.querySelector('.doc-head .head-inner')).paddingLeft;
-        return pad === '30px' && Math.round(crumbs.x - card.x) <= 32;
+        return pad === '30px' && Math.abs(head.x - card.x - 15) <= 1 && Math.round(crumbs.x - head.x) <= 32;
       })()`)) === true,
     );
     check('代码块数量', (await evaluate('document.querySelectorAll("pre code").length')) === 2);
@@ -797,9 +798,10 @@ async function main() {
     const fixedShell = await evaluate(`(() => {
       const card = document.querySelector('.content-card');
       const bar = document.querySelector('.topbar');
-      const before = { card: Math.round(card.getBoundingClientRect().top), bar: Math.round(bar.getBoundingClientRect().top), bottom: Math.round(card.getBoundingClientRect().bottom) };
+      const head = document.querySelector('.page-head');
+      const before = { card: Math.round(card.getBoundingClientRect().top), bar: Math.round(bar.getBoundingClientRect().top), head: Math.round(head.getBoundingClientRect().top), bottom: Math.round(card.getBoundingClientRect().bottom) };
       card.scrollTop = 40;
-      const after = { card: Math.round(card.getBoundingClientRect().top), bar: Math.round(bar.getBoundingClientRect().top) };
+      const after = { card: Math.round(card.getBoundingClientRect().top), bar: Math.round(bar.getBoundingClientRect().top), head: Math.round(head.getBoundingClientRect().top) };
       const style = getComputedStyle(card);
       return { before, after, winY: window.scrollY, scroll: card.scrollTop, viewport: innerHeight, overscrollX: style.overscrollBehaviorX, overscrollY: style.overscrollBehaviorY };
     })()`);
@@ -809,6 +811,7 @@ async function main() {
       JSON.stringify(fixedShell),
     );
     check('主岛高度适配视口', fixedShell.before.bottom === fixedShell.viewport - 16, JSON.stringify(fixedShell));
+    check('页头岛固定不随正文滚动', fixedShell.before.head === fixedShell.after.head && fixedShell.after.head > fixedShell.after.card, JSON.stringify(fixedShell));
     check('主岛放行横向回退手势', fixedShell.overscrollX === 'auto' && fixedShell.overscrollY === 'contain', JSON.stringify(fixedShell));
     await page.send('Emulation.setDeviceMetricsOverride', { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false });
     await goto('/page.md');
@@ -879,7 +882,7 @@ async function main() {
     check(
       'TOC 点击 h1 跳转',
       await waitFor(
-        '(() => { const top = document.getElementById("toc-1").getBoundingClientRect().top; return top >= 60 && top <= 120; })()',
+        '(() => { const top = document.getElementById("toc-1").getBoundingClientRect().top; const head = document.querySelector(".page-head").getBoundingClientRect().bottom; return top >= head + 8 && top <= head + 50; })()',
         3000,
       ),
     );
@@ -890,7 +893,7 @@ async function main() {
     check(
       'TOC 点击 h2 跳转',
       await waitFor(
-        '(() => { const top = document.getElementById("toc-2").getBoundingClientRect().top; return top >= 60 && top <= 120; })()',
+        '(() => { const top = document.getElementById("toc-2").getBoundingClientRect().top; const head = document.querySelector(".page-head").getBoundingClientRect().bottom; return top >= head + 8 && top <= head + 50; })()',
         3000,
       ),
     );
@@ -900,12 +903,12 @@ async function main() {
       const card = document.querySelector('.content-card');
       const t = document.getElementById('toc-7');
       if (card && getComputedStyle(card).overflowY === 'auto') {
-        card.scrollTop += t.getBoundingClientRect().top - card.getBoundingClientRect().top - 20;
+        card.scrollTop += t.getBoundingClientRect().top - card.getBoundingClientRect().top - (document.querySelector('.page-head').getBoundingClientRect().height + 36);
       } else {
         window.scrollTo(0, t.getBoundingClientRect().top + scrollY - 20);
       }
     })()`);
-    check('TOC 定位到 Section B', await waitFor('document.getElementById("toc-7").getBoundingClientRect().top < 120', 3000));
+    check('TOC 定位到 Section B', await waitFor('(() => { const top = document.getElementById("toc-7").getBoundingClientRect().top; const head = document.querySelector(".page-head").getBoundingClientRect().bottom; return top >= head + 8 && top <= head + 50; })()', 3000));
     await evaluate('window.dispatchEvent(new Event("scroll")); window.dispatchEvent(new Event("resize"))');
     const tocActive = await waitFor('document.querySelector(".toc-tick.is-active")?.getAttribute("data-target") === "toc-7"', 3000);
     check(
@@ -962,7 +965,7 @@ async function main() {
     check(
       '1600 目录岛点击 h1 跳转',
       await waitFor(
-        '(() => { const top = document.getElementById("toc-1").getBoundingClientRect().top; return top >= 60 && top <= 120; })()',
+        '(() => { const top = document.getElementById("toc-1").getBoundingClientRect().top; const head = document.querySelector(".page-head").getBoundingClientRect().bottom; return top >= head + 8 && top <= head + 50; })()',
         3000,
       ),
     );
@@ -978,7 +981,7 @@ async function main() {
     check(
       '多 h1 从顶部点 h1 B',
       await waitFor(
-        '(() => { const top = document.getElementById("toc-4").getBoundingClientRect().top; return top >= 60 && top <= 120; })()',
+        '(() => { const top = document.getElementById("toc-4").getBoundingClientRect().top; const head = document.querySelector(".page-head").getBoundingClientRect().bottom; return top >= head + 8 && top <= head + 50; })()',
         3000,
       ),
     );
@@ -996,7 +999,7 @@ async function main() {
           const vh = inner ? card.clientHeight : innerHeight;
           const sh = inner ? card.scrollHeight : document.body.scrollHeight;
           const nearBottom = Math.abs((y + vh) - sh) < 4;
-          return (top >= 60 && top <= 120) || (nearBottom && top > 0 && top < vh);
+          const headBottom = document.querySelector('.page-head').getBoundingClientRect().bottom; return (top >= headBottom + 8 && top <= headBottom + 50) || (nearBottom && top > 0 && top < vh);
         })()`,
         3000,
       ),
@@ -1006,7 +1009,7 @@ async function main() {
     check(
       '多 h1 从底部点 h1 A',
       await waitFor(
-        '(() => { const top = document.getElementById("toc-1").getBoundingClientRect().top; return top >= 60 && top <= 120; })()',
+        '(() => { const top = document.getElementById("toc-1").getBoundingClientRect().top; const head = document.querySelector(".page-head").getBoundingClientRect().bottom; return top >= head + 8 && top <= head + 50; })()',
         3000,
       ),
     );
@@ -1211,12 +1214,13 @@ async function main() {
     check('搜索页 H1 无下划线', (await evaluate('getComputedStyle(document.querySelector(".search-head h1")).borderBottomWidth')) === '0px');
     const searchGeom = await evaluate(`(() => {
       const card = document.querySelector('.content-card').getBoundingClientRect();
+      const head = document.querySelector('.search-head').getBoundingClientRect();
       const title = document.querySelector('.search-head h1').getBoundingClientRect();
       const form = document.querySelector('.search-page-form').getBoundingClientRect();
-      return { cardX: card.x, cardRight: card.right, titleX: title.x, formX: form.x, formRight: form.right };
+      return { cardX: card.x, cardRight: card.right, headX: head.x, headRight: head.right, titleX: title.x, formX: form.x, formRight: form.right };
     })()`);
-    check('搜索页头铺满内容面', Math.round(searchGeom.titleX - searchGeom.cardX) <= 32, JSON.stringify(searchGeom));
-    check('搜索页头表单在右侧', searchGeom.formX > searchGeom.titleX && searchGeom.formRight >= searchGeom.cardRight - 40, JSON.stringify(searchGeom));
+    check('搜索页头为独立岛', Math.round(searchGeom.titleX - searchGeom.headX) <= 32 && Math.abs(searchGeom.headX - searchGeom.cardX - 15) <= 1, JSON.stringify(searchGeom));
+    check('搜索页头表单在右侧', searchGeom.formX > searchGeom.titleX && searchGeom.formRight >= searchGeom.headRight - 40, JSON.stringify(searchGeom));
     const docHit = await evaluate(`(() => {
       const link = document.querySelector('.result-group .hit[href*="#L"]');
       return link ? link.getAttribute('href') : null;
@@ -1287,10 +1291,11 @@ async function main() {
     check('目录页回到顶部按钮', (await evaluate('document.querySelectorAll(".totop").length')) === 1);
     check('目录页无分组标题', (await evaluate('!document.querySelector(".dir-section h2") && !!document.querySelector(".dir-list")')) === true);
     check('目录页 H1 无下划线', (await evaluate('getComputedStyle(document.querySelector(".dir-head h1")).borderBottomWidth')) === '0px');
-    check('目录页头铺满内容面', (await evaluate(`(() => {
+    check('目录页头为独立岛', (await evaluate(`(() => {
       const card = document.querySelector('.content-card').getBoundingClientRect();
+      const head = document.querySelector('.dir-head').getBoundingClientRect();
       const title = document.querySelector('.dir-head h1').getBoundingClientRect();
-      return Math.round(title.x - card.x) <= 32 && getComputedStyle(document.querySelector('.dir-head .head-inner')).paddingLeft === '30px';
+      return Math.abs(head.x - card.x - 15) <= 1 && Math.round(title.x - head.x) <= 32 && getComputedStyle(document.querySelector('.dir-head .head-inner')).paddingLeft === '30px';
     })()`)) === true);
     check('目录页面包屑完整', await crumbsComplete('.dir-head .crumbs', 'sub'));
     check('目录页头显示目录名', (await evaluate('document.querySelector(".dir-head h1")?.textContent')) === 'sub');
@@ -1311,10 +1316,11 @@ async function main() {
     check('源码页预览按钮', (await evaluate('document.querySelector(".page-actions .action.primary")?.textContent.trim()')) === '预览');
     check('源码页无下载按钮', (await evaluate(`document.querySelectorAll('.page-actions a.action[href*="?download=1"]').length`)) === 0);
     check('源码页 H1 无下划线', (await evaluate('getComputedStyle(document.querySelector(".page-head h1")).borderBottomWidth')) === '0px');
-    check('源码页头铺满内容面', (await evaluate(`(() => {
+    check('源码页头为独立岛', (await evaluate(`(() => {
       const card = document.querySelector('.content-card').getBoundingClientRect();
+      const head = document.querySelector('.page-head').getBoundingClientRect();
       const title = document.querySelector('.page-head h1').getBoundingClientRect();
-      return Math.round(title.x - card.x) <= 32 && getComputedStyle(document.querySelector('.page-head .head-inner')).paddingLeft === '30px';
+      return Math.abs(head.x - card.x - 15) <= 1 && Math.round(title.x - head.x) <= 32 && getComputedStyle(document.querySelector('.page-head .head-inner')).paddingLeft === '30px';
     })()`)) === true);
     check('源码页行锚点', (await evaluate('document.querySelector("#L1")?.textContent')) === '1');
     check('源码页原始内容', (await evaluate('document.querySelector(".source code").textContent')).startsWith('# Probe'));

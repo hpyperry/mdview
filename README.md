@@ -68,8 +68,9 @@ cargo build --release
   保留普通页面滚动；
 - 内容面铺满 `.app`（最大 1680px）、阅读行最大 1200px；Markdown/源码/目录/搜索共用
   同一页头结构（面包屑 + 标题 + 元信息徽标 + 操作），Markdown 页头显示文件名与
-  编码/更新时间；页头横跨内容面（左右 30px），正文仍保持阅读行；搜索页表单在页头
-  右侧，窄屏自动换行；代码块、表格随内容面变宽；
+  编码/更新时间；桌面端页头固定在主岛顶部，作为独立页头岛（12px 外边距/圆角/阴影），
+  阅读中段仍可直接切换源码、下载或导出；正文仍保持阅读行；搜索页表单在页头右侧，
+  窄屏自动换行；代码块、表格随内容面变宽；
 - 全站导航树只预载根 + 三层目录，更深目录按需展开；空闲预取带当前路径脊柱，
   深页打开导航也能一次定位当前文件；目录行只展开/收起，文件行才导航；当前路径
   自动展开，用户展开状态本地记忆；桌面端悬停目录会预热下一层；
@@ -269,7 +270,7 @@ cargo test                      # 96 单元 + 134 渲染兼容 + 27 golden
 cargo clippy --all-targets -- -D warnings
 bash tests/selftest-rust.sh     # 292 项真二进制 HTTP 断言
 node tests/check-css-baseline.mjs # Chromium 88 基线黑名单 + 深色色板同步
-node tests/browser-probe.mjs      # 330 项 headless Chrome 验收
+node tests/browser-probe.mjs      # 331 项 headless Chrome 验收
 node tests/perf-source.mjs        # 4 项源码页性能预算
 bash tests/trust-tty.sh           # 9 项真实 pty 信任测试
 ```

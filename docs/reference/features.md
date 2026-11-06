@@ -188,6 +188,7 @@
 | ID | 功能 | 验收要点 | 测试映射 | 状态 |
 |---|---|---|---|---|
 | F-94 | 引用块留白 | 底色引用块上下内边距对称（8px）；块内首/末子元素的外边距收口，列表末项也不残留空带；块后间距 16px、多段引用段间距 16px；嵌套引用同样对称 | 浏览器探针；[复测文档](../../tests/fixtures/blockquote-spacing/README.md) | ✅ 自动 |
+| F-100 | 固定页头岛 | ≥901px 页头 sticky 在主岛顶部，距顶部 12px、左右内缩 14px，圆角/边框/阴影；正文在岛内滚动时页头不动，源码/下载/导出始终可达；TOC 跳转、scroll-spy、Markdown 行定位、源码锚点都避让页头高度；≤900px 保持普通页头 | 浏览器探针；[复测文档](../../tests/fixtures/page-head/README.md) · [视觉验收](../testing/reports/browser-report-2026-11-07-fixed-head.md) | ✅ 自动 |
 | F-98 | 固定主岛与岛内滚动 | ≥901px 桌面端顶栏、主岛与 TOC 岛固定；`.content-card` 是唯一滚动容器，body 不滚动；正文、目录、源码与搜索结果在岛内滚动；≤900px 保留普通文档滚动；回顶、TOC 跳转与 scroll-spy、大源码懒加载都感知滚动容器 | 浏览器探针；[复测文档](../../tests/fixtures/toc-all-levels/README.md) · [视觉验收](../testing/reports/browser-report-2026-11-06-shell-layout.md) | ✅ 自动 |
 | F-95 | 导出图片 / PDF | 文档页导出 PNG 长图（白底、2x、超长自动降级并提示）与浏览器打印 PDF；打印样式隐藏外壳、强制浅色、分页；深色主题导出仍为浅色；下载/导出图片完成后图标变绿色对勾并禁用约 500ms 防止重复点击，随后恢复；导出过程与成功都不显示右侧状态文案；无 JS 隐藏按钮 | 浏览器探针、Rust 服务端断言；[复测文档](../../tests/fixtures/export-artifact/README.md) | ✅ 自动 |
 
