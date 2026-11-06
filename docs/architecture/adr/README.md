@@ -29,3 +29,10 @@
 | [0023](0023-dev-build-artifact-size.md) | 开发构建体积：`debug = 1` 与清理纪律 | accepted |
 | [0024](0024-browser-baseline-chromium-88.md) | 浏览器兼容基线：Chromium 88 | accepted |
 | [0025](0025-html-second-origin.md) | 未信任 HTML：第二 origin 静态镜像 | accepted |
+| [0026](0026-toc-island-layout.md) | 右侧 TOC：常驻目录岛 + 折叠细轨 | accepted |
+| [0027](0027-page-head-component.md) | 四类页面共用服务端 PageHead 构建器 | accepted |
+| [0028](0028-full-width-shell-and-toc-split.md) | 内容岛铺满外壳；Markdown 分栏只收右边缘 | accepted |
+| [0029](0029-fixed-island-inner-scroll.md) | 固定主岛：内容在岛内滚动 | accepted |
+| [0030](0030-progressive-search-batches.md) | 搜索分批扫描与渐进追加 | accepted |
+| [0031](0031-fixed-page-head-island.md) | 文档页头固定为独立页头岛 | superseded by [0032](0032-topbar-page-context.md) |
+| [0032](0032-topbar-page-context.md) | 页面身份与操作迁入全局顶栏 | accepted |

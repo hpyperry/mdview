@@ -1527,34 +1527,20 @@ async fn list_dir_with(
         rel.rsplit('/').next().unwrap_or(rel).to_string()
     };
     let crumbs = page_crumbs(state, rel, PageKind::Dir);
-    let meta = match archive {
-        Some(view) => format!(
-            "{} · {} · {} 个条目",
-            view.label,
-            format_size(view.size),
-            view.entries
-        ),
-        None => format!("{} 个项目", entries.len()),
+    let mut head = PageHead::new("dir-head", &crumbs, dir_name.clone());
+    head = match archive {
+        Some(view) => head
+            .meta(PageMeta::with_icon("file", view.label.clone()))
+            .meta(PageMeta::text(format_size(view.size)))
+            .meta(PageMeta::text(format!("{} 个条目", view.entries)))
+            .action(
+                PageAction::link(view.download_href.clone(), "下载压缩包", "download")
+                    .aria("下载压缩包"),
+            ),
+        None => head.meta(PageMeta::text(format!("{} 个项目", entries.len()))),
     };
-    let actions = match archive {
-        Some(view) => format!(
-            "<div class=\"page-actions\"><a class=\"action\" href=\"{href}\" aria-label=\"下载压缩包\">\
-             {download}<span>下载压缩包</span></a></div>",
-            href = escape_html(&view.download_href),
-            download = icon("download")
-        ),
-        None => String::new(),
-    };
-    let body = format!(
-        "<div class=\"content-card\"><div class=\"dir-head\"><div class=\"head-inner\">\
-         <nav class=\"crumbs\" aria-label=\"面包屑\">{crumbs}</nav>\
-         <div class=\"dir-head-main\"><div class=\"grow\"><h1>{name}</h1><p>{meta}</p></div>{actions}</div>\
-         </div></div>{sections}</div>",
-        name = escape_html(&dir_name),
-        meta = escape_html(&meta),
-        actions = actions,
-        sections = sections
-    );
+    let topbar = head.render_topbar();
+    let body = format!("<div class=\"content-card\">{sections}</div>");
     html_page(
         state,
         StatusCode::OK,
@@ -1564,6 +1550,7 @@ async fn list_dir_with(
             query: String::new(),
             kind: PageKind::Dir,
             body,
+            topbar: Some(topbar),
         },
         is_head,
     )
@@ -1599,6 +1586,11 @@ async fn search(
         .unwrap_or_default()
         .trim()
         .to_string();
+    let cursor = query
+        .get("cursor")
+        .and_then(|value| value.parse::<usize>().ok())
+        .unwrap_or(0)
+        .min(SEARCH_MAX_CURSOR);
     let results = if q.is_empty() {
         SearchResults::default()
     } else {
@@ -1606,7 +1598,7 @@ async fn search(
         let needle = q.clone();
         let max_preview = state.max_preview;
         let safe = state.safe;
-        tokio::task::spawn_blocking(move || search_files(&root, &needle, max_preview, safe))
+        tokio::task::spawn_blocking(move || search_files(&root, &needle, max_preview, safe, cursor))
             .await
             .unwrap_or_default()
     };
@@ -1625,6 +1617,7 @@ async fn search(
             query: q,
             kind: PageKind::Search,
             body,
+            topbar: None,
         },
         is_head,
     )
@@ -1982,8 +1975,20 @@ struct SearchResults {
     groups: Vec<SearchGroup>,
     files: usize,
     hits: usize,
-    truncated: bool,
+    more: bool,
+    next_cursor: usize,
+    scanned: usize,
 }
+
+/// Search scans in bounded batches: a large work tree must never block the
+/// request until every file has been read. The walker is deterministic, so a
+/// cursor can resume from the next entry without re-reading skipped files.
+const SEARCH_SCAN_FILE_LIMIT: usize = 2000;
+const SEARCH_SCAN_TIME_LIMIT: Duration = Duration::from_millis(1200);
+const SEARCH_MAX_GROUPS: usize = 40;
+const SEARCH_MAX_HITS: usize = 200;
+const SEARCH_HITS_PER_FILE: usize = 5;
+const SEARCH_MAX_CURSOR: usize = 1_000_000;
 
 struct SearchGroup {
     path: String,
@@ -2043,33 +2048,39 @@ fn search_page_form(q: &str) -> String {
 }
 
 fn render_search(q: &str, results: &SearchResults, crumbs: &str) -> String {
+    let form = search_page_form(q);
     if q.is_empty() {
+        let head = PageHead::new("search-head", crumbs, "搜索")
+            .subtitle("搜索文件名和内容，支持 Markdown 与文本文件。")
+            .aside(form);
         return format!(
-            "<div class=\"content-card\"><div class=\"search-head\"><div class=\"head-inner search-head-inner\">\
-             <div class=\"grow\"><nav class=\"crumbs\" aria-label=\"面包屑\">{crumbs}</nav>\
-             <h1>搜索</h1><p>搜索文件名和内容，支持 Markdown 与文本文件。</p></div>{form}\
-             </div></div><div class=\"page-body\"><div class=\"empty-state\">{}<div>在上方输入关键词开始搜索。</div></div></div></div>",
+            "<div class=\"content-card\">{head}<div class=\"page-body\">\
+             <div class=\"empty-state\">{}<div>在上方输入关键词开始搜索。</div></div></div></div>",
             icon("search"),
-            crumbs = crumbs,
-            form = search_page_form("")
+            head = head.render()
         );
     }
+    let head = PageHead::new("search-head", crumbs, format!("搜索 “{q}”"))
+        .meta(PageMeta::text(format!("{} 个文件", results.files)))
+        .meta(PageMeta::text(format!("{} 条结果", results.hits)))
+        .aside(form);
     let mut body = format!(
-        "<div class=\"content-card\"><div class=\"search-head\"><div class=\"head-inner search-head-inner\">\
-         <div class=\"grow\"><nav class=\"crumbs\" aria-label=\"面包屑\">{crumbs}</nav>\
-         <h1>搜索 “{}”</h1><p>{} 个文件 · {} 条结果</p></div>{form}\
-         </div></div><div class=\"page-body\">",
-        escape_html(q),
-        results.files,
-        results.hits,
-        crumbs = crumbs,
-        form = search_page_form(q)
+        "<div class=\"content-card\">{}<div class=\"page-body\">",
+        head.render()
     );
     if results.groups.is_empty() {
-        body.push_str(&format!(
-            "<div class=\"empty-state\">{}<div>没有找到相关内容。试试更短的关键词。</div></div>",
-            icon("search")
-        ));
+        if results.more {
+            body.push_str(&format!(
+                "<div class=\"empty-state\">{}<div>已扫描前 {} 个文件，暂未找到；可以继续搜索或换更短的关键词。</div></div>",
+                icon("search"),
+                results.scanned
+            ));
+        } else {
+            body.push_str(&format!(
+                "<div class=\"empty-state\">{}<div>没有找到相关内容。试试更短的关键词。</div></div>",
+                icon("search")
+            ));
+        }
     } else {
         for group in &results.groups {
             let count = group.hits.len() + usize::from(group.name_hit);
@@ -2116,31 +2127,59 @@ fn render_search(q: &str, results: &SearchResults, crumbs: &str) -> String {
             body.push_str("</section>");
         }
     }
-    if results.truncated {
-        body.push_str(
-            "<p class=\"search-note\">结果较多，仅显示部分结果。请使用更具体的关键词。</p>",
+    if results.more {
+        let more_href = format!(
+            "/search?__mdview=search&q={}&cursor={}",
+            utf8_percent_encode(q, NON_ALPHANUMERIC),
+            results.next_cursor
         );
+        body.push_str(&format!(
+            "<div class=\"search-more-wrap\"><p class=\"search-note\">已扫描前 {} 个文件，当前显示这一批结果。</p>\
+             <a class=\"action search-more\" href=\"{}\">{}<span>继续搜索</span></a></div>",
+            results.scanned,
+            escape_html(&more_href),
+            icon("search")
+        ));
     }
     body.push_str("</div></div>");
     body
 }
 
-fn search_files(root: &Path, needle: &str, max_preview: u64, safe: bool) -> SearchResults {
+fn search_files(
+    root: &Path,
+    needle: &str,
+    max_preview: u64,
+    safe: bool,
+    cursor: usize,
+) -> SearchResults {
     let needle = needle.to_lowercase();
+    let started = Instant::now();
     let mut groups: Vec<SearchGroup> = Vec::new();
     let mut total_hits = 0usize;
-    let mut truncated = false;
+    let mut scanned = 0usize;
+    let mut consumed = cursor;
+    let mut stopped_early = false;
     let walker = WalkDir::new(root)
         .follow_links(false)
+        .sort_by_file_name()
         .into_iter()
         .filter_entry(|entry| !skipped_search_entry(entry));
-    for entry in walker.flatten() {
+    'walk: for (index, entry) in walker.flatten().enumerate() {
+        if index < cursor {
+            continue;
+        }
+        if scanned >= SEARCH_SCAN_FILE_LIMIT || started.elapsed() >= SEARCH_SCAN_TIME_LIMIT {
+            stopped_early = true;
+            break;
+        }
+        consumed = index + 1;
         if !entry.file_type().is_file() {
             continue;
         }
         if safe && !allowed_in_safe_mode(entry.path()) {
             continue;
         }
+        scanned += 1;
         let rel = entry
             .path()
             .strip_prefix(root)
@@ -2183,27 +2222,22 @@ fn search_files(root: &Path, needle: &str, max_preview: u64, safe: bool) -> Sear
                         text: snippet,
                     });
                     total_hits += 1;
-                    if hits.len() >= 5 || total_hits >= 200 {
-                        truncated = true;
+                    if hits.len() >= SEARCH_HITS_PER_FILE || total_hits >= SEARCH_MAX_HITS {
                         break;
                     }
                 }
             }
         }
         if name_hit || !hits.is_empty() {
-            if groups.len() >= 60 {
-                truncated = true;
-                break;
-            }
             groups.push(SearchGroup {
                 path: rel,
                 kind,
                 name_hit,
                 hits,
             });
-            if total_hits >= 200 {
-                truncated = true;
-                break;
+            if groups.len() >= SEARCH_MAX_GROUPS || total_hits >= SEARCH_MAX_HITS {
+                stopped_early = true;
+                break 'walk;
             }
         }
     }
@@ -2219,7 +2253,13 @@ fn search_files(root: &Path, needle: &str, max_preview: u64, safe: bool) -> Sear
         groups,
         files,
         hits: total_hits + name_hits,
-        truncated,
+        more: stopped_early,
+        next_cursor: if stopped_early {
+            consumed.max(cursor + 1)
+        } else {
+            consumed
+        },
+        scanned,
     }
 }
 
@@ -2352,16 +2392,6 @@ async fn source_page(
     let text = decoded.text;
     let chunked_mode = size as u64 > CHUNKED_SOURCE_THRESHOLD;
     let name = path.file_name().and_then(OsStr::to_str).unwrap_or("文件");
-    let download = format!("{}?download=1", join_href(parent_rel(rel), name, false));
-    let render_link = if info.kind == Kind::Markdown {
-        format!(
-            "<a class=\"action primary\" href=\"/{}\">{}<span>预览</span></a>",
-            encode_path(rel),
-            icon("book")
-        )
-    } else {
-        String::new()
-    };
     let preview_href = if info.kind == Kind::Html && !state.safe {
         if state.trust.trusted {
             Some(format!("/{}", encode_path(rel)))
@@ -2416,32 +2446,36 @@ async fn source_page(
     };
     let crumbs = page_crumbs(state, rel, PageKind::Source);
     let kind_label = source_language_label(path, info);
-    let size_label = format_size(size as u64);
     let mtime_label = format_mtime(mtime);
+    let mut head = PageHead::new("source-head", &crumbs, name)
+        .meta(
+            PageMeta::with_icon(
+                if info.kind == Kind::Markdown {
+                    "book"
+                } else {
+                    "code"
+                },
+                kind_label,
+            )
+            .class("source-kind"),
+        )
+        .meta(PageMeta::text(format_size(size as u64)))
+        .meta(
+            PageMeta::text(encoding_label.clone())
+                .class("source-encoding")
+                .title(format!("检测编码：{encoding_label}")),
+        )
+        .meta(PageMeta::text(format!("{line_count} 行")))
+        .meta(PageMeta::text(format!("更新于 {mtime_label}")));
+    if info.kind == Kind::Markdown {
+        head = head
+            .action(PageAction::link(format!("/{}", encode_path(rel)), "预览", "book").primary());
+    }
+    let topbar = head.render_topbar();
     let body = format!(
-        "<div class=\"content-card\"><div class=\"page-head\"><div class=\"head-inner page-head-inner\"><div class=\"grow\">\
-         <nav class=\"crumbs\" aria-label=\"面包屑\">{crumbs}</nav>\
-         <h1>{name}</h1>\
-         <div class=\"source-tags\">\
-         <span class=\"badge source-kind\">{kind_icon}<span>{kind}</span></span>\
-         <span class=\"badge\">{size}</span>\
-         <span class=\"badge source-encoding\" title=\"检测编码：{encoding}\">{encoding}</span>\
-         <span class=\"badge\">{lines} 行</span>\
-         <span class=\"badge\">更新于 {mtime}</span>\
-         </div></div>\
-         <div class=\"page-actions\">{render_link}\
-         <a class=\"action\" href=\"{download}\" aria-label=\"下载\">{download_icon}<span>下载</span></a>\
-         </div></div></div>{html_toolbar}{notice_html}{source_markup}</div>",
-        crumbs = crumbs,
-        name = escape_html(name),
-        kind_icon = icon("code"),
-        kind = escape_html(&kind_label),
-        size = size_label,
-        encoding = escape_html(&encoding_label),
-        lines = line_count,
-        mtime = mtime_label,
-        download_icon = icon("download"),
+        "<div class=\"content-card\">{html_toolbar}{notice_html}{source_markup}</div>",
         html_toolbar = html_toolbar,
+        notice_html = notice_html,
         source_markup = source_markup
     );
     html_page(
@@ -2453,6 +2487,7 @@ async fn source_page(
             query: String::new(),
             kind: PageKind::Source,
             body,
+            topbar: Some(topbar),
         },
         is_head,
     )
@@ -2537,12 +2572,6 @@ async fn render_page(state: &AppState, path: &Path, rel: &str, is_head: bool) ->
         .and_then(OsStr::to_str)
         .unwrap_or("Markdown");
     let encoded = encode_path(rel);
-    let meta = format!(
-        "Markdown · {} · {} · {}",
-        format_size(size),
-        encoding_label,
-        format_mtime(mtime)
-    );
     let crumbs = page_crumbs(state, rel, PageKind::Doc);
     let lower_name = name.to_ascii_lowercase();
     let export_stem = if lower_name.ends_with(".markdown") {
@@ -2552,26 +2581,42 @@ async fn render_page(state: &AppState, path: &Path, rel: &str, is_head: bool) ->
     } else {
         name
     };
+    let head = PageHead::new("doc-head", &crumbs, name)
+        .meta(PageMeta::with_icon("book", "Markdown").class("doc-kind"))
+        .meta(PageMeta::text(format_size(size)))
+        .meta(
+            PageMeta::text(encoding_label.clone())
+                .class("doc-encoding")
+                .title(format!("检测编码：{encoding_label}")),
+        )
+        .meta(PageMeta::text(format!("更新于 {}", format_mtime(mtime))))
+        .action(PageAction::link(
+            format!("/{encoded}?raw=1"),
+            "源码",
+            "code",
+        ))
+        .action(PageAction::link(
+            format!("/{encoded}?download=1"),
+            "下载",
+            "download",
+        ))
+        .action(
+            PageAction::button("export-png", "导出图片", "image")
+                .class("export-action")
+                .aria("导出图片")
+                .data("export-name", export_stem),
+        )
+        .action(
+            PageAction::button("export-pdf", "导出 PDF", "print")
+                .class("export-action")
+                .aria("导出 PDF"),
+        );
+    let topbar = head.render_topbar();
     let body = format!(
-        "<article class=\"content-card doc-card\"><header class=\"doc-head\"><div class=\"head-inner\">\
-         <nav class=\"crumbs\" aria-label=\"面包屑\">{crumbs}</nav>\
-         <div class=\"article-toolbar\"><span class=\"doc-meta\">{meta}</span>\
-         <div class=\"page-actions\"><a class=\"action\" href=\"/{encoded}?raw=1\">{code_icon}<span>源码</span></a>\
-         <a class=\"action\" href=\"/{encoded}?download=1\">{download_icon}<span>下载</span></a>\
-         <button class=\"action export-action\" type=\"button\" id=\"export-png\" data-export-name=\"{export_stem}\" aria-label=\"导出图片\">{image_icon}<span>导出图片</span></button>\
-         <button class=\"action export-action\" type=\"button\" id=\"export-pdf\" aria-label=\"导出 PDF\">{print_icon}<span>导出 PDF</span></button>\
-         </div></div>\
-         </div></header>\
+        "<article class=\"content-card doc-card\">\
          <div class=\"toc-inline\" id=\"toc-slot\"><details class=\"toc\"><summary>本页目录</summary><nav class=\"toc-list\" aria-label=\"本页目录\"></nav></details></div>\
-         <div class=\"doc-prose\"><h1 class=\"sr-only\">{name}</h1><article class=\"markdown-body\">{rendered}</article></div></article>",
-        name = escape_html(name),
-        meta = escape_html(&meta),
-        crumbs = crumbs,
-        export_stem = escape_html(export_stem),
-        code_icon = icon("code"),
-        download_icon = icon("download"),
-        image_icon = icon("image"),
-        print_icon = icon("print")
+         <div class=\"doc-prose\"><article class=\"markdown-body\">{rendered}</article></div></article>",
+        rendered = rendered
     );
     html_page(
         state,
@@ -2582,6 +2627,7 @@ async fn render_page(state: &AppState, path: &Path, rel: &str, is_head: bool) ->
             query: String::new(),
             kind: PageKind::Doc,
             body,
+            topbar: Some(topbar),
         },
         is_head,
     )
@@ -2613,6 +2659,7 @@ async fn interstitial_page(state: &AppState, rel: &str, is_head: bool) -> Respon
             query: String::new(),
             kind: PageKind::Other,
             body,
+            topbar: None,
         },
         is_head,
     )
@@ -2834,6 +2881,8 @@ struct Page {
     query: String,
     kind: PageKind,
     body: String,
+    /// Rendered page identity for the global topbar (C layout).
+    topbar: Option<String>,
 }
 
 fn icon(name: &str) -> &'static str {
@@ -2867,6 +2916,9 @@ fn icon(name: &str) -> &'static str {
         }
         "check" => {
             r#"<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>"#
+        }
+        "more" => {
+            r#"<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1.7" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.7" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.7" fill="currentColor" stroke="none"/></svg>"#
         }
         "panel" => {
             r#"<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></svg>"#
@@ -2959,6 +3011,312 @@ fn page_crumbs(state: &AppState, rel: &str, kind: PageKind) -> String {
     }
 }
 
+/// A single badge in a page header, e.g. `Markdown`, `3.1 KB`, `UTF-8`.
+struct PageMeta {
+    icon: Option<&'static str>,
+    label: String,
+    class: Option<&'static str>,
+    title: Option<String>,
+}
+
+impl PageMeta {
+    fn text(label: impl Into<String>) -> Self {
+        Self {
+            icon: None,
+            label: label.into(),
+            class: None,
+            title: None,
+        }
+    }
+
+    fn with_icon(icon: &'static str, label: impl Into<String>) -> Self {
+        Self {
+            icon: Some(icon),
+            label: label.into(),
+            class: None,
+            title: None,
+        }
+    }
+
+    fn class(mut self, class: &'static str) -> Self {
+        self.class = Some(class);
+        self
+    }
+
+    fn title(mut self, title: impl Into<String>) -> Self {
+        self.title = Some(title.into());
+        self
+    }
+
+    fn render(&self) -> String {
+        let icon = self.icon.map(icon).unwrap_or_default();
+        let class = self
+            .class
+            .map(|class| format!(" {class}"))
+            .unwrap_or_default();
+        let title = self
+            .title
+            .as_ref()
+            .map(|title| format!(" title=\"{}\"", escape_html(title)))
+            .unwrap_or_default();
+        format!(
+            "<span class=\"badge{class}\"{title}>{icon}<span>{label}</span></span>",
+            label = escape_html(&self.label)
+        )
+    }
+}
+
+/// A link or button in the right-hand action area of a page header.
+enum PageAction {
+    Link {
+        href: String,
+        label: &'static str,
+        icon: &'static str,
+        primary: bool,
+        aria: Option<&'static str>,
+    },
+    Button {
+        id: &'static str,
+        label: &'static str,
+        icon: &'static str,
+        class: Option<&'static str>,
+        aria: Option<&'static str>,
+        data: Vec<(&'static str, String)>,
+    },
+}
+
+impl PageAction {
+    fn link(href: impl Into<String>, label: &'static str, icon: &'static str) -> Self {
+        Self::Link {
+            href: href.into(),
+            label,
+            icon,
+            primary: false,
+            aria: None,
+        }
+    }
+
+    fn button(id: &'static str, label: &'static str, icon: &'static str) -> Self {
+        Self::Button {
+            id,
+            label,
+            icon,
+            class: None,
+            aria: None,
+            data: Vec::new(),
+        }
+    }
+
+    fn primary(mut self) -> Self {
+        if let Self::Link { primary, .. } = &mut self {
+            *primary = true;
+        }
+        self
+    }
+
+    fn aria(mut self, aria: &'static str) -> Self {
+        match &mut self {
+            Self::Link { aria: slot, .. } | Self::Button { aria: slot, .. } => {
+                *slot = Some(aria);
+            }
+        }
+        self
+    }
+
+    fn class(mut self, class: &'static str) -> Self {
+        if let Self::Button { class: slot, .. } = &mut self {
+            *slot = Some(class);
+        }
+        self
+    }
+
+    fn data(mut self, name: &'static str, value: impl Into<String>) -> Self {
+        if let Self::Button { data, .. } = &mut self {
+            data.push((name, value.into()));
+        }
+        self
+    }
+
+    fn render(&self) -> String {
+        match self {
+            Self::Link {
+                href,
+                label,
+                icon: icon_name,
+                primary,
+                aria,
+            } => format!(
+                "<a class=\"action{primary}\" href=\"{href}\"{aria}>{icon}<span>{label}</span></a>",
+                primary = if *primary { " primary" } else { "" },
+                href = escape_html(href),
+                aria = aria
+                    .map(|aria| format!(" aria-label=\"{}\"", escape_html(aria)))
+                    .unwrap_or_default(),
+                icon = icon(icon_name),
+                label = escape_html(label)
+            ),
+            Self::Button {
+                id,
+                label,
+                icon: icon_name,
+                class,
+                aria,
+                data,
+            } => {
+                let data = data
+                    .iter()
+                    .map(|(name, value)| format!(" data-{name}=\"{}\"", escape_html(value)))
+                    .collect::<String>();
+                format!(
+                    "<button class=\"action{class}\" type=\"button\" id=\"{id}\"{data}\
+                     {aria}>{icon}<span>{label}</span></button>",
+                    class = class.map(|class| format!(" {class}")).unwrap_or_default(),
+                    aria = aria
+                        .map(|aria| format!(" aria-label=\"{}\"", escape_html(aria)))
+                        .unwrap_or_default(),
+                    icon = icon(icon_name),
+                    label = escape_html(label)
+                )
+            }
+        }
+    }
+}
+
+/// Shared header for Markdown, source, directory and search pages.
+///
+/// The builder owns the common structure (crumbs, title, meta badges,
+/// actions) so the four page types cannot drift apart again. The caller owns
+/// the surrounding card element and the page body.
+struct PageHead {
+    kind: &'static str,
+    crumbs: String,
+    title: String,
+    subtitle: Option<String>,
+    meta: Vec<PageMeta>,
+    actions: Vec<PageAction>,
+    aside: Option<String>,
+}
+
+impl PageHead {
+    fn new(kind: &'static str, crumbs: &str, title: impl Into<String>) -> Self {
+        Self {
+            kind,
+            crumbs: crumbs.to_string(),
+            title: title.into(),
+            subtitle: None,
+            meta: Vec::new(),
+            actions: Vec::new(),
+            aside: None,
+        }
+    }
+
+    fn subtitle(mut self, text: impl Into<String>) -> Self {
+        self.subtitle = Some(text.into());
+        self
+    }
+
+    fn meta(mut self, meta: PageMeta) -> Self {
+        self.meta.push(meta);
+        self
+    }
+
+    fn action(mut self, action: PageAction) -> Self {
+        self.actions.push(action);
+        self
+    }
+
+    /// Raw markup rendered between the title block and actions (search form).
+    fn aside(mut self, html: impl Into<String>) -> Self {
+        self.aside = Some(html.into());
+        self
+    }
+
+    /// Identity/actions for the global topbar (C layout). The content card
+    /// no longer renders a page head on document/source/directory pages.
+    fn render_topbar(&self) -> String {
+        let path = if self.crumbs.is_empty() {
+            String::new()
+        } else {
+            format!(
+                "<div class=\"topbar-path\"><nav class=\"crumbs\" aria-label=\"面包屑\">{}</nav></div>",
+                self.crumbs
+            )
+        };
+        let meta = if self.meta.is_empty() {
+            String::new()
+        } else {
+            format!(
+                "<div class=\"page-meta\">{}</div>",
+                self.meta.iter().map(PageMeta::render).collect::<String>()
+            )
+        };
+        let context = format!(
+            "<div class=\"topbar-context\"><h1>{}</h1>{}</div>",
+            escape_html(&self.title),
+            meta
+        );
+        let actions = if self.actions.is_empty() {
+            String::new()
+        } else {
+            format!(
+                "<div class=\"topbar-page-actions\"><div class=\"action-menu\">\
+                 <button class=\"icon-btn action-menu-btn\" type=\"button\" aria-label=\"页面操作\" aria-expanded=\"false\" title=\"页面操作（源码 / 下载 / 导出）\">{more}</button>\
+                 <div class=\"action-panel\" hidden><div class=\"page-actions\">{actions}</div></div>\
+                 </div></div>",
+                more = icon("more"),
+                actions = self
+                    .actions
+                    .iter()
+                    .map(PageAction::render)
+                    .collect::<String>()
+            )
+        };
+        format!("{path}{context}{actions}")
+    }
+
+    fn render(&self) -> String {
+        let subtitle = self
+            .subtitle
+            .as_ref()
+            .map(|text| format!("<p class=\"page-subtitle\">{}</p>", escape_html(text)))
+            .unwrap_or_default();
+        let meta = if self.meta.is_empty() {
+            String::new()
+        } else {
+            format!(
+                "<div class=\"page-meta\">{}</div>",
+                self.meta.iter().map(PageMeta::render).collect::<String>()
+            )
+        };
+        let actions = if self.actions.is_empty() {
+            String::new()
+        } else {
+            format!(
+                "<div class=\"page-actions\">{}</div>",
+                self.actions
+                    .iter()
+                    .map(PageAction::render)
+                    .collect::<String>()
+            )
+        };
+        let inner_class = if self.aside.is_some() {
+            "head-inner page-head-inner has-aside"
+        } else {
+            "head-inner page-head-inner"
+        };
+        format!(
+            "<header class=\"page-head {kind}\"><div class=\"{inner_class}\">\
+             <div class=\"grow\"><nav class=\"crumbs\" aria-label=\"面包屑\">{crumbs}</nav>\
+             <h1>{title}</h1>{subtitle}{meta}</div>{aside}{actions}\
+             </div></header>",
+            kind = self.kind,
+            crumbs = self.crumbs,
+            title = escape_html(&self.title),
+            aside = self.aside.as_deref().unwrap_or_default()
+        )
+    }
+}
+
 fn topbar_search(query: &str) -> String {
     format!(
         "<div class=\"search-wrap\">\
@@ -2999,9 +3357,23 @@ async fn html_page(state: &AppState, status: StatusCode, page: Page, is_head: bo
         PageKind::Search => "search",
         PageKind::Other => "other",
     };
+    let has_topbar = page.topbar.is_some();
+    let topbar_class = if has_topbar {
+        "topbar has-context"
+    } else {
+        "topbar"
+    };
     let mut islands = vec!["theme", "nav"];
     if !state.no_search {
         islands.push("search");
+    }
+    if page
+        .topbar
+        .as_deref()
+        .map(|topbar| topbar.contains("class=\"action-menu\""))
+        .unwrap_or(false)
+    {
+        islands.push("actions");
     }
     islands.push("totop");
     if is_doc {
@@ -3032,9 +3404,9 @@ async fn html_page(state: &AppState, status: StatusCode, page: Page, is_head: bo
          <script nonce=\"{nonce}\" src=\"/_assets/app.js?__mdview=asset&v={version}\" defer></script>\
          </head><body data-totop=\"1\" data-page=\"{page_class}\" data-islands=\"{islands}\" \
          data-current-path=\"{current_path}\" data-current-dir=\"{current_is_dir}\">\
-         <div class=\"app\"><header class=\"topbar\">\
+         <div class=\"app\"><header class=\"{topbar_class}\">\
          <button class=\"icon-btn nav-toggle\" id=\"nav-toggle\" type=\"button\" aria-label=\"打开全站导航\" aria-expanded=\"false\">{panel}</button>\
-         <a class=\"brand\" href=\"/\"><span class=\"brand-mark\">m</span><span>mdview</span></a>\
+         {topbar}\
          <div class=\"topbar-actions\">{search}<button class=\"icon-btn theme-toggle\" id=\"theme-toggle\" type=\"button\" aria-label=\"切换主题\" title=\"主题：跟随系统\">\
          <span class=\"theme-icon theme-system\">{monitor}</span>\
          <span class=\"theme-icon theme-light\">{sun}</span>\
@@ -3052,6 +3424,8 @@ async fn html_page(state: &AppState, status: StatusCode, page: Page, is_head: bo
         current_path = escape_html(current_path),
         current_is_dir = current_is_dir,
         panel = icon("panel"),
+        topbar_class = topbar_class,
+        topbar = page.topbar.as_deref().unwrap_or(""),
         search = search,
         shell_class = shell_class,
         toc_rail = toc_rail,
@@ -3105,6 +3479,7 @@ async fn error_page(
             query: String::new(),
             kind: PageKind::Other,
             body,
+            topbar: None,
         },
         is_head,
     )
@@ -3367,13 +3742,6 @@ fn join_href(rel_dir: &str, name: &str, is_dir: bool) -> String {
         href.push('/');
     }
     href
-}
-
-fn parent_rel(rel: &str) -> &str {
-    match rel.rfind('/') {
-        Some(index) => &rel[..index],
-        None => "",
-    }
 }
 
 fn encode_segment(value: &str) -> String {
@@ -3786,7 +4154,7 @@ mod tests {
         let html = String::from_utf8(body).unwrap();
         assert!(html.contains("id=\"L1\""));
         assert!(html.contains("hello"));
-        assert!(html.contains("?download=1"));
+        assert!(!html.contains("?download=1"), "{html}");
 
         let (status, _, body) = call(app.clone(), Method::GET, "/a.md?raw=1").await;
         assert_eq!(status, StatusCode::OK);
@@ -3795,7 +4163,7 @@ mod tests {
         assert!(html.contains("预览"), "{html}");
         assert!(html.contains("href=\"/a.md\""), "{html}");
         assert!(html.contains("id=\"L1\""), "{html}");
-        assert!(html.contains("<1 KB"), "{html}");
+        assert!(html.contains("&lt;1 KB"), "{html}");
         assert!(html.contains("更新于"), "{html}");
 
         let (status, _, body) = call(app.clone(), Method::GET, "/b.txt").await;
@@ -3804,7 +4172,7 @@ mod tests {
         assert!(html.contains("<h1>b.txt</h1>"), "{html}");
         assert!(html.contains(">文本<"), "{html}");
         assert!(
-            html.contains("title=\"检测编码：UTF-8\">UTF-8</span>"),
+            html.contains("title=\"检测编码：UTF-8\"><span>UTF-8</span>"),
             "{html}"
         );
         assert!(html.contains("3 行"), "{html}");
@@ -3881,6 +4249,44 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn page_head_is_shared_across_page_types() {
+        let dir = fixture();
+        let app = app(state(dir.path(), false, 0, 0));
+        let cases = [
+            ("/", false),
+            ("/a.md", false),
+            ("/a.md?raw=1", false),
+            ("/search?__mdview=search&q=second", true),
+        ];
+        for (uri, is_search) in cases {
+            let (status, _, body) = call(app.clone(), Method::GET, uri).await;
+            assert_eq!(status, StatusCode::OK, "{uri}");
+            let html = String::from_utf8(body).unwrap();
+            if is_search {
+                assert!(
+                    html.contains("class=\"page-head search-head\""),
+                    "{uri}: {html}"
+                );
+            } else {
+                assert!(
+                    html.contains("class=\"topbar has-context\""),
+                    "{uri}: {html}"
+                );
+                assert!(html.contains("class=\"topbar-path\""), "{uri}: {html}");
+                assert!(html.contains("class=\"topbar-context\""), "{uri}: {html}");
+            }
+            assert!(html.contains("class=\"page-meta\""), "{uri}: {html}");
+        }
+
+        let (_, _, body) = call(app, Method::GET, "/a.md").await;
+        let html = String::from_utf8(body).unwrap();
+        assert!(html.contains("<h1>a.md</h1>"), "{html}");
+        assert!(html.contains("class=\"badge doc-kind\""), "{html}");
+        assert!(html.contains("class=\"page-actions\""), "{html}");
+        assert!(!html.contains("class=\"sr-only\">a.md"), "{html}");
+    }
+
+    #[tokio::test]
     async fn markdown_renders_when_trusted() {
         let dir = fixture();
         let app = app(state(dir.path(), false, 0, 0));
@@ -3889,16 +4295,14 @@ mod tests {
         let html = String::from_utf8(body).unwrap();
         assert!(html.contains(">hi</h1>"));
         assert!(html.contains("class=\"markdown-body\""));
-        assert!(html.contains("· UTF-8 ·"), "{html}");
+        assert!(html.contains("UTF-8"), "{html}");
         assert!(html.contains("data-sourcepos="), "{html}");
         assert!(html.contains("class=\"shell has-toc\""));
         assert!(html.contains("class=\"toc-rail\" id=\"toc-rail\""));
         assert!(html.contains("id=\"toc-slot\""));
-        assert!(
-            html.contains(
-                "data-islands=\"theme nav search totop toc linetarget code zoom export\""
-            )
-        );
+        assert!(html.contains(
+            "data-islands=\"theme nav search actions totop toc linetarget code zoom export\""
+        ));
         assert!(html.contains("id=\"export-png\""));
         assert!(html.contains("data-export-name=\"a\""));
         assert!(html.contains("id=\"export-pdf\""));
@@ -4034,14 +4438,17 @@ mod tests {
         assert_eq!(status, StatusCode::OK);
         let html = String::from_utf8(body).unwrap();
         assert!(html.contains("中文标题"), "{html}");
-        assert!(html.contains("class=\"doc-meta\">Markdown · "), "{html}");
+        assert!(
+            html.contains("class=\"page-meta\"") && html.contains("Markdown"),
+            "{html}"
+        );
         assert!(html.contains("GBK"), "{html}");
 
         let (_, _, body) = call(app.clone(), Method::GET, "/gbk.md?raw=1").await;
         let html = String::from_utf8(body).unwrap();
         assert!(html.contains("source-encoding"), "{html}");
         assert!(
-            html.contains("title=\"检测编码：GBK\">GBK</span>"),
+            html.contains("title=\"检测编码：GBK\"><span>GBK</span>"),
             "{html}"
         );
         assert!(html.contains("中文标题"), "{html}");
@@ -4059,7 +4466,7 @@ mod tests {
         let (_, _, body) = call(app.clone(), Method::GET, "/gbk.txt").await;
         let html = String::from_utf8(body).unwrap();
         assert!(
-            html.contains("title=\"检测编码：GBK\">GBK</span>"),
+            html.contains("title=\"检测编码：GBK\"><span>GBK</span>"),
             "{html}"
         );
         assert!(html.contains("编码测试 GBK 文本"), "{html}");
@@ -4095,7 +4502,7 @@ mod tests {
         let (_, _, body) = call(app.clone(), Method::GET, "/utf16.txt").await;
         let html = String::from_utf8(body).unwrap();
         assert!(
-            html.contains("title=\"检测编码：UTF-16LE BOM\">UTF-16LE BOM</span>"),
+            html.contains("title=\"检测编码：UTF-16LE BOM\"><span>UTF-16LE BOM</span>"),
             "{html}"
         );
         assert!(html.contains("UTF-16LE 文本"), "{html}");
@@ -4512,7 +4919,7 @@ mod tests {
         assert_eq!(status, StatusCode::OK);
         let html = String::from_utf8(body).unwrap();
         assert!(html.contains("<h1>sample.zip</h1>"), "{html}");
-        assert!(html.contains("ZIP ·"), "{html}");
+        assert!(html.contains("ZIP") && html.contains("个条目"), "{html}");
         assert!(html.contains("下载压缩包"), "{html}");
         assert!(html.contains("href=\"/sample.zip/docs/\""), "{html}");
 
@@ -4656,7 +5063,7 @@ mod tests {
         let (status, _, body) = call(app.clone(), Method::GET, "/sample.jar/").await;
         assert_eq!(status, StatusCode::OK);
         let html = String::from_utf8(body).unwrap();
-        assert!(html.contains("JAR ·"), "{html}");
+        assert!(html.contains("JAR"), "{html}");
         assert!(html.contains("META-INF"), "{html}");
         let (status, _, body) =
             call(app.clone(), Method::GET, "/sample.jar/META-INF/MANIFEST.MF").await;
@@ -4669,7 +5076,7 @@ mod tests {
 
         let (status, _, body) = call(app.clone(), Method::GET, "/sample.epub/").await;
         assert_eq!(status, StatusCode::OK);
-        assert!(String::from_utf8(body).unwrap().contains("EPUB ·"));
+        assert!(String::from_utf8(body).unwrap().contains("EPUB"));
         let (status, headers, body) = call(
             app.clone(),
             Method::GET,
@@ -4692,7 +5099,7 @@ mod tests {
 
         let (status, _, body) = call(app.clone(), Method::GET, "/sample.cbz/").await;
         assert_eq!(status, StatusCode::OK);
-        assert!(String::from_utf8(body).unwrap().contains("CBZ ·"));
+        assert!(String::from_utf8(body).unwrap().contains("CBZ"));
         let (status, headers, _) = call(app.clone(), Method::GET, "/sample.cbz/page-01.png").await;
         assert_eq!(status, StatusCode::OK);
         assert!(
@@ -5392,6 +5799,26 @@ mod tests {
             .unwrap()
     }
 
+    #[test]
+    fn search_resumes_in_batches_from_cursor() {
+        let dir = tempfile::tempdir().unwrap();
+        for index in 0..45 {
+            std::fs::write(
+                dir.path().join(format!("doc-{index:02}.md")),
+                format!("# needle {index}\n"),
+            )
+            .unwrap();
+        }
+        let first = search_files(dir.path(), "needle", 0, false, 0);
+        assert_eq!(first.groups.len(), SEARCH_MAX_GROUPS);
+        assert!(first.more, "first batch should stop at the group limit");
+        assert!(first.next_cursor > 0);
+        let second = search_files(dir.path(), "needle", 0, false, first.next_cursor);
+        assert_eq!(second.groups.len(), 5);
+        assert!(!second.more, "second batch should reach the end");
+        assert_eq!(first.groups.len() + second.groups.len(), 45);
+    }
+
     #[tokio::test]
     async fn search_groups_docs_text_and_files() {
         let dir = fixture();
@@ -5459,7 +5886,10 @@ mod tests {
         let (_, _, body) = call(app.clone(), Method::GET, "/search?__mdview=search&q=hello").await;
         let html = String::from_utf8(body).unwrap();
         assert!(!html.contains("b.txt"), "{html}");
-        assert!(html.contains("0 个文件 · 0 条结果"), "{html}");
+        assert!(
+            html.contains("0 个文件") && html.contains("0 条结果"),
+            "{html}"
+        );
 
         let (_, _, body) = call(app, Method::GET, "/search?__mdview=search&q=second").await;
         let html = String::from_utf8(body).unwrap();

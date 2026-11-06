@@ -212,12 +212,12 @@ chk "中文目录跟随后 200" "$(curl -sL -o /dev/null -w '%{http_code}' "$BAS
 SRC="$(curl -s "$BASE/b.txt")"
 chk "源码页标题文件名" "$SRC" '<h1>b.txt</h1>'
 chk "源码页类型标签" "$SRC" '>文本<'
-chk "源码页大小标签" "$SRC" '<1 KB'
+chk "源码页大小标签" "$SRC" '&lt;1 KB'
 chk "源码页行数标签" "$SRC" '3 行'
 chk "源码页修改时间标签" "$SRC" '更新于 '
 chk "源码页行锚点" "$SRC" 'id="L1"'
 chk "源码页内容" "$SRC" "hello"
-chk "源码页下载入口" "$SRC" "?download=1"
+nchk "源码页无下载入口" "$SRC" "?download=1"
 chk "源码页岛清单" "$SRC" 'data-islands="theme nav search totop source"'
 nchk "源码页不挂 TOC 岛" "$SRC" ' totop toc'
 
@@ -232,7 +232,7 @@ nchk "大源码不截断" "$BIG" '前 1000 行'
 nchk "大源码无 text 通道" "$BIG" '?text=1'
 
 RENDER="$(curl -s "$BASE/a.md")"
-chk "文档岛清单" "$RENDER" 'data-islands="theme nav search totop toc linetarget code zoom export"'
+chk "文档岛清单" "$RENDER" 'data-islands="theme nav search actions totop toc linetarget code zoom export"'
 nchk "文档不挂 source 岛" "$RENDER" ' source"'
 chk "渲染页行定位数据" "$RENDER" 'data-sourcepos='
 chk "Markdown 标题" "$RENDER" ">Hello</h1>"
@@ -249,7 +249,7 @@ chk "raw 原文" "$RAW" "# Hello"
 nchk "raw 不渲染" "$RAW" "<strong>bold</strong>"
 chk "raw 行锚点" "$RAW" 'id="L1"'
 chk "raw 回渲染链接" "$RAW" '预览'
-chk "raw 下载入口" "$RAW" "?download=1"
+nchk "raw 无下载入口" "$RAW" "?download=1"
 LINE5_SRC="$(sed -n '5p' "$ROOT/a.md")"
 chk "raw 第 5 行内容一致" "$RAW" "$LINE5_SRC"
 
@@ -297,7 +297,7 @@ chk "目录源码图标有悬浮文案" "$HOME_HTML" 'title="查看 page.html �
 chk "压缩包重定向" "$(code "$BASE/sample.zip")" "301"
 chk "压缩包页面 200" "$(code "$BASE/sample.zip/")" "200"
 chk "压缩包页面标题" "$(curl -s "$BASE/sample.zip/")" '<h1>sample.zip</h1>'
-chk "压缩包格式与条目" "$(curl -s "$BASE/sample.zip/")" "ZIP ·"
+chk "压缩包格式与条目" "$(curl -s "$BASE/sample.zip/")" ">ZIP</span>"
 chk "压缩包下载入口" "$(curl -s "$BASE/sample.zip/")" "下载压缩包"
 chk "包内 Markdown" "$(curl -s "$BASE/sample.zip/docs/a.md")" "Archive A"
 chk "包内 Markdown 图片" "$(curl -s "$BASE/sample.zip/docs/a.md")" 'src="/sample.zip/docs/pic.png"'
@@ -309,11 +309,11 @@ chk "整包下载" "$(header "$BASE/sample.zip?download=1" content-disposition)"
 chk "tar.gz 条目" "$(curl -s "$BASE/sample.tar.gz/docs/a.md")" "Archive A"
 chk "7z 条目" "$(curl -s "$BASE/sample.7z/docs/a.md")" "Archive A"
 chk "嵌套 zip 不递归" "$(header "$BASE/sample.zip/inner.zip" content-type)" "application/zip"
-chk "tar 页面标签" "$(curl -s "$BASE/sample.tar/")" "tar ·"
+chk "tar 页面标签" "$(curl -s "$BASE/sample.tar/")" ">tar</span>"
 chk "tar 条目" "$(curl -s "$BASE/sample.tar/docs/a.md")" "Archive A"
-chk "tar.bz2 页面标签" "$(curl -s "$BASE/sample.tar.bz2/")" "tar.bz2 ·"
+chk "tar.bz2 页面标签" "$(curl -s "$BASE/sample.tar.bz2/")" ">tar.bz2</span>"
 chk "tar.bz2 条目" "$(curl -s "$BASE/sample.tar.bz2/docs/a.md")" "Archive A"
-chk "tar.xz 页面标签" "$(curl -s "$BASE/sample.tar.xz/")" "tar.xz ·"
+chk "tar.xz 页面标签" "$(curl -s "$BASE/sample.tar.xz/")" ">tar.xz</span>"
 chk "tar.xz 条目" "$(curl -s "$BASE/sample.tar.xz/docs/a.md")" "Archive A"
 chk "tar 嵌套 zip 不递归" "$(header "$BASE/sample.tar/inner.zip" content-type)" "application/zip"
 HIGH_DICT_CODE="$(code "$BASE/high-dict.tar.xz/")"
@@ -322,12 +322,12 @@ if [ "$HIGH_DICT_CODE" = "400" ] || [ "$HIGH_DICT_CODE" = "413" ]; then
 else
   bad "xz 大字典拒绝 (got $HIGH_DICT_CODE)"
 fi
-chk "JAR 页面标签" "$(curl -s "$BASE/sample.jar/")" "JAR ·"
+chk "JAR 页面标签" "$(curl -s "$BASE/sample.jar/")" ">JAR</span>"
 chk "JAR 清单源码" "$(curl -s "$BASE/sample.jar/META-INF/MANIFEST.MF")" "Manifest-Version"
-chk "EPUB 页面标签" "$(curl -s "$BASE/sample.epub/")" "EPUB ·"
+chk "EPUB 页面标签" "$(curl -s "$BASE/sample.epub/")" ">EPUB</span>"
 chk "EPUB 章节源码" "$(curl -s "$BASE/sample.epub/OEBPS/chapter1.xhtml")" "xhtmlneedle"
 chk "EPUB 章节行锚点" "$(curl -s "$BASE/sample.epub/OEBPS/chapter1.xhtml")" 'id="L1"'
-chk "CBZ 页面标签" "$(curl -s "$BASE/sample.cbz/")" "CBZ ·"
+chk "CBZ 页面标签" "$(curl -s "$BASE/sample.cbz/")" ">CBZ</span>"
 chk "CBZ 图片" "$(ctype "$BASE/sample.cbz/page-01.png")" "image/png"
 chk "xhtml 源码页" "$(curl -s "$BASE/page.xhtml")" "xhtmlneedle"
 chk "xhtml 源码标签" "$(curl -s "$BASE/page.xhtml")" "XHTML"
@@ -389,13 +389,13 @@ chk ".markdown 搜索内容" "$(curl -s "$BASE/search?__mdview=search&q=markdown
 # and keep original bytes for downloads/raw.
 chk "GBK Markdown 预览" "$(curl -s "$BASE/gbk.md")" "中文标题"
 chk "GBK Markdown 编码标签" "$(curl -s "$BASE/gbk.md")" "GBK"
-chk "GBK 源码编码标签" "$(curl -s "$BASE/gbk.txt")" 'title="检测编码：GBK">GBK</span>'
+chk "GBK 源码编码标签" "$(curl -s "$BASE/gbk.txt")" 'title="检测编码：GBK"><span>GBK</span>'
 chk "GBK 搜索正文" "$(curl -s "$BASE/search?__mdview=search&q=%E4%B8%AD%E6%96%87")" 'href="/gbk.md#L1"'
 chk "GBK 下载 charset" "$(header "$BASE/gbk.txt?download=1" content-type)" "charset=gbk"
 chk "GBK CSS raw charset" "$(curl -s -o /dev/null -w '%{content_type}' -H 'Sec-Fetch-Dest: style' "$BASE/gbk.css")" "text/css; charset=gbk"
 chk_num "GBK CSS 原始字节" "$(curl -s -H 'Sec-Fetch-Dest: style' "$BASE/gbk.css" | wc -c | tr -d ' ')" "$(wc -c <"$ROOT/gbk.css" | tr -d ' ')"
 chk "UTF-16 预览" "$(curl -s "$BASE/utf16le.txt")" "UTF-16LE 文本"
-chk "UTF-16 编码标签" "$(curl -s "$BASE/utf16le.txt")" 'title="检测编码：UTF-16LE BOM">UTF-16LE BOM</span>'
+chk "UTF-16 编码标签" "$(curl -s "$BASE/utf16le.txt")" 'title="检测编码：UTF-16LE BOM"><span>UTF-16LE BOM</span>'
 chk "UTF-16 Markdown 预览" "$(curl -s "$BASE/utf16.md")" "UTF-16 标题"
 chk "UTF-16 Markdown 标签" "$(curl -s "$BASE/utf16.md")" "UTF-16LE BOM"
 nchk "UTF-32 不进源码页" "$(curl -s "$BASE/utf32le.txt")" "source-encoding"

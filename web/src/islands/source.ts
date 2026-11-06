@@ -21,6 +21,8 @@ function highlightSmallSource(source: HTMLElement): void {
 export function mountSource(): void {
   const source = document.querySelector<HTMLElement>('.source-wrap');
   if (!source) return;
+  const card = document.querySelector<HTMLElement>('.content-card');
+  const scrollRoot = card && getComputedStyle(card).overflowY === 'auto' ? card : null;
   const wrap = source.classList.contains('source-chunked')
     ? source
     : source.querySelector<HTMLElement>('.source-chunked');
@@ -118,10 +120,12 @@ export function mountSource(): void {
   }
 
   function enhanceVisible(): void {
-    const viewport = window.innerHeight || 800;
+    const box = scrollRoot
+      ? scrollRoot.getBoundingClientRect()
+      : { top: 0, bottom: window.innerHeight || 800 };
     chunks.forEach((chunk) => {
       const rect = chunk.getBoundingClientRect();
-      if (rect.bottom < -CHUNK_MARGIN || rect.top > viewport + CHUNK_MARGIN) return;
+      if (rect.bottom < box.top - CHUNK_MARGIN || rect.top > box.bottom + CHUNK_MARGIN) return;
       ensureGutter(chunk);
       ensureHighlight(chunk);
     });
@@ -138,6 +142,7 @@ export function mountSource(): void {
   }
 
   window.addEventListener('scroll', scheduleEnhance, { passive: true });
+  scrollRoot?.addEventListener('scroll', scheduleEnhance, { passive: true });
   window.addEventListener('resize', scheduleEnhance);
   enhanceVisible();
   window.addEventListener('hashchange', goHash);

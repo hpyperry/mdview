@@ -2,6 +2,7 @@ import type { JSX } from 'preact';
 
 type IconName =
   | 'list'
+  | 'toc'
   | 'chevrons-right'
   | 'chevron-right'
   | 'copy'
@@ -19,6 +20,13 @@ const paths: Record<IconName, JSX.Element> = {
     <>
       <path d="M8 6h13M8 12h13M8 18h13" />
       <path d="M3 6h.01M3 12h.01M3 18h.01" />
+    </>
+  ),
+  toc: (
+    <>
+      <path d="M5 4v16" />
+      <path d="M5 7h4M5 12h7M5 17h5" />
+      <path d="M17 7h2M17 12h2M17 17h2" />
     </>
   ),
   'chevrons-right': (

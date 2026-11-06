@@ -10,7 +10,7 @@
 | 项 | 值 |
 |---|---|
 | 日期 | 2026-11-06 |
-| 分支 | `feat/html-second-origin` |
+| 分支 | `feat/toc-island-layout` |
 | 平台 | macOS 27.0.0 arm64 |
 | Rust | 1.96（edition 2024，`rust-version = 1.89`） |
 | 产物 | `target/release/mdview`，约 **4.3 MB**（LTO + strip，内嵌 highlight.js、岛屿前端与压缩包解码器） |
@@ -19,7 +19,7 @@
 
 | 套件 | 命令 | 结果 |
 |---|---|---|
-| 单元/集成 | `cargo test --lib` | **94 passed** |
+| 单元/集成 | `cargo test --lib` | **96 passed** |
 | Golden | `cargo test --test golden` | **27 cases passed** |
 | 渲染兼容 | `cargo test --test render_compat` | **134 passed** |
 | 静态检查 | `cargo clippy --all-targets -- -D warnings` | **通过** |
@@ -27,7 +27,7 @@
 | CSS 基线 | `node tests/check-css-baseline.mjs` | **通过**（Chromium 88 黑名单 + 深色色板同步） |
 | Web 类型 | `npm --prefix web run typecheck` | **通过** |
 | 黑盒 HTTP | `bash tests/selftest-rust.sh` | **PASS=292 FAIL=0** |
-| 浏览器验收 | `node tests/browser-probe.mjs` | **PASS=271 FAIL=0** |
+| 浏览器验收 | `node tests/browser-probe.mjs` | **PASS=336 FAIL=0** |
 | 源码页性能 | `node tests/perf-source.mjs` | **4 项预算通过** |
 | TTY 信任 | `bash tests/trust-tty.sh` | **PASS=9 FAIL=0** |
 | artifact 冒烟 | `bash tests/smoke-artifact.sh target/release/mdview` | **PASS=7 FAIL=0** |
@@ -39,6 +39,10 @@
 本次 HTML 第二 origin 的浏览器/视觉验收（夹具 + AirGap 发送/接收 + 源码页，
 4 张截图）见
 [browser-report-2026-11-06-html-second-origin.md](reports/browser-report-2026-11-06-html-second-origin.md)。
+
+右侧 TOC 目录岛的浏览器/视觉验收（1600 常驻岛、1440 细轨、悬停浮层、
+多 h1 跳转）见
+[browser-report-2026-11-06-toc-island.md](reports/browser-report-2026-11-06-toc-island.md)。
 
 ## 黑盒覆盖
 
@@ -85,15 +89,16 @@ P0 差分报告：1035 条计分语料 **1015 条精确匹配（98.07%）**，0 
 
 ## 浏览器验证
 
-`tests/browser-probe.mjs` 在真实 headless Chrome 里跑 **271 项**断言：
+`tests/browser-probe.mjs` 在真实 headless Chrome 里跑 **336 项**断言：
 
 - 岛屿：文档页按需水合 toc/linetarget/code/zoom，源码页只挂 source；
 - HTML 文件：trusted 根原文顶层、脚本/localStorage/同源 fetch 正常；untrusted 根 302 到第二 origin，module/sessionStorage/Service Worker/同源 fetch/相对 CSS 全部正常，主 origin 无 iframe 外壳；源码页切换、SVG 直开脚本不执行、目录大小/时间列对齐；
 - 压缩包：包根页、包内 Markdown/HTML/源码、相对图片、嵌套 zip/tar 不递归、整包/条目下载；
   tar.bz2/tar.xz、JAR/EPUB/CBZ 容器、`.xhtml` 源码页；
-- 文档站外壳：全宽内容面、横跨内容面的页头、默认收起的全站导航浮岛、完整面包屑、
+- 文档站外壳：全宽内容面、顶栏页面上下文（导航+面包屑、居中文件名/元信息、点状操作菜单）、
+  默认收起的全站导航浮岛、完整面包屑、
   代码语言条、移动端抽屉与遮罩；
-- 布局：≥1360 的正文 + 24px TOC 细轨、顶栏/TOC sticky、TOC 悬停文字大纲/固定/scroll-spy；
+- 布局：内容岛铺满并与顶栏对齐；≥901 桌面端主岛固定、正文在岛内滚动，页面身份/操作在顶栏；≥1280 的正文 + TOC 岛分栏动效、1100–1279 的 24px 细轨、TOC 悬停文字大纲/固定/scroll-spy；
   TOC 覆盖 h1–h6 全层级、逐级缩进、长文档细轨独立滚动且当前刻度自动可见；
 - 引用块：底色内上下留白对称（单段、多段、嵌套、含列表），块内末元素不留多余下边距，
   块后与后续段落间距仍为 16px、多段引用段间距仍为 16px；
@@ -108,7 +113,8 @@ P0 差分报告：1035 条计分语料 **1015 条精确匹配（98.07%）**，0 
 - 性能预算：100 KB/1 MB/10 MB/1 MB Rust 源码页。
 - 导航空闲预取/三层预载与第三层占位/`dir=` 单层懒加载/悬停预热与点击合并请求/
   深页 `active` 脊柱自动展开/目录只展开/文件导航/展开记忆/默认收起/移动抽屉；
-- 搜索图标弹层、统一键帽提示、真实提交、搜索页独立表单、结果分组与查询词高亮；
+- 搜索图标弹层、统一键帽提示、真实提交、搜索页独立表单、结果分组与查询词高亮、
+  渐进搜索首批 40 / 继续追加 45 / 计数更新；
   搜索结果整行点击、Markdown 渲染块行定位与滚动/高亮；
 - 编码：GBK Markdown 正文与页头标签、GBK 源码页标签与正文、UTF-16LE 源码页标签、
   GBK 搜索结果行；
@@ -130,7 +136,7 @@ P0 差分报告：1035 条计分语料 **1015 条精确匹配（98.07%）**，0 
 
 - 最近一次远程完整绿色：`CI · 41444350375`（2026-11-02，PR #35），8/8 job
   成功；macOS/Ubuntu/Windows 测试、Node 类型检查、4 目标构建全绿。
-- 本地 `run-all.sh` 当前为 292/271。
+- 本地 `run-all.sh` 当前为 292/336。
 - Release 由 annotated tag `v*` 触发 `release.yml`；发布结果以对应 GitHub Release
   为准。
 - 岛屿架构首跑 `39421064321` 暴露两个 CI 问题：Linux Chrome 因新增的
@@ -139,7 +145,7 @@ P0 差分报告：1035 条计分语料 **1015 条精确匹配（98.07%）**，0 
   参数、DevTools 超时 30s，并加 `Cross.toml` 透传预构建路径。
 - 更早的 `39285530389` 曾受 GitHub Actions `degraded_performance` 影响，
   8 个 job 长时间 queued；那是平台事件，不是代码失败。
-- 测试矩阵覆盖：`cargo test`、黑盒 292、TTY 9、浏览器 271、源码页性能 4；
+- 测试矩阵覆盖：`cargo test`、黑盒 292、TTY 9、浏览器 336、源码页性能 4；
   Windows 跳过 pty/浏览器/性能，其余全跑。
 - artifact 冒烟：macOS arm64、Linux x86_64 musl、Windows x86_64 通过；
   Linux arm64 musl 只构建（x86 runner 无法执行 arm64）。

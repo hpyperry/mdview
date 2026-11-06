@@ -70,6 +70,39 @@ function safeName(name: string): string {
   return cleaned || 'document';
 }
 
+const CHECK_ICON =
+  '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>';
+const DONE_MS = 500;
+const doneTimers = new WeakMap<HTMLElement, number>();
+
+/// Swap the action icon to a check, disable it briefly, then restore it.
+/// The short lock prevents a second click/tap from firing the same action.
+function flashDone(target: HTMLElement): void {
+  if (target.classList.contains('is-done')) return;
+  const icon = target.querySelector<SVGElement>('svg.icon');
+  if (!icon) return;
+  if (!target.dataset.originalIcon) target.dataset.originalIcon = icon.outerHTML;
+  icon.outerHTML = CHECK_ICON;
+  target.classList.add('is-done');
+  if (target instanceof HTMLButtonElement) {
+    target.disabled = true;
+  } else {
+    target.setAttribute('aria-disabled', 'true');
+  }
+  const existing = doneTimers.get(target);
+  if (existing) window.clearTimeout(existing);
+  const timer = window.setTimeout(() => {
+    const current = target.querySelector<SVGElement>('svg.icon');
+    if (current && target.dataset.originalIcon) current.outerHTML = target.dataset.originalIcon;
+    target.classList.remove('is-done');
+    target.removeAttribute('aria-disabled');
+    if (target instanceof HTMLButtonElement) target.disabled = false;
+    delete target.dataset.originalIcon;
+    doneTimers.delete(target);
+  }, DONE_MS);
+  doneTimers.set(target, timer);
+}
+
 function download(blob: Blob, name: string): void {
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
@@ -155,16 +188,26 @@ export function mountExport(): void {
   (pdfButton ?? pngButton)?.parentElement?.appendChild(status);
 
   const name = pngButton?.dataset.exportName || document.title.replace(/ · mdview$/, '');
+  const downloadLink = document.querySelector<HTMLAnchorElement>(
+    '.page-actions a.action[href*="?download=1"]',
+  );
   let timer = 0;
 
-  const say = (message: string): void => {
+  const say = (message: string, duration = 4000): void => {
     status.textContent = message;
     window.clearTimeout(timer);
-    if (message) timer = window.setTimeout(() => { status.textContent = ''; }, 4000);
+    if (message) timer = window.setTimeout(() => { status.textContent = ''; }, duration);
   };
 
+  downloadLink?.addEventListener('click', (event) => {
+    if (downloadLink.classList.contains('is-done')) {
+      event.preventDefault();
+      return;
+    }
+    flashDone(downloadLink);
+  });
+
   pdfButton?.addEventListener('click', () => {
-    say('');
     window.print();
   });
 
@@ -173,10 +216,9 @@ export function mountExport(): void {
     if (!article || pngButton.dataset.busy === '1') return;
     pngButton.dataset.busy = '1';
     pngButton.disabled = true;
-    say('正在生成图片…');
     try {
       await renderPng(article, name);
-      say('图片已生成');
+      flashDone(pngButton);
     } catch (error) {
       console.error('[mdview] export png failed', error);
       say(error instanceof Error && error.message === '文档过长'
@@ -184,7 +226,7 @@ export function mountExport(): void {
         : '导出失败，请重试');
     } finally {
       delete pngButton.dataset.busy;
-      pngButton.disabled = false;
+      if (!pngButton.classList.contains('is-done')) pngButton.disabled = false;
     }
   });
 }
