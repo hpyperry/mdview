@@ -18,3 +18,4 @@
 | 2026-11-06 | 右侧 TOC 目录岛与工具栏反馈 | [browser-report-2026-11-06-toc-island.md](browser-report-2026-11-06-toc-island.md) | [`../evidence/2026-11-06/`](../evidence/2026-11-06/) | F-50 / F-51 / F-52 / F-95 |
 | 2026-11-06 | 统一页头 PageHead | [browser-report-2026-11-06-page-head.md](browser-report-2026-11-06-page-head.md) | [`../evidence/2026-11-06/`](../evidence/2026-11-06/) | F-29 / F-45 |
 | 2026-11-06 | 全宽内容岛与 TOC 分栏动效 | [browser-report-2026-11-06-shell-layout.md](browser-report-2026-11-06-shell-layout.md) | [`../evidence/2026-11-06/`](../evidence/2026-11-06/) | F-29 / F-35 / F-45 / F-50 / F-51 / F-52 |
+| 2026-11-07 | 渐进搜索与扫描上限 | [browser-report-2026-11-07-search-progressive.md](browser-report-2026-11-07-search-progressive.md) | [`../evidence/2026-11-07/`](../evidence/2026-11-07/) | F-99 |

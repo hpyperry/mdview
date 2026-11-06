@@ -77,7 +77,8 @@ cargo build --release
 - 导航默认收起，每次加载都收起；桌面浮岛覆盖、不挤压正文，≤900px 为抽屉 + 遮罩；
 - 搜索：图标 + 按需弹层（`/` 打开），提交进入搜索页；文件名覆盖所有文件，
   正文覆盖 Markdown/文本；每条结果整行是链接：Markdown 内容行跳到渲染页的
-  对应块并高亮，文件标题与文件条目跳到文件开头；不再有独立的打开按钮；
+  对应块并高亮，文件标题与文件条目跳到文件开头；不再有独立的打开按钮；搜索按批
+  扫描（2000 文件/约 1.2 秒/40 组/200 条），底部「继续搜索」渐进追加；
 - 文件大小统一按 1024 进制显示 KB/MB/GB，0 字节为 `0 KB`，1–1023 字节为 `<1 KB`；
 - CSP 放行同源表单（`form-action 'self'`）与导航 JSON（`connect-src 'self'`），
 无 JS 时搜索图标直接进入搜索页、导航入口隐藏；
@@ -264,11 +265,11 @@ Chromium 86/87 不再承诺。页面不使用 `light-dark()`/`color-mix()` 等�
 ```bash
 npm --prefix web ci
 npm --prefix web run typecheck
-cargo test                      # 95 单元 + 134 渲染兼容 + 27 golden
+cargo test                      # 96 单元 + 134 渲染兼容 + 27 golden
 cargo clippy --all-targets -- -D warnings
 bash tests/selftest-rust.sh     # 292 项真二进制 HTTP 断言
 node tests/check-css-baseline.mjs # Chromium 88 基线黑名单 + 深色色板同步
-node tests/browser-probe.mjs      # 323 项 headless Chrome 验收
+node tests/browser-probe.mjs      # 329 项 headless Chrome 验收
 node tests/perf-source.mjs        # 4 项源码页性能预算
 bash tests/trust-tty.sh           # 9 项真实 pty 信任测试
 ```

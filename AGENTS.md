@@ -30,8 +30,8 @@ bash tests/run-all.sh
 [`docs/guides/build-hygiene.md`](docs/guides/build-hygiene.md)，取舍见
 [ADR 0023](docs/architecture/adr/0023-dev-build-artifact-size.md)。
 
-必须全绿：`cargo test`（95 单元 + 134 渲染兼容 + 27 golden）、292 项黑盒 HTTP、
-9 项 pty 信任测试、323 项 headless Chrome 验收、4 项源码页性能预算。
+必须全绿：`cargo test`（96 单元 + 134 渲染兼容 + 27 golden）、292 项黑盒 HTTP、
+9 项 pty 信任测试、329 项 headless Chrome 验收、4 项源码页性能预算。
 
 ## 协作流程
 
@@ -156,6 +156,9 @@ Single-context: root `GLOSSARY.md` + `docs/architecture/adr/`. See
    注意不要拼出 `//` 或把 `/sub/` 的上级算成 `/sub/`。
 7. **搜索范围**：文件名覆盖所有文件；正文只扫 Markdown 文档（`.md`/`.markdown`）
    与文本文件，跳过隐藏目录、`SKIP_DIRS` 与超 `--max-preview` 的文件；结果按文件分组。
+   搜索必须分批：每批最多 2000 个文件/约 1.2 秒、40 组、200 条、单文件 5 条；用
+   `cursor` 续扫，结果底部「继续搜索」；有 JS 时追加，无 JS 时下一页。不要恢复
+   一次遍历完整 root 再返回。
 8. **大文本源码页全文分块**：>256 KB 仍由服务端输出全文，按 500 行分块，
    用 CSS `content-visibility: auto` 跳过离屏布局与绘制；行锚点与语法高亮由
    `web/src/islands/source.ts` 按可见块懒加载。`content-visibility` 必须放在
@@ -249,7 +252,7 @@ Single-context: root `GLOSSARY.md` + `docs/architecture/adr/`. See
 | URL 编码/相对路径 | `rewrite_target` + `%20/%2520/%23/%3F` 测试 |
 | 新路由/页面 | `src/server.rs` 的 `app`/`handle` 与 `Page` 外壳 |
 | 文件编码检测/标签 | `src/encoding.rs` + `render_page`/`source_page`/`search_files`/`streaming_charset` |
-| 搜索范围/结果 | `search_files` / `render_search`；正文按检测编码解码后只扫文本文件 |
+| 搜索范围/结果/分批 | `search_files`（cursor 批次）/ `render_search` / `search.ts` 追加；正文按检测编码解码后只扫文本文件 |
 | 目录行列对齐 | `list_dir` 的五列模板 + `web/src/styles/app.css` 的 `.dir-row` grid |
 | 搜索结果行定位 | `render_markdown_with_sourcepos` + `web/src/islands/linetarget.ts` |
 | 页头（文档/源码/目录/搜索） | `PageHead`/`PageMeta`/`PageAction` + `app.css` 的 `.page-head`/`.page-meta`/`.page-actions` |

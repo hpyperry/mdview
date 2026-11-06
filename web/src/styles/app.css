@@ -425,6 +425,13 @@ html.no-js .export-action { display: none !important; }
 /* search */
 .page-body { padding: 22px 30px 46px; }
 .search-note { color: var(--muted); font-size: 13px; }
+.search-more-wrap {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 16px; flex-wrap: wrap; padding: 16px 14px 4px;
+  border-top: 1px solid var(--border);
+}
+.search-more-wrap .search-note { margin: 0; }
+.search-more.is-loading { pointer-events: none; opacity: .65; }
 .result-group { margin: 0 0 14px; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
 .result-head {
   display: flex; align-items: center; gap: 10px; padding: 10px 14px;

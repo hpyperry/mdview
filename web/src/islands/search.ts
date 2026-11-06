@@ -71,5 +71,46 @@ export function mountSearch(): void {
     const query = (new URLSearchParams(window.location.search).get('q') || '').trim().toLowerCase();
     if (!query) return;
     document.querySelectorAll<HTMLElement>('.hit-snippet').forEach((snippet) => markNode(snippet, query));
+
+    document.addEventListener('click', async (event) => {
+      const link = (event.target as Element | null)?.closest<HTMLAnchorElement>('a.search-more');
+      if (!link) return;
+      event.preventDefault();
+      if (link.classList.contains('is-loading')) return;
+      const wrap = link.closest('.search-more-wrap');
+      if (!wrap) return;
+      const label = link.querySelector('span');
+      link.classList.add('is-loading');
+      link.setAttribute('aria-disabled', 'true');
+      if (label) label.textContent = '正在加载…';
+      try {
+        const response = await fetch(link.href, { headers: { Accept: 'text/html' } });
+        if (!response.ok) throw new Error(String(response.status));
+        const doc = new DOMParser().parseFromString(await response.text(), 'text/html');
+        const body = document.querySelector('.page-body');
+        const incoming = Array.from(doc.querySelectorAll('.result-group'));
+        for (const group of incoming) {
+          const imported = document.importNode(group, true);
+          body?.insertBefore(imported, wrap);
+          imported.querySelectorAll<HTMLElement>('.hit-snippet').forEach((snippet) => markNode(snippet, query));
+        }
+        const groups = document.querySelectorAll('.result-group').length;
+        let hits = 0;
+        document.querySelectorAll('.result-group .result-head .badge:last-child').forEach((badge) => {
+          const match = /(\d+)/.exec(badge.textContent || '');
+          if (match) hits += Number(match[1]);
+        });
+        const badges = document.querySelectorAll('.search-head .page-meta .badge');
+        if (badges[0]) badges[0].textContent = `${groups} 个文件`;
+        if (badges[1]) badges[1].textContent = `${hits} 条结果`;
+        const next = doc.querySelector('.search-more-wrap');
+        if (next) wrap.replaceWith(document.importNode(next, true));
+        else wrap.remove();
+      } catch {
+        if (label) label.textContent = '加载失败，重试';
+        link.classList.remove('is-loading');
+        link.removeAttribute('aria-disabled');
+      }
+    });
   }
 }

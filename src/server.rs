@@ -1588,6 +1588,11 @@ async fn search(
         .unwrap_or_default()
         .trim()
         .to_string();
+    let cursor = query
+        .get("cursor")
+        .and_then(|value| value.parse::<usize>().ok())
+        .unwrap_or(0)
+        .min(SEARCH_MAX_CURSOR);
     let results = if q.is_empty() {
         SearchResults::default()
     } else {
@@ -1595,7 +1600,7 @@ async fn search(
         let needle = q.clone();
         let max_preview = state.max_preview;
         let safe = state.safe;
-        tokio::task::spawn_blocking(move || search_files(&root, &needle, max_preview, safe))
+        tokio::task::spawn_blocking(move || search_files(&root, &needle, max_preview, safe, cursor))
             .await
             .unwrap_or_default()
     };
@@ -1971,8 +1976,20 @@ struct SearchResults {
     groups: Vec<SearchGroup>,
     files: usize,
     hits: usize,
-    truncated: bool,
+    more: bool,
+    next_cursor: usize,
+    scanned: usize,
 }
+
+/// Search scans in bounded batches: a large work tree must never block the
+/// request until every file has been read. The walker is deterministic, so a
+/// cursor can resume from the next entry without re-reading skipped files.
+const SEARCH_SCAN_FILE_LIMIT: usize = 2000;
+const SEARCH_SCAN_TIME_LIMIT: Duration = Duration::from_millis(1200);
+const SEARCH_MAX_GROUPS: usize = 40;
+const SEARCH_MAX_HITS: usize = 200;
+const SEARCH_HITS_PER_FILE: usize = 5;
+const SEARCH_MAX_CURSOR: usize = 1_000_000;
 
 struct SearchGroup {
     path: String,
@@ -2053,10 +2070,18 @@ fn render_search(q: &str, results: &SearchResults, crumbs: &str) -> String {
         head.render()
     );
     if results.groups.is_empty() {
-        body.push_str(&format!(
-            "<div class=\"empty-state\">{}<div>没有找到相关内容。试试更短的关键词。</div></div>",
-            icon("search")
-        ));
+        if results.more {
+            body.push_str(&format!(
+                "<div class=\"empty-state\">{}<div>已扫描前 {} 个文件，暂未找到；可以继续搜索或换更短的关键词。</div></div>",
+                icon("search"),
+                results.scanned
+            ));
+        } else {
+            body.push_str(&format!(
+                "<div class=\"empty-state\">{}<div>没有找到相关内容。试试更短的关键词。</div></div>",
+                icon("search")
+            ));
+        }
     } else {
         for group in &results.groups {
             let count = group.hits.len() + usize::from(group.name_hit);
@@ -2103,31 +2128,59 @@ fn render_search(q: &str, results: &SearchResults, crumbs: &str) -> String {
             body.push_str("</section>");
         }
     }
-    if results.truncated {
-        body.push_str(
-            "<p class=\"search-note\">结果较多，仅显示部分结果。请使用更具体的关键词。</p>",
+    if results.more {
+        let more_href = format!(
+            "/search?__mdview=search&q={}&cursor={}",
+            utf8_percent_encode(q, NON_ALPHANUMERIC),
+            results.next_cursor
         );
+        body.push_str(&format!(
+            "<div class=\"search-more-wrap\"><p class=\"search-note\">已扫描前 {} 个文件，当前显示这一批结果。</p>\
+             <a class=\"action search-more\" href=\"{}\">{}<span>继续搜索</span></a></div>",
+            results.scanned,
+            escape_html(&more_href),
+            icon("search")
+        ));
     }
     body.push_str("</div></div>");
     body
 }
 
-fn search_files(root: &Path, needle: &str, max_preview: u64, safe: bool) -> SearchResults {
+fn search_files(
+    root: &Path,
+    needle: &str,
+    max_preview: u64,
+    safe: bool,
+    cursor: usize,
+) -> SearchResults {
     let needle = needle.to_lowercase();
+    let started = Instant::now();
     let mut groups: Vec<SearchGroup> = Vec::new();
     let mut total_hits = 0usize;
-    let mut truncated = false;
+    let mut scanned = 0usize;
+    let mut consumed = cursor;
+    let mut stopped_early = false;
     let walker = WalkDir::new(root)
         .follow_links(false)
+        .sort_by_file_name()
         .into_iter()
         .filter_entry(|entry| !skipped_search_entry(entry));
-    for entry in walker.flatten() {
+    'walk: for (index, entry) in walker.flatten().enumerate() {
+        if index < cursor {
+            continue;
+        }
+        if scanned >= SEARCH_SCAN_FILE_LIMIT || started.elapsed() >= SEARCH_SCAN_TIME_LIMIT {
+            stopped_early = true;
+            break;
+        }
+        consumed = index + 1;
         if !entry.file_type().is_file() {
             continue;
         }
         if safe && !allowed_in_safe_mode(entry.path()) {
             continue;
         }
+        scanned += 1;
         let rel = entry
             .path()
             .strip_prefix(root)
@@ -2170,27 +2223,22 @@ fn search_files(root: &Path, needle: &str, max_preview: u64, safe: bool) -> Sear
                         text: snippet,
                     });
                     total_hits += 1;
-                    if hits.len() >= 5 || total_hits >= 200 {
-                        truncated = true;
+                    if hits.len() >= SEARCH_HITS_PER_FILE || total_hits >= SEARCH_MAX_HITS {
                         break;
                     }
                 }
             }
         }
         if name_hit || !hits.is_empty() {
-            if groups.len() >= 60 {
-                truncated = true;
-                break;
-            }
             groups.push(SearchGroup {
                 path: rel,
                 kind,
                 name_hit,
                 hits,
             });
-            if total_hits >= 200 {
-                truncated = true;
-                break;
+            if groups.len() >= SEARCH_MAX_GROUPS || total_hits >= SEARCH_MAX_HITS {
+                stopped_early = true;
+                break 'walk;
             }
         }
     }
@@ -2206,7 +2254,13 @@ fn search_files(root: &Path, needle: &str, max_preview: u64, safe: bool) -> Sear
         groups,
         files,
         hits: total_hits + name_hits,
-        truncated,
+        more: stopped_early,
+        next_cursor: if stopped_early {
+            consumed.max(cursor + 1)
+        } else {
+            consumed
+        },
+        scanned,
     }
 }
 
@@ -5673,6 +5727,26 @@ mod tests {
             .nth(1)
             .and_then(|rest| rest.split('\'').next())
             .unwrap()
+    }
+
+    #[test]
+    fn search_resumes_in_batches_from_cursor() {
+        let dir = tempfile::tempdir().unwrap();
+        for index in 0..45 {
+            std::fs::write(
+                dir.path().join(format!("doc-{index:02}.md")),
+                format!("# needle {index}\n"),
+            )
+            .unwrap();
+        }
+        let first = search_files(dir.path(), "needle", 0, false, 0);
+        assert_eq!(first.groups.len(), SEARCH_MAX_GROUPS);
+        assert!(first.more, "first batch should stop at the group limit");
+        assert!(first.next_cursor > 0);
+        let second = search_files(dir.path(), "needle", 0, false, first.next_cursor);
+        assert_eq!(second.groups.len(), 5);
+        assert!(!second.more, "second batch should reach the end");
+        assert_eq!(first.groups.len() + second.groups.len(), 45);
     }
 
     #[tokio::test]

@@ -264,6 +264,10 @@ async function writeFixture(root) {
   for (let i = 0; i < 40; i += 1) {
     await writeFile(join(root, 'sub', `f${String(i).padStart(2, '0')}.md`), `# ${i}\n`);
   }
+  await mkdir(join(root, 'search-many'), { recursive: true });
+  for (let i = 0; i < 45; i += 1) {
+    await writeFile(join(root, 'search-many', `batch-${String(i).padStart(2, '0')}.md`), `# batchneedle ${i}\n`);
+  }
 }
 
 async function main() {
@@ -725,6 +729,27 @@ async function main() {
     await evaluate('delete document.documentElement.dataset.theme');
     await evaluate('document.getElementById("nav-close").click()');
     check('导航关闭', await waitFor('document.documentElement.dataset.navOpen === "0"', 2000));
+    await goto('/search?__mdview=search&q=batchneedle');
+    check('渐进搜索首批 40 个文件', await waitFor('document.querySelectorAll(".result-group").length === 40', 3000));
+    check('渐进搜索显示继续按钮', (await evaluate('!!document.querySelector(".search-more")')) === true);
+    await evaluate('document.querySelector(".search-more").click()');
+    check('渐进搜索追加到 45 个文件', await waitFor('document.querySelectorAll(".result-group").length === 45', 5000));
+    check(
+      '渐进搜索结果不重复',
+      (await evaluate(`(() => {
+        const paths = [...document.querySelectorAll('.result-group .result-head .path span')].map((node) => node.textContent);
+        return new Set(paths).size === 45;
+      })()`)) === true,
+    );
+    check(
+      '渐进搜索计数更新',
+      (await evaluate(`(() => {
+        const badges = [...document.querySelectorAll('.search-head .page-meta .badge')].map((node) => node.textContent.trim());
+        return badges[0].includes('45 个文件') && badges[1].includes('45 条结果');
+      })()`)) === true,
+    );
+    check('渐进搜索完成后移除按钮', (await evaluate('!document.querySelector(".search-more")')) === true);
+
     await page.send('Emulation.setDeviceMetricsOverride', { width: 800, height: 600, deviceScaleFactor: 1, mobile: false });
     await goto('/page.md');
     await evaluate('document.getElementById("nav-toggle").click()');
