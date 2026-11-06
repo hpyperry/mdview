@@ -66,6 +66,9 @@ ADR 0015，首次发布在 2.0.1。实际应用型 HTML（模块脚本、PWA、�
   没有内部路由，只有真实同名文件才会命中。
 - 不返回 mdview 的 nonce/CSP；只在 SVG 上保留
   `CSP: sandbox allow-top-navigation-by-user-activation`。
+- 端口隔离不等于内容隔离：第二 origin 能读**整个服务根**（包括隐藏文件与
+  `.git`），和普通静态服务器一致。不要在含机密的根里运行未信任 HTML，或使用
+  `--safe`。
 - 端口隔离不等于 cookie 隔离：cookie 按 domain 共享，第二 origin 的页面仍能
   带上主 origin 的 cookie。mdview 自身不设 cookie。
 - 反向代理只转发了主端口时，第二端口不可达；需要单独暴露，或只在本地使用。

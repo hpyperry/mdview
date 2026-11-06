@@ -124,6 +124,8 @@ curl -sI http://127.0.0.1:8011/_assets/app.js
 
 ## 已知限制
 
+- 第二 origin 镜像**整个服务根**，包括隐藏文件与 `.git`；不要在含机密的根里运行
+  未信任 HTML，或改用 `--safe`。
 - 端口是 origin 边界，不是 cookie 边界；cookie 按 domain 共享。
 - 反向代理只转发主端口时，第二端口不可达。
 - 端口变化会让第二 origin 的存储与 Service Worker 重新开始。

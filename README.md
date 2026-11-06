@@ -211,6 +211,10 @@ CSP 四档：0 Strict（默认）、1 允许 HTTP、2 关闭（不推荐）、3 
 'self'`（仅用于本站搜索表单）。独立 HTML 原文（trusted 主 origin 或未信任的
 HTML 第二 origin）不套这条 CSP；只有直开的 SVG 保留自己的 `sandbox` CSP。
 
+第二 origin 是**整个服务根**的静态镜像，能读隐藏文件与 `.git`；不要在含机密的
+根里运行未信任 HTML，或改用 `--safe`（只给源码）。端口隔离也不是 cookie 隔离：
+cookie 按 domain 共享。反向代理只转发主端口时，第二端口需要单独暴露。
+
 ## 与 VS Code 的一致性
 
 P0 差分探针（comrak 0.56 vs markdown-it 14.3.2）在 1035 条计分语料上

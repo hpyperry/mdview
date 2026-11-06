@@ -176,9 +176,10 @@ Single-context: root `GLOSSARY.md` + `docs/architecture/adr/`. See
     目录请求 404；HTML 原文、SVG 仍带现有 sandbox CSP，其他文件不套 mdview CSP。
     端口默认实际主端口 + 1，冲突时最多尝试 10 个候选端口，可用 `--html-port`
     覆盖；全部占用时回退源码页并提示，不要静默回沙箱。第二 origin 的路径仍走
-    `resolve_path` 的 canonicalize + `starts_with(root)`。端口是 origin 边界，不是
-    cookie 边界；反向代理要单独暴露第二端口。`--safe` 与 trusted 根不启动第二
-    origin。
+    `resolve_path` 的 canonicalize + `starts_with(root)`。第二 origin 暴露整个
+    root（含隐藏文件与 `.git`），和静态服务器一致；不要在含机密的根里运行未信任
+    HTML。端口是 origin 边界，不是 cookie 边界；反向代理要单独暴露第二端口。
+    `--safe` 与 trusted 根不启动第二 origin。
 13. **HTML 子资源**：主 origin 的相对 CSS/JS/JSON 按 `Sec-Fetch-Dest`（退化看
     `Accept`）返回原字节与真实 MIME；无 `Sec-Fetch-*` 时，`Accept: */*` + 子资源
     扩展名（`js/mjs/cjs/css/json/map/webmanifest/xml`）也判为子资源；直接导航仍是
