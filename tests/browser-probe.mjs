@@ -623,10 +623,10 @@ async function main() {
     check('导出 PNG 完成图标', await waitFor('window.__exportDoneSeen === true', 3000));
     check('导出 PNG 完成图标是勾', (await evaluate('window.__exportDonePath')) === 'M20 6 9 17l-5-5');
     check('导出完成期间禁用按钮', (await evaluate('window.__exportDoneDisabled')) === true);
-    check('导出完成提示图片已导出', (await evaluate('window.__exportDoneStatus')) === '图片已导出');
+    check('导出完成无状态文案', (await evaluate('window.__exportDoneStatus')) === '');
     await sleep(650);
     check('导出按钮图标恢复', (await evaluate('(() => { const png = document.getElementById("export-png"); return png?.disabled === false && png?.classList.contains("is-done") === false; })()')) === true);
-    check('导出完成提示自动消失', (await evaluate('document.querySelector(".export-status")?.textContent || ""')) === '');
+    check('导出后仍无状态文案', (await evaluate('document.querySelector(".export-status")?.textContent || ""')) === '');
     const downloadDone = await evaluate(`(() => {
       const link = [...document.querySelectorAll('.page-actions a.action')].find((a) => a.href.includes('?download=1'));
       link.addEventListener('click', (event) => event.preventDefault(), { once: true });

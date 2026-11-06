@@ -208,7 +208,6 @@ export function mountExport(): void {
   });
 
   pdfButton?.addEventListener('click', () => {
-    say('');
     window.print();
   });
 
@@ -217,10 +216,8 @@ export function mountExport(): void {
     if (!article || pngButton.dataset.busy === '1') return;
     pngButton.dataset.busy = '1';
     pngButton.disabled = true;
-    say('正在生成图片…');
     try {
       await renderPng(article, name);
-      say('图片已导出', DONE_MS);
       flashDone(pngButton);
     } catch (error) {
       console.error('[mdview] export png failed', error);
