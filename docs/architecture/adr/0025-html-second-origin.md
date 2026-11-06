@@ -91,6 +91,8 @@ ADR 0015，首次发布在 2.0.1。实际应用型 HTML（模块脚本、PWA、�
 - 未信任根的 HTML 恢复静态服务器体验；模块、PWA、存储、同源 fetch、下载与顶层
   链接都能工作。
 - 需要多一个监听端口；端口变化会让第二 origin 的 `localStorage` 重新开始。
+- Service Worker 仍受浏览器安全上下文限制：`localhost`/HTTPS 可用，局域网 HTTP
+  访问时不可用；这和普通静态站点一致。
 - 反向代理/HTTPS 部署需要额外暴露第二端口，或接受只在本地使用。
 - trusted 根的行为与 2.3.0 完全一致；Markdown、搜索、导航与编码规则不变。
 

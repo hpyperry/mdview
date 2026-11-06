@@ -129,5 +129,7 @@ curl -sI http://127.0.0.1:8011/_assets/app.js
 - 端口是 origin 边界，不是 cookie 边界；cookie 按 domain 共享。
 - 反向代理只转发主端口时，第二端口不可达。
 - 端口变化会让第二 origin 的存储与 Service Worker 重新开始。
+- Service Worker 只在 `localhost`/HTTPS 安全上下文可用；局域网 HTTP 访问时浏览器
+  不提供，和普通静态站点一致。
 - 第二 origin 是只读静态镜像：不提供 Markdown 渲染、源码页、目录列表或搜索；
   这些仍在主 origin。
