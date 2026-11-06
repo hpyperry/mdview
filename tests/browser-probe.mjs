@@ -915,6 +915,14 @@ async function main() {
     );
     check('1600 目录岛标题文本', (await evaluate('document.querySelector("#toc-island .toc-link")?.textContent')) === 'Probe');
     check(
+      '1600 回顶固定在岛底',
+      (await evaluate(`(() => {
+        const island = document.getElementById('toc-island').getBoundingClientRect();
+        const button = document.querySelector('#toc-island .toc-top').getBoundingClientRect();
+        return Math.abs(island.bottom - button.bottom) <= 1 && button.top > island.top + 100;
+      })()`)) === true,
+    );
+    check(
       '1600 目录岛无标题徽标',
       (await evaluate('!document.querySelector("#toc-island .toc-island-head") && !document.querySelector("#toc-island .toc-island-count")')) === true,
     );
