@@ -9,8 +9,8 @@
 
 | 项 | 值 |
 |---|---|
-| 日期 | 2026-11-06 |
-| 分支 | `feat/toc-island-layout` |
+| 日期 | 2026-11-07 |
+| 分支 | `release/v2.4.0` |
 | 平台 | macOS 27.0.0 arm64 |
 | Rust | 1.96（edition 2024，`rust-version = 1.89`） |
 | 产物 | `target/release/mdview`，约 **4.3 MB**（LTO + strip，内嵌 highlight.js、岛屿前端与压缩包解码器） |
