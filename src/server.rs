@@ -3322,6 +3322,10 @@ fn raw_mime(path: &Path, info: &FileInfo) -> String {
         _ => {
             // The static HTML origin is a real file server: prefer the
             // extension MIME (e.g. .xhtml) over `classify`'s generic text MIME.
+            // An extensionless file keeps `classify`'s text/binary decision.
+            if ext.is_empty() {
+                return content_type(info);
+            }
             return mime_guess::from_ext(&ext)
                 .first_raw()
                 .map(str::to_string)
