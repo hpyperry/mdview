@@ -12,8 +12,41 @@ permissions:
   contents: read
 
 jobs:
+  changes:
+    name: changes
+    runs-on: ubuntu-latest
+    outputs:
+      docs_only: ${{ steps.filter.outputs.docs_only }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: filter
+        shell: bash
+        run: |
+          base="${{ github.event.pull_request.base.sha }}"
+          head="${{ github.event.pull_request.head.sha }}"
+          if [ -z "$base" ] || [ -z "$head" ]; then
+            echo "docs_only=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          merge_base="$(git merge-base "$base" "$head" 2>/dev/null || echo "$base")"
+          changed="$(git diff --name-only "$merge_base" "$head")"
+          echo "changed files:"
+          printf '%s\n' "$changed"
+          # Markdown and docs assets are documentation-only. Anything else
+          # (src, web, tests scripts/fixtures, workflows, manifests) runs CI.
+          code="$(printf '%s\n' "$changed" | grep -vE '^(docs/|.*\.md$)' | grep -v '^$' || true)"
+          if [ -z "$code" ]; then
+            echo "docs_only=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "docs_only=false" >> "$GITHUB_OUTPUT"
+          fi
+
   test:
     name: test (${{ matrix.os }})
+    needs: changes
+    if: needs.changes.outputs.docs_only != 'true'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -62,6 +95,8 @@ jobs:
 
   build:
     name: build (${{ matrix.target }})
+    needs: changes
+    if: needs.changes.outputs.docs_only != 'true'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -139,6 +174,8 @@ jobs:
 
   audit:
     name: dependency audit
+    needs: changes
+    if: needs.changes.outputs.docs_only != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -148,3 +185,54 @@ jobs:
         run: cargo audit
       - name: cargo deny
         run: cargo deny check advisories licenses bans sources
+
+  docs:
+    name: docs
+    needs: changes
+    if: needs.changes.outputs.docs_only == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Check documentation links
+        run: node tests/check-doc-links.mjs
+
+  ci:
+    name: ci
+    needs: [changes, docs, test, build, audit]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify required jobs
+        shell: bash
+        env:
+          CHANGES_RESULT: ${{ needs.changes.result }}
+          DOCS_RESULT: ${{ needs.docs.result }}
+          TEST_RESULT: ${{ needs.test.result }}
+          BUILD_RESULT: ${{ needs.build.result }}
+          AUDIT_RESULT: ${{ needs.audit.result }}
+          DOCS_ONLY: ${{ needs.changes.outputs.docs_only }}
+        run: |
+          if [ "$CHANGES_RESULT" != "success" ]; then
+            echo "changes job did not succeed: $CHANGES_RESULT"
+            exit 1
+          fi
+          if [ "$DOCS_ONLY" = "true" ]; then
+            if [ "$DOCS_RESULT" != "success" ]; then
+              echo "docs job did not succeed: $DOCS_RESULT"
+              exit 1
+            fi
+            echo "docs-only change; code jobs intentionally skipped"
+            exit 0
+          fi
+          for pair in "test:$TEST_RESULT" "build:$BUILD_RESULT" "audit:$AUDIT_RESULT"; do
+            name="${pair%%:*}"
+            result="${pair#*:}"
+            if [ "$result" != "success" ]; then
+              echo "$name job did not succeed: $result"
+              exit 1
+            fi
+          done
+          echo "all required jobs passed"
