@@ -631,11 +631,14 @@ fn print_banner(
         env!("CARGO_PKG_VERSION")
     );
     println!("  root:        {}", root.display());
-    println!("  listen:      http://{}:{}", cli.host, port);
+    println!("  listen:      http://{}", format_addr(&cli.host, port));
     if !cli.safe && !trust.trusted {
         match html_port {
             Some(html_port) => {
-                println!("  html:        http://{}:{}", cli.host, html_port);
+                println!(
+                    "  html:        http://{}",
+                    format_addr(&cli.host, html_port)
+                );
             }
             None => {
                 println!("  html:        (未启动，未信任 HTML 回退源码页)");
@@ -3305,7 +3308,14 @@ fn raw_mime(path: &Path, info: &FileInfo) -> String {
         "md" => "text/markdown; charset=utf-8",
         "txt" => "text/plain; charset=utf-8",
         "wasm" => "application/wasm",
-        _ => return content_type(info),
+        _ => {
+            // The static HTML origin is a real file server: prefer the
+            // extension MIME (e.g. .xhtml) over `classify`'s generic text MIME.
+            return mime_guess::from_ext(&ext)
+                .first_raw()
+                .map(str::to_string)
+                .unwrap_or_else(|| content_type(info));
+        }
     };
     mime.to_string()
 }
@@ -5424,6 +5434,19 @@ mod tests {
     fn wasm_uses_the_webassembly_mime() {
         assert_eq!(guess_binary_mime("wasm"), "application/wasm");
         assert_eq!(guess_binary_mime("WASM"), "application/wasm");
+    }
+
+    #[test]
+    fn raw_mime_prefers_the_real_extension() {
+        let text = FileInfo {
+            kind: Kind::Text,
+            mime: "text/plain; charset=utf-8".to_string(),
+        };
+        assert_eq!(
+            raw_mime(Path::new("chapter.xhtml"), &text),
+            "application/xhtml+xml"
+        );
+        assert_eq!(raw_mime(Path::new("app.wasm"), &text), "application/wasm");
     }
 
     #[test]

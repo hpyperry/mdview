@@ -255,7 +255,7 @@ Chromium 86/87 不再承诺。页面不使用 `light-dark()`/`color-mix()` 等�
 ```bash
 npm --prefix web ci
 npm --prefix web run typecheck
-cargo test                      # 93 单元 + 134 渲染兼容 + 27 golden
+cargo test                      # 94 单元 + 134 渲染兼容 + 27 golden
 cargo clippy --all-targets -- -D warnings
 bash tests/selftest-rust.sh     # 289 项真二进制 HTTP 断言
 node tests/check-css-baseline.mjs # Chromium 88 基线黑名单 + 深色色板同步
