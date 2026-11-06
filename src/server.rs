@@ -5483,6 +5483,10 @@ mod tests {
             "application/xhtml+xml"
         );
         assert_eq!(raw_mime(Path::new("app.wasm"), &text), "application/wasm");
+        assert_eq!(
+            raw_mime(Path::new("README"), &text),
+            "text/plain; charset=utf-8"
+        );
     }
 
     #[test]
