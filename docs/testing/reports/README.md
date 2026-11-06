@@ -10,3 +10,4 @@
 | 2026-10-26 | 压缩包格式扩展 | [browser-report-2026-10-26-archive-formats.md](browser-report-2026-10-26-archive-formats.md) | [`../evidence/2026-10-26/`](../evidence/2026-10-26/) | F-81 / F-92 |
 | 2026-10-27 | 文件编码检测 | [browser-report-2026-10-27-encodings.md](browser-report-2026-10-27-encodings.md) | [`../evidence/2026-10-27/`](../evidence/2026-10-27/) | F-89 / F-90 |
 | 2026-11-04 | 旧引擎（Chromium 88）兼容 | [legacy-chromium-88-2026-11-04.md](legacy-chromium-88-2026-11-04.md) | 无截图（CDP 断言） | F-31 / F-76 / F-93 |
+| 2026-11-06 | HTML 第二 origin | [browser-report-2026-11-06-html-second-origin.md](browser-report-2026-11-06-html-second-origin.md) | [`../evidence/2026-11-06/`](../evidence/2026-11-06/) | F-75 / F-77 / F-96 |

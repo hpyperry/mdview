@@ -36,6 +36,10 @@
 
 `cargo test` 总耗时约 1.5 秒（debug）；黑盒套件约 15 秒（含 release 构建）。
 
+本次 HTML 第二 origin 的浏览器/视觉验收（夹具 + AirGap 发送/接收 + 源码页，
+4 张截图）见
+[browser-report-2026-11-06-html-second-origin.md](reports/browser-report-2026-11-06-html-second-origin.md)。
+
 ## 黑盒覆盖
 
 - 目录索引：无分组的统一列表（目录在前）、大小、下载按钮只给文件、面包屑、空目录、301 编码；

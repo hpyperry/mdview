@@ -121,6 +121,8 @@ curl -sI http://127.0.0.1:8011/_assets/app.js
   源码页预览链接、包内 HTML、`--html-port`。
 - `node tests/browser-probe.mjs`：module、sessionStorage、Service Worker、fetch、
   相对 CSS 全部可用；主 origin 无 iframe/外壳。
+- 视觉验收与截图：
+  [browser-report-2026-11-06-html-second-origin.md](../../../docs/testing/reports/browser-report-2026-11-06-html-second-origin.md)。
 
 ## 已知限制
 
