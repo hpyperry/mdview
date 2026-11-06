@@ -1,5 +1,9 @@
 # 固定页头岛测试报告（2026-11-07）
 
+> 后续：页头已迁入全局顶栏，本报告的固定页头方案被
+> [browser-report-2026-11-07-topbar-context.md](browser-report-2026-11-07-topbar-context.md)
+> 取代。
+
 - 关联：Issue [#67](https://github.com/hpyperry/mdview/issues/67) / PR（待建）/ F-100
 - 夹具：`tests/fixtures/page-head/README.md`
 - 原型：`prototype/fixed-head` 分支（A 随滚动 / B 贴顶 / C 独立岛；用户选 C）
@@ -24,7 +28,7 @@
 | 单元 / 集成 | `cargo test` | 96 + 134 + 27 passed |
 | 黑盒 HTTP | `bash tests/selftest-rust.sh` | PASS=292 FAIL=0 |
 | TTY Trust | `bash tests/trust-tty.sh` | PASS=9 FAIL=0 |
-| 浏览器探针 | `node tests/browser-probe.mjs` | **PASS=331 FAIL=0** |
+| 浏览器探针 | `node tests/browser-probe.mjs` | **PASS=336 FAIL=0** |
 | 源码页性能 | `node tests/perf-source.mjs` | 4 项预算通过 |
 | artifact 冒烟 | `bash tests/smoke-artifact.sh` | PASS=7 FAIL=0 |
 

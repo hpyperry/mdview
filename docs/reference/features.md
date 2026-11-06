@@ -59,13 +59,13 @@
 | ID | 功能 | 验收要点 | 测试映射 | 状态 |
 |---|---|---|---|---|
 | F-28 | 非 Markdown 文档文本 / `?raw=1` | 服务端输出带行号的源码页；`.mdx` 默认走这里；头部显示检测编码 | 黑盒、浏览器探针 | ✅ 自动 |
-| F-29 | 源码页头 | 由统一 `PageHead` 生成；H1 为文件名；类型/大小/编码/行数/修改时间徽标；操作只保留预览，不再提供下载；与 Markdown 页头同结构 | 黑盒、浏览器探针；[复测文档](../../tests/fixtures/page-head/README.md) | ✅ 自动 |
+| F-29 | 源码页上下文 | 文件名、类型/大小/编码/行数/修改时间在全局顶栏 `.topbar-context`；操作只保留预览，不再提供下载 | 黑盒、浏览器探针；[复测文档](../../tests/fixtures/page-head/README.md) | ✅ 自动 |
 | F-30 | 行锚点与高亮 | `#L<n>` 锚点、gutter、highlight.js 着色 | 黑盒、浏览器探针 | ✅ 自动 |
 | F-31 | 大源码分块 | >256 KB 全文输出，500 行/块；`content-visibility: auto` 仅在支持 `contain-intrinsic-*` 的引擎启用，86–97 回退全量渲染 | 黑盒、性能脚本、浏览器探针；[复测文档](../../tests/fixtures/legacy-baseline-fallbacks/README.md) | ✅ 自动 |
 | F-32 | 无 JS 源码 | 无 JS 仍能读全文与行号 | 浏览器无 JS 基线 | ✅ 自动 |
 | F-33 | 超大代码块 | >256 KB 代码块不自动高亮，语言条提示“高亮已关闭” | 浏览器探针 | ✅ 自动 |
 | F-34 | 源码行定位 | 分块源码跳到目标行并高亮；小源码只跳到锚点，没有目标行高亮 | 黑盒、浏览器探针、视觉 | ◐ 部分 |
-| F-35 | 源码页操作 | 预览、回到顶部、面包屑；不提供下载按钮 | 浏览器探针、视觉 | ✅ 自动 |
+| F-35 | 源码页操作 | 预览收在顶栏点状菜单；回到顶部、面包屑；不提供下载按钮 | 浏览器探针、视觉 | ✅ 自动 |
 
 ## E. 搜索
 
@@ -86,7 +86,7 @@
 
 | ID | 功能 | 验收要点 | 测试映射 | 状态 |
 |---|---|---|---|---|
-| F-45 | 统一页头（PageHead） | Markdown/源码/目录/搜索共用服务端 `PageHead`：面包屑 + 标题 H1 + 元信息徽标 + 操作；Markdown 页头显示文件名；搜索表单在右侧；内容岛铺满 `.app` 并与顶栏左右对齐，正文阅读行最大 1200px；800px 下表单换行且紧凑 | 服务端单测、浏览器探针；[复测文档](../../tests/fixtures/page-head/README.md) · [视觉验收](../testing/reports/browser-report-2026-11-06-page-head.md) · [全宽分栏](../testing/reports/browser-report-2026-11-06-shell-layout.md) | ✅ 自动 |
+| F-45 | 统一页头（PageHead） | 文档/源码/目录用 `PageHead::render_topbar` 输出顶栏身份与操作；搜索页保留 content 页头与表单；内容岛铺满 `.app` 并与顶栏对齐，正文阅读行最大 1200px | 服务端单测、浏览器探针；[复测文档](../../tests/fixtures/page-head/README.md) · [视觉验收](../testing/reports/browser-report-2026-11-07-topbar-context.md) | ✅ 自动 |
 | F-46 | 全站导航预取 | 页面空闲时请求 `/_nav?__mdview=nav`；初始只取根 + 三层目录，带 `active` 脊柱；打开时通常无全局“加载中…” | 浏览器探针 | ✅ 自动 |
 | F-47 | 导航树行为 | 目录只展开/收起，文件才导航；第 3 层目录按需加载一层，桌面悬停预热；当前文件高亮 | 浏览器探针、视觉 | ✅ 自动 |
 | F-48 | 导航浮层/抽屉 | 桌面浮岛不挤压正文；≤900px 抽屉 + 遮罩 | 浏览器探针、视觉 | ✅ 自动 |
@@ -188,7 +188,7 @@
 | ID | 功能 | 验收要点 | 测试映射 | 状态 |
 |---|---|---|---|---|
 | F-94 | 引用块留白 | 底色引用块上下内边距对称（8px）；块内首/末子元素的外边距收口，列表末项也不残留空带；块后间距 16px、多段引用段间距 16px；嵌套引用同样对称 | 浏览器探针；[复测文档](../../tests/fixtures/blockquote-spacing/README.md) | ✅ 自动 |
-| F-100 | 固定页头岛 | ≥901px 页头 sticky 在主岛顶部，距顶部 12px、左右内缩 14px，圆角/边框/阴影；正文在岛内滚动时页头不动，源码/下载/导出始终可达；TOC 跳转、scroll-spy、Markdown 行定位、源码锚点都避让页头高度；≤900px 保持普通页头 | 浏览器探针；[复测文档](../../tests/fixtures/page-head/README.md) · [视觉验收](../testing/reports/browser-report-2026-11-07-fixed-head.md) | ✅ 自动 |
+| F-100 | 顶栏页面上下文 | 文档/源码/目录：去掉 logo；左侧导航+面包屑；中间文件名 22px 居中、元信息第二行；右侧点状菜单收源码/下载/导出图片/导出 PDF，再右为搜索/主题；顶栏/主岛/TOC 间距 24px；≤1280 隐藏元信息、≤900 隐藏面包屑；菜单 Esc/外部点击关闭，导出时保持打开显示完成图标 | 服务端单测、浏览器探针；[复测文档](../../tests/fixtures/page-head/README.md) · [视觉验收](../testing/reports/browser-report-2026-11-07-topbar-context.md) | ✅ 自动 |
 | F-98 | 固定主岛与岛内滚动 | ≥901px 桌面端顶栏、主岛与 TOC 岛固定；`.content-card` 是唯一滚动容器，body 不滚动；正文、目录、源码与搜索结果在岛内滚动；≤900px 保留普通文档滚动；回顶、TOC 跳转与 scroll-spy、大源码懒加载都感知滚动容器 | 浏览器探针；[复测文档](../../tests/fixtures/toc-all-levels/README.md) · [视觉验收](../testing/reports/browser-report-2026-11-06-shell-layout.md) | ✅ 自动 |
 | F-95 | 导出图片 / PDF | 文档页导出 PNG 长图（白底、2x、超长自动降级并提示）与浏览器打印 PDF；打印样式隐藏外壳、强制浅色、分页；深色主题导出仍为浅色；下载/导出图片完成后图标变绿色对勾并禁用约 500ms 防止重复点击，随后恢复；导出过程与成功都不显示右侧状态文案；无 JS 隐藏按钮 | 浏览器探针、Rust 服务端断言；[复测文档](../../tests/fixtures/export-artifact/README.md) | ✅ 自动 |
 

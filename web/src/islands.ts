@@ -2,6 +2,7 @@ import type { IslandDefinition } from './types';
 import { mountTheme } from './islands/theme';
 import { mountNav } from './islands/nav';
 import { mountSearch } from './islands/search';
+import { mountTopbarActions } from './islands/actions';
 import { mountBackToTop } from './islands/totop';
 import { mountToc } from './islands/toc';
 import { mountLineTarget } from './islands/linetarget';
@@ -28,6 +29,12 @@ export const islands: Record<string, IslandDefinition> = {
     when: 'immediate',
     root: () => document.querySelector('.search-wrap'),
     mount: mountSearch,
+  },
+  actions: {
+    name: 'actions',
+    when: 'immediate',
+    root: () => document.querySelector('.topbar-page-actions'),
+    mount: mountTopbarActions,
   },
   totop: {
     name: 'totop',

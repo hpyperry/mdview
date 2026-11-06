@@ -31,7 +31,7 @@ bash tests/run-all.sh
 [ADR 0023](docs/architecture/adr/0023-dev-build-artifact-size.md)。
 
 必须全绿：`cargo test`（96 单元 + 134 渲染兼容 + 27 golden）、292 项黑盒 HTTP、
-9 项 pty 信任测试、331 项 headless Chrome 验收、4 项源码页性能预算。
+9 项 pty 信任测试、336 项 headless Chrome 验收、4 项源码页性能预算。
 
 ## 协作流程
 
@@ -142,7 +142,7 @@ Single-context: root `GLOSSARY.md` + `docs/architecture/adr/`. See
 
    外壳布局约束：`.app` 最大 1680、外边距 16；顶栏 sticky `top:12`；正文始终是
    主网格；所有页面类型的内容岛都铺满 `.app` 可用宽度并与顶栏左右边缘对齐。
-   **≥1280px** 的 Markdown 页为“正文岛 1fr + 间距 16 + TOC 岛
+   **≥1280px** 的 Markdown 页为“正文岛 1fr + 间距 24 + TOC 岛
    `clamp(160px, 13vw, 240px)`”，正文岛左边缘不动、只收右边；**1100–1279px**
    使用 24px TOC 细轨，悬停刻度显示单条标题浮层，点击顶部按钮展开大纲；
    **<1100px** 单列并回到正文顶部内联目录（≤900 为移动布局）。常驻 TOC 岛的
@@ -150,8 +150,11 @@ Single-context: root `GLOSSARY.md` + `docs/architecture/adr/`. See
    TOC 岛挂载时用 `shell-split`/`toc-island-in` 做一次约 240ms 的分栏动画，正文
    阅读行宽度不变，只让主岛右侧空边收窄。阅读行最大 1200px。
    **≥901px** 固定顶栏与主岛：`.content-card` 作为滚动容器，页面 body 不滚动；
-   页头在内容卡内 `sticky top:12`，带 12px 外边距、圆角与阴影，形成独立页头岛；
-   TOC 岛与主岛同高，目录列表在岛内滚动；**≤900px** 保留普通文档滚动，页头不 sticky。
+   文档/源码/目录页的页面身份与操作在全局顶栏：导航 + 面包屑、居中的文件名/元信息、
+   点状操作菜单、搜索/主题；不再在 content card 内渲染页头。顶栏、主岛、TOC 岛间距
+   统一 24px；宽屏顶栏 64px，≤1280px 隐藏元信息，≤900px 隐藏面包屑。搜索页仍保留
+   content 页头（含表单）。TOC 岛与主岛同高，目录列表在岛内滚动；**≤900px** 保留
+   普通文档滚动。
    全站导航是默认收起的浮层（桌面浮岛 / 移动抽屉），不占用正文列。改布局后跑浏览器探针。
 6. **目录 `rel` 带尾斜杠**：`list_dir` 入口会 `trim_end_matches('/')`；新增目录页逻辑
    注意不要拼出 `//` 或把 `/sub/` 的上级算成 `/sub/`。
@@ -167,7 +170,7 @@ Single-context: root `GLOSSARY.md` + `docs/architecture/adr/`. See
    里（长属性 95/98 才支持，86–97 要回退全量渲染）；`replaceChildren` 要有
    `textContent` + `appendChild` 回退。不要恢复服务端截断、`?text=1`
    文本通道、`connect-src` 或 highlightAuto；无 JS 必须仍能读全文。
-9. **岛屿边界**：10 个岛（theme/nav/search/totop/toc/linetarget/code/zoom/source/export）
+9. **岛屿边界**：11 个岛（theme/nav/search/actions/totop/toc/linetarget/code/zoom/source/export）
    由 `body[data-islands]` 清单控制；岛只接管自己的控制区，服务端 HTML 是权威。
    新增交互先判断是否能归入现有岛，不要回到一个全局 DOMContentLoaded 初始化器。
 10. **全站导航（分层预载）**：`/_nav?__mdview=nav` 只预载根 + 三层目录；第 3 层目录是
@@ -256,7 +259,7 @@ Single-context: root `GLOSSARY.md` + `docs/architecture/adr/`. See
 | 搜索范围/结果/分批 | `search_files`（cursor 批次）/ `render_search` / `search.ts` 追加；正文按检测编码解码后只扫文本文件 |
 | 目录行列对齐 | `list_dir` 的五列模板 + `web/src/styles/app.css` 的 `.dir-row` grid |
 | 搜索结果行定位 | `render_markdown_with_sourcepos` + `web/src/islands/linetarget.ts` |
-| 页头（文档/源码/目录/搜索） | `PageHead`/`PageMeta`/`PageAction` + `app.css` 的 `.page-head`/`.page-meta`/`.page-actions` |
+| 页头（顶栏身份/菜单） | `PageHead::render_topbar` + `topbar-context`/`action-menu` + `actions` 岛；搜索页仍用 `PageHead` |
 | 顶部栏/导航/页面 chrome/内容面 | `html_page`、`crumbs_html`、`nav.tsx` |
 | TOC 常驻岛/细轨/返回顶部 | `web/src/islands/toc.tsx` + `app.css` 的 `.toc-island`/`.toc-tip`/`.totop` 媒体查询 |
 | TOC/行定位/代码条/主题/导航/大源码分块 | `web/src/islands/*` |
@@ -322,13 +325,12 @@ Single-context: root `GLOSSARY.md` + `docs/architecture/adr/`. See
   `card.scrollTop`/`card.getBoundingClientRect()`，不要假设 `window.scrollY`。
   大源码的 `IntersectionObserver` 要用 `.content-card` 作 `root`。
 - **页头统一逻辑**：Markdown/源码/目录/搜索都走服务端 `PageHead` 构建器；不要
-  再分别拼四套 header，也不要在某个页面单独补标题/徽标。桌面端页头是 sticky
-  独立岛（top 12、左右 14 内缩、圆角/阴影）；锚点定位必须避让页头高度，不要假设
-  内容从卡片顶部开始。所有页头用 `.head-inner`
-  横跨内容面（左右 30px），正文阅读行仍由 `.markdown-body` 限制为 1200px；搜索页
-  表单在页头右侧。Markdown 页头的 H1 是文件名，正文自己的 H1 才是文档标题；不要
-  恢复 `sr-only` 文件名副本。信任/错误页保留专用面板。不要再给页头套
-  `max-width: 1000px` 的容器。
+  再分别拼四套 header。文档/源码/目录用 `PageHead::render_topbar()` 输出到全局
+  顶栏（`.topbar-path` / `.topbar-context` / `.topbar-page-actions`），页头不再
+  出现在 content card 内；搜索页仍用 `PageHead::render()` 保留表单页头。顶栏的
+  文件名 22px、元信息第二行，操作收进 142px 的点状菜单；菜单交互由 `actions`
+  岛负责。Markdown 正文的 H1 仍是文档标题；不要恢复 `sr-only` 文件名副本。
+  信任/错误页没有页面上下文。不要再给页头套 `max-width: 1000px` 的容器。
 - **搜索结果行**：整条 `.hit` 是链接；Markdown 内容行到渲染页 `#L<n>`，文件标题
   与文件条目到文件开头。不要恢复独立的“打开文档/源码 Ln”按钮。
 - **行定位**：`render_markdown` 默认不带 sourcepos，保持 golden/render_compat 不变；
@@ -341,9 +343,9 @@ Single-context: root `GLOSSARY.md` + `docs/architecture/adr/`. See
   必须逐段校验（`..`/绝对路径/反斜杠/NUL/隐藏目录/`SKIP_DIRS`）并 canonicalize；
   `active` 只用于选脊柱，无效就忽略。导航只导航文件；目录行只展开。中间目录页
   是一张统一列表，没有“目录/文件”分组标题。
-- **源码页头**：H1 是文件名，不是“源码”；下方类型/大小/行数/修改时间用标签展示，
-  操作只保留“预览”（HTML 源码页用“预览/源码”分段）；源码页不再提供下载按钮。
-  不要恢复 `查看渲染页` 或把参数重新堆成一行纯文本。
+- **源码页上下文**：H1 是文件名，不是“源码”；类型/大小/行数/修改时间在顶栏
+  `.topbar-context`；操作只保留“预览”（HTML 源码页用“预览/源码”分段）；源码页
+  不再提供下载按钮。不要恢复 `查看渲染页` 或把参数重新堆成一行纯文本。
 - **大源码回退**：`content-visibility: auto` 必须和 `contain-intrinsic-*` 一起放在
   `@supports` 里；单独使用会让 86–97 的离屏分块按 0 高度布局，滚动条与 `#L<n>` 跳。
   `source.ts` 的 `replaceChildren` 要保留回退，否则 <86 直接丢行号。

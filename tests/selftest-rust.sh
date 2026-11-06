@@ -232,7 +232,7 @@ nchk "大源码不截断" "$BIG" '前 1000 行'
 nchk "大源码无 text 通道" "$BIG" '?text=1'
 
 RENDER="$(curl -s "$BASE/a.md")"
-chk "文档岛清单" "$RENDER" 'data-islands="theme nav search totop toc linetarget code zoom export"'
+chk "文档岛清单" "$RENDER" 'data-islands="theme nav search actions totop toc linetarget code zoom export"'
 nchk "文档不挂 source 岛" "$RENDER" ' source"'
 chk "渲染页行定位数据" "$RENDER" 'data-sourcepos='
 chk "Markdown 标题" "$RENDER" ">Hello</h1>"
