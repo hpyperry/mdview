@@ -69,12 +69,12 @@ function headingOffset(): number {
   return (bar?.getBoundingClientRect().height || 56) + 32;
 }
 
-/// The desktop page head is sticky; headings must land below it.
+/// The breadcrumb bar is sticky inside the main island; headings must land
+/// below it. The rest of the page head scrolls away.
 function fixedHeadOffset(): number {
-  const head = document.querySelector<HTMLElement>('.page-head');
-  if (head && getComputedStyle(head).position === 'sticky') {
-    const top = Number.parseFloat(getComputedStyle(head).top) || 0;
-    return head.getBoundingClientRect().height + top + 24;
+  const bar = document.querySelector<HTMLElement>('.breadcrumb-bar');
+  if (bar && getComputedStyle(bar).position === 'sticky') {
+    return bar.getBoundingClientRect().height + 20;
   }
   return 20;
 }

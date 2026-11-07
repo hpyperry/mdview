@@ -40,7 +40,7 @@
   --vscode-inputValidation-errorBackground: rgba(244, 135, 113, .1);
   --vscode-contrastBorder: transparent;
   --nav-width: 240px;
-  --island-gap: 24px;
+  --island-gap: 32px;
   --toc-width: clamp(160px, 13vw, 240px);
   --toc-island-width: var(--toc-width);
   --toc-island-gap: var(--island-gap);
@@ -328,29 +328,6 @@ html.no-js .export-action { display: none !important; }
   .toc-toggle { display: inline-flex; }
 }
 
-/* html file preview */
-.html-toolbar {
-  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
-  padding: 10px 30px; border-bottom: 1px solid var(--border);
-  background: var(--surface);
-}
-.segmented {
-  display: inline-flex; padding: 2px; border: 1px solid var(--border);
-  border-radius: 7px; background: var(--surface-2);
-}
-.segmented .seg {
-  border: 0; border-radius: 5px; padding: 4px 12px; color: var(--muted);
-  font-size: 12px; text-decoration: none;
-}
-.segmented .seg:hover { color: var(--fg); }
-.segmented .seg.is-active {
-  background: var(--surface); color: var(--fg);
-  box-shadow: 0 1px 2px rgba(0,0,0,.08);
-}
-@media (max-width: 720px) {
-  .html-toolbar { padding-left: 16px; padding-right: 16px; }
-}
-
 /* code blocks */
 .code-block { margin: 16px 0 20px; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--code-bg); }
 .code-bar { display: flex; align-items: center; justify-content: space-between; padding: 5px 8px 5px 12px; background: var(--surface-2); border-bottom: 1px solid var(--border); color: var(--muted); font-size: 12px; }
@@ -527,6 +504,7 @@ html.no-js .export-action { display: none !important; }
   --shell-top: 84px;
   --radius-lg: 16px;
   --radius-md: 11px;
+  --radius-sm: 8px;
 }
 
 .app {
@@ -720,7 +698,21 @@ html[data-sidebar="collapsed"] .sidebar { visibility: hidden; padding: 0; border
 .crumbs a:hover { color: var(--accent); }
 .crumbs .current { color: var(--fg); font-weight: 550; }
 .crumbs .icon { width: 13px; height: 13px; opacity: .68; }
-.page-head .crumbs { margin-bottom: 10px; }
+.breadcrumb-bar {
+  position: sticky;
+  top: 0;
+  z-index: 8;
+  padding: 10px 30px 6px;
+  background: var(--surface);
+}
+.breadcrumb-bar .crumbs {
+  width: max-content;
+  max-width: 100%;
+  margin: 0;
+  flex-wrap: wrap;
+  row-gap: 4px;
+  overflow-wrap: anywhere;
+}
 .doc-prose { padding: 0 0 48px; }
 .doc-prose .markdown-body {
   width: 100%;
@@ -905,7 +897,7 @@ html[data-sidebar="collapsed"] .sidebar { visibility: hidden; padding: 0; border
   .topbar { top: 8px; border-radius: 13px; }
   .topbar .brand span:last-child { display: none; }
   .search-pop { width: min(368px, calc(100vw - 28px)); }
-  .shell, html[data-sidebar="collapsed"] .shell { grid-template-columns: minmax(0, 1fr); margin-top: 10px; }
+  .shell, html[data-sidebar="collapsed"] .shell { grid-template-columns: minmax(0, 1fr); margin-top: var(--island-gap); }
   .sidebar {
     position: fixed;
     top: 0;
@@ -926,6 +918,7 @@ html[data-sidebar="collapsed"] .sidebar { visibility: hidden; padding: 0; border
   html[data-sidebar="collapsed"] .sidebar { display: block; visibility: visible; padding: 18px 12px 22px; }
   .content-card { border-radius: 14px; }
   .head-inner { padding: 0 20px; }
+  .breadcrumb-bar { padding-left: 20px; padding-right: 20px; }
   .doc-head { padding: 22px 0 17px; }
   .doc-prose .markdown-body { padding: 21px 20px 0; }
   .toc-inline { max-width: none; padding: 0 20px; }
@@ -1239,26 +1232,89 @@ button.action:disabled { cursor: default; }
 }
 
 
+/* Centered file title in the global topbar. */
+.topbar-title {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  max-width: min(40vw, 420px); pointer-events: none;
+}
+.topbar-title h1 {
+  margin: 0; padding: 0; border: 0;
+  font-size: 20px; line-height: 1.15; font-weight: 650; letter-spacing: -.01em;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+@media (max-width: 900px) {
+  .topbar-title { max-width: 44vw; }
+  .topbar-title h1 { font-size: 16px; }
+}
+
+/* Metadata strip in the gap between topbar and main island. */
+.app.has-gap-meta .shell { margin-top: 0; }
+.gap-meta {
+  height: var(--island-gap);
+  min-height: var(--island-gap);
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  overflow: visible;
+}
+.gap-meta-inner {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  white-space: nowrap;
+}
+.gap-meta-item {
+  flex: 0 0 auto;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.gap-meta-sep {
+  flex: 0 0 auto;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--border-strong);
+  opacity: .6;
+}
+.gap-meta-item.doc-kind,
+.gap-meta-item.source-kind {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* Topbar "more" menu: same icon treatment as search/theme. */
+.more-menu { position: relative; margin-left: auto; display: flex; align-items: center; }
+.topbar.has-more .topbar-actions { margin-left: 0; }
+.more-panel {
+  position: absolute; top: calc(100% + 8px); right: 0; z-index: 70;
+  width: 150px; padding: 5px;
+  border: 1px solid var(--border); border-radius: 12px;
+  background: var(--surface); box-shadow: var(--shadow), var(--shadow-float);
+}
+.more-panel[hidden] { display: none; }
+.more-panel .page-actions { display: flex; flex-direction: column; align-items: stretch; margin: 0; gap: 2px; }
+.more-panel .action {
+  width: 100%; justify-content: flex-start; padding: 6px 8px;
+  border: 0; background: transparent; border-radius: 7px;
+}
+.more-panel .action:hover { background: var(--hover); color: var(--accent); }
+
 /* -------------------------------------------------------------------------
    Fixed page-head island: stays above the scrolling island body so source,
    download and export actions remain reachable while reading.
    ------------------------------------------------------------------------- */
+.page-head {
+  padding: 20px 0 18px;
+  border-bottom: 1px solid var(--border);
+  background: linear-gradient(180deg, var(--accent-wash), transparent);
+}
 @media (min-width: 901px) {
-  .page-head {
-    position: sticky;
-    top: 12px;
-    z-index: 7;
-    margin: 12px 14px 0;
-    padding: 20px 0 16px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-lg);
-    background: var(--surface);
-    box-shadow: var(--shadow), var(--shadow-float);
-  }
   .markdown-body h1, .markdown-body h2, .markdown-body h3,
   .markdown-body h4, .markdown-body h5, .markdown-body h6,
-  .markdown-body [data-sourcepos] { scroll-margin-top: 20px; }
-  .source .gutter a[id], .source-chunk .gutter a[id] { scroll-margin-top: 20px; }
+  .markdown-body [data-sourcepos] { scroll-margin-top: 80px; }
+  .source .gutter a[id], .source-chunk .gutter a[id] { scroll-margin-top: 80px; }
 }
 
 /* -------------------------------------------------------------------------
@@ -1266,7 +1322,7 @@ button.action:disabled { cursor: default; }
    scrolls. Mobile keeps normal document scrolling.
    ------------------------------------------------------------------------- */
 @media (min-width: 901px) {
-  html, body { height: 100%; overflow: hidden; }
+  html, body { height: 100%; overflow-x: auto; overflow-y: hidden; }
   .app {
     height: 100vh;
     display: flex;

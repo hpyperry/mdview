@@ -2,6 +2,8 @@ import type { IslandDefinition } from './types';
 import { mountTheme } from './islands/theme';
 import { mountNav } from './islands/nav';
 import { mountSearch } from './islands/search';
+import { mountMore } from './islands/more';
+import { mountGapMeta } from './islands/gapmeta';
 import { mountBackToTop } from './islands/totop';
 import { mountToc } from './islands/toc';
 import { mountLineTarget } from './islands/linetarget';
@@ -28,6 +30,18 @@ export const islands: Record<string, IslandDefinition> = {
     when: 'immediate',
     root: () => document.querySelector('.search-wrap'),
     mount: mountSearch,
+  },
+  gapmeta: {
+    name: 'gapmeta',
+    when: 'immediate',
+    root: () => document.querySelector('.gap-meta'),
+    mount: mountGapMeta,
+  },
+  more: {
+    name: 'more',
+    when: 'immediate',
+    root: () => document.querySelector('.more-menu'),
+    mount: mountMore,
   },
   totop: {
     name: 'totop',
