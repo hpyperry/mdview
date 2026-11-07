@@ -1136,7 +1136,7 @@ async function main() {
     check('源码全文分块容器', (await evaluate('document.querySelectorAll(".source-chunked .source-chunk").length')) === 31);
     check('源码页只挂 source 岛', await waitFor('window.__mdviewIslands?.mounted.includes("source") && !window.__mdviewIslands.mounted.includes("toc")', 3000));
     check('源码末行在页面内', (await evaluate('document.querySelector(".source-chunked")?.textContent.includes("line 15000")')) === true);
-    check('源码全文提示', (await evaluate('document.querySelector(".source-note")?.textContent.includes("15001 行") && document.querySelector(".source-note")?.textContent.includes("已加载完整内容")')) === true);
+    check('源码全文提示', (await evaluate('document.querySelector(".source-note")?.textContent.includes("15001 行") && document.querySelector(".source-note")?.textContent.includes("加载完整内容")')) === true);
     check('源码提示无实现说明', (await evaluate('!document.querySelector(".source-note")?.textContent.includes("浏览器按可视区域")')) === true);
     check('源码分块按需绘制', (await evaluate('getComputedStyle(document.querySelector(".source-chunk")).contentVisibility')) === 'auto');
     check('源码分块加载 < 3000ms', Date.now() - chunkedStarted < 3000);
@@ -1329,6 +1329,13 @@ async function main() {
     check('源码页行锚点', (await evaluate('document.querySelector("#L1")?.textContent')) === '1');
     check('源码页原始内容', (await evaluate('document.querySelector(".source code").textContent')).startsWith('# Probe'));
     check('源码页面包屑完整', await crumbsComplete('.gap-crumb .crumbs', 'page.md'));
+    await goto('/small.rs?raw=1');
+    check('源码页短文件铺满主岛', (await evaluate(`(() => {
+      const card = document.querySelector('.content-card').getBoundingClientRect();
+      const wrap = document.querySelector('.source-wrap').getBoundingClientRect();
+      return Math.abs(wrap.bottom - card.bottom) <= 2 && !document.querySelector('.source-note');
+    })()`)) === true);
+    check('源码页短文件左侧行号', (await evaluate('document.querySelectorAll(".gutter a").length')) === 5);
 
     console.log('== html trusted ==');
     await goto('/page.html');

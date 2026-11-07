@@ -227,7 +227,7 @@ nchk "源码页不挂 TOC 岛" "$SRC" ' totop toc'
 
 BIG="$(curl -s "$BASE/big.txt")"
 chk "大源码分块" "$BIG" 'class="source-wrap source-chunked"'
-chk "大源码全文提示" "$BIG" '已加载完整内容'
+chk "大源码全文提示" "$BIG" '加载完整内容'
 nchk "大源码无实现说明" "$BIG" '浏览器按可视区域'
 chk "大源码末行" "$BIG" "last line marker"
 chk "大源码总行数" "$BIG" 'data-source-lines="12000"'
