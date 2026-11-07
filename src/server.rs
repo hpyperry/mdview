@@ -26,7 +26,7 @@ use tokio_util::io::ReaderStream;
 use walkdir::WalkDir;
 
 use crate::archive::{self, ArchiveRequest, ArchiveStore, Extracted};
-use crate::assets::{APP_CSS, APP_JS, HIGHLIGHT_CSS, HIGHLIGHT_JS, MARKDOWN_CSS};
+use crate::assets::{APP_CSS, APP_JS, HIGHLIGHT_CSS, HIGHLIGHT_JS, HLWORKER_JS, MARKDOWN_CSS};
 use crate::cli::Cli;
 use crate::encoding;
 use crate::render::render_markdown_with_sourcepos;
@@ -292,6 +292,7 @@ pub fn app(state: AppState) -> Router {
         .route("/_assets/markdown.css", get(asset_markdown_css))
         .route("/_assets/app.css", get(asset_app_css))
         .route("/_assets/app.js", get(asset_app_js))
+        .route("/_assets/hlworker.js", get(asset_hlworker_js))
         .fallback(handle)
         .with_state(state.clone())
         .layer(middleware::from_fn_with_state(state, log_request))
@@ -460,6 +461,25 @@ async fn asset_app_js(
         headers,
         query,
         APP_JS,
+        "text/javascript; charset=utf-8",
+    )
+    .await
+}
+
+async fn asset_hlworker_js(
+    State(state): State<AppState>,
+    method: Method,
+    uri: Uri,
+    headers: HeaderMap,
+    Query(query): Query<HashMap<String, String>>,
+) -> Response {
+    asset_or_file(
+        state,
+        method,
+        uri,
+        headers,
+        query,
+        HLWORKER_JS,
         "text/javascript; charset=utf-8",
     )
     .await
@@ -4203,6 +4223,7 @@ fn csp_header(level: u8, nonce: &str) -> Option<String> {
          media-src 'self' https: data:{img_extra}; script-src 'nonce-{nonce}'; \
          style-src 'self' 'unsafe-inline' https: data:{style_extra}; \
          font-src 'self' https: data:{font_extra}; frame-src 'none'; \
+         worker-src 'self'; \
          form-action 'self'; connect-src 'self'; base-uri 'none'; object-src 'none'"
     ))
 }
@@ -6291,6 +6312,7 @@ mod tests {
         assert!(csp.contains("form-action 'self'"));
         assert!(csp.contains("connect-src 'self'"));
         assert!(csp.contains("frame-src 'none'"));
+        assert!(csp.contains("worker-src 'self'"));
         assert!(!csp.contains("'self' 'nonce"));
 
         let (_, headers, _) = call(strict, Method::GET, "/").await;

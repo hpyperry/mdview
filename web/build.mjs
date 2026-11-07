@@ -1,4 +1,5 @@
 import { build } from 'esbuild';
+import { readFile, writeFile } from 'node:fs/promises';
 
 const outdir = process.env.MDVIEW_WEB_OUTDIR || 'dist';
 
@@ -22,3 +23,26 @@ await build({
   define: { 'process.env.NODE_ENV': '"production"' },
   logLevel: 'info',
 });
+
+// The highlighter worker reuses the already-built highlight.js bundle so large
+// source files can be highlighted off the main thread. `window` is aliased to
+// `self` because the bundle was written for a page context.
+const highlight = await readFile(new URL('../assets/highlight.min.js', import.meta.url), 'utf8');
+const workerBootstrap = `
+self.window = self;
+${highlight}
+self.onmessage = function (event) {
+  var data = event.data || {};
+  if (typeof data.code !== 'string') return;
+  try {
+    var result = self.hljs.highlight(data.code, {
+      language: data.language || 'plaintext',
+      ignoreIllegals: true,
+    });
+    self.postMessage({ id: data.id, html: result.value });
+  } catch (error) {
+    self.postMessage({ id: data.id, error: String((error && error.message) || error) });
+  }
+};
+`;
+await writeFile(`${outdir}/hlworker.js`, workerBootstrap);

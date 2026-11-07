@@ -432,7 +432,6 @@ body[data-page="source"] .content-card { display: flex; flex-direction: column; 
 body[data-page="source"] .island-head { flex: 0 0 auto; }
 body[data-page="source"] .source-wrap {
   flex: 1 0 auto;
-  min-height: 0;
   background: var(--code-bg);
 }
 body[data-page="source"] .source { min-height: 100%; }

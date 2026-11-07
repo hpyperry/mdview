@@ -452,6 +452,8 @@ chk "资产 highlight.css" "$(code "$BASE/_assets/highlight.css?__mdview=asset")
 chk "资产 markdown.css" "$(code "$BASE/_assets/markdown.css?__mdview=asset")" "200"
 chk "资产 app.css" "$(code "$BASE/_assets/app.css?__mdview=asset")" "200"
 chk "资产 app.js" "$(code "$BASE/_assets/app.js?__mdview=asset")" "200"
+chk "资产 hlworker.js" "$(code "$BASE/_assets/hlworker.js?__mdview=asset")" "200"
+chk "hlworker.js MIME" "$(ctype "$BASE/_assets/hlworker.js?__mdview=asset")" "text/javascript; charset=utf-8"
 chk "资产 app.css 是内嵌 CSS" "$(ctype "$BASE/_assets/app.css?__mdview=asset")" "text/css; charset=utf-8"
 chk "同名 _assets/app.css 文件优先" "$(curl -s -o /dev/null -w '%{content_type}' -H 'Accept: text/html' "$BASE/_assets/app.css")" "text/html; charset=utf-8"
 chk "同名 _assets/app.css 内容" "$(curl -s -H 'Accept: text/html' "$BASE/_assets/app.css")" "a real app css"
