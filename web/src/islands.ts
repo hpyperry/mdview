@@ -5,6 +5,7 @@ import { mountSearch } from './islands/search';
 import { mountMore } from './islands/more';
 import { mountDirRows } from './islands/dirrows';
 import { mountFileTools } from './islands/filetools';
+import { mountDirZip } from './islands/dirzip';
 import { mountIslandHead } from './islands/islandhead';
 import { mountBackToTop } from './islands/totop';
 import { mountToc } from './islands/toc';
@@ -44,6 +45,12 @@ export const islands: Record<string, IslandDefinition> = {
     when: 'immediate',
     root: () => document.querySelector('.island-head'),
     mount: mountFileTools,
+  },
+  dirzip: {
+    name: 'dirzip',
+    when: 'immediate',
+    root: () => document.getElementById('zip-overlay'),
+    mount: mountDirZip,
   },
   dirrows: {
     name: 'dirrows',

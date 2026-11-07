@@ -2,7 +2,9 @@ use std::collections::{HashMap, HashSet};
 use std::ffi::OsStr;
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
+use std::pin::Pin;
 use std::sync::{Arc, Mutex};
+use std::task::{Context, Poll};
 use std::time::{Duration, Instant, SystemTime};
 
 use axum::Json;
@@ -19,7 +21,7 @@ use percent_encoding::{
 use rand::RngCore;
 use serde::Serialize;
 use time::OffsetDateTime;
-use tokio::io::AsyncReadExt;
+use tokio::io::{AsyncRead, AsyncReadExt, ReadBuf};
 use tokio_util::io::ReaderStream;
 use walkdir::WalkDir;
 
@@ -180,8 +182,20 @@ pub struct AppState {
     pub html_port: Option<u16>,
     pub archives: ArchiveStore,
     tokens: Arc<Mutex<HashMap<String, TokenEntry>>>,
+    zip_tokens: Arc<Mutex<HashMap<String, ZipToken>>>,
     cache: Arc<Mutex<HashMap<PathBuf, CacheEntry>>>,
 }
+
+/// A folder zip that has been built into the system temp directory and waits
+/// for the browser to fetch it. Dropping the entry deletes the temp file.
+struct ZipToken {
+    rel: String,
+    name: String,
+    path: tempfile::TempPath,
+    expires: Instant,
+}
+
+const ZIP_TOKEN_TTL: Duration = Duration::from_secs(600);
 
 #[derive(Debug, Clone)]
 struct TokenEntry {
@@ -216,6 +230,7 @@ impl AppState {
             html_port: None,
             archives: ArchiveStore::new(),
             tokens: Arc::new(Mutex::new(HashMap::new())),
+            zip_tokens: Arc::new(Mutex::new(HashMap::new())),
             cache: Arc::new(Mutex::new(HashMap::new())),
         }
     }
@@ -815,6 +830,9 @@ async fn handle_inner(
             };
             return redirect(&location);
         }
+        if query.get("download").is_some_and(|value| value == "zip") {
+            return directory_zip(&state, &target, rel, &query, is_head).await;
+        }
         return list_dir(&state, &target, rel, is_head).await;
     }
 
@@ -1057,6 +1075,258 @@ async fn mode_error(
         ServeMode::Preview => error_page(state, status, message, is_head).await,
         ServeMode::Static => plain_error(status, message, is_head),
     }
+}
+
+async fn directory_zip(
+    state: &AppState,
+    path: &Path,
+    rel: &str,
+    query: &HashMap<String, String>,
+    is_head: bool,
+) -> Response {
+    if state.safe || !state.trust.trusted {
+        return error_page(
+            state,
+            StatusCode::FORBIDDEN,
+            "当前模式下不能打包下载文件夹",
+            is_head,
+        )
+        .await;
+    }
+    let rel = rel.trim_end_matches('/');
+    let folder = folder_zip_name(state, rel);
+    if query.contains_key("prepare") {
+        return prepare_dir_zip(state, path, rel, &folder, is_head).await;
+    }
+    if let Some(token) = query.get("token") {
+        return serve_dir_zip_token(state, rel, token, is_head).await;
+    }
+    let root = path.to_path_buf();
+    let prefix = folder.clone();
+    match tokio::task::spawn_blocking(move || build_dir_zip(&root, &prefix)).await {
+        Ok(Ok(temp)) => stream_temp_zip(temp, &format!("{folder}.zip"), is_head).await,
+        Ok(Err(error)) => {
+            eprintln!("directory_zip: 打包失败: {error}");
+            error_page(
+                state,
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "无法压缩这个文件夹，请稍后重试",
+                is_head,
+            )
+            .await
+        }
+        Err(_) => {
+            error_page(
+                state,
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "无法压缩这个文件夹，请稍后重试",
+                is_head,
+            )
+            .await
+        }
+    }
+}
+
+fn folder_zip_name(state: &AppState, rel: &str) -> String {
+    if rel.is_empty() {
+        return root_name(state);
+    }
+    rel.rsplit('/').next().unwrap_or("folder").to_string()
+}
+
+async fn prepare_dir_zip(
+    state: &AppState,
+    path: &Path,
+    rel: &str,
+    folder: &str,
+    is_head: bool,
+) -> Response {
+    if is_head {
+        return plain_error(StatusCode::METHOD_NOT_ALLOWED, "Method Not Allowed", true);
+    }
+    let root = path.to_path_buf();
+    let prefix = folder.to_string();
+    let temp = match tokio::task::spawn_blocking(move || build_dir_zip(&root, &prefix)).await {
+        Ok(Ok(temp)) => temp,
+        Ok(Err(error)) => {
+            eprintln!("prepare_dir_zip: 打包失败: {error}");
+            return json_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                serde_json::json!({ "error": "无法压缩这个文件夹，请稍后重试" }),
+            );
+        }
+        Err(_) => {
+            return json_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                serde_json::json!({ "error": "无法压缩这个文件夹，请稍后重试" }),
+            );
+        }
+    };
+    let token = random_nonce();
+    let name = format!("{folder}.zip");
+    let now = Instant::now();
+    {
+        let mut tokens = state.zip_tokens.lock().unwrap();
+        tokens.retain(|_, entry| entry.expires > now);
+        tokens.insert(
+            token.clone(),
+            ZipToken {
+                rel: rel.to_string(),
+                name: name.clone(),
+                path: temp,
+                expires: now + ZIP_TOKEN_TTL,
+            },
+        );
+    }
+    json_response(
+        StatusCode::OK,
+        serde_json::json!({ "token": token, "name": name }),
+    )
+}
+
+async fn serve_dir_zip_token(state: &AppState, rel: &str, token: &str, is_head: bool) -> Response {
+    let now = Instant::now();
+    let entry = {
+        let mut tokens = state.zip_tokens.lock().unwrap();
+        tokens.retain(|_, entry| entry.expires > now);
+        tokens.remove(token)
+    };
+    let Some(entry) = entry.filter(|entry| entry.rel == rel) else {
+        return plain_error(StatusCode::GONE, "下载链接已失效，请重新点击下载", is_head);
+    };
+    stream_temp_zip(entry.path, &entry.name, is_head).await
+}
+
+fn json_response(status: StatusCode, body: serde_json::Value) -> Response {
+    let text = body.to_string();
+    Response::builder()
+        .status(status)
+        .header(header::CONTENT_TYPE, "application/json; charset=utf-8")
+        .header(header::CONTENT_LENGTH, text.len().to_string())
+        .header(header::CACHE_CONTROL, "no-store")
+        .header("X-Content-Type-Options", "nosniff")
+        .body(Body::from(text))
+        .unwrap()
+}
+
+/// Open the prepared zip and stream it. `CleanupFile` deletes the temp file
+/// once the response body is dropped, including when the client aborts.
+async fn stream_temp_zip(temp: tempfile::TempPath, name: &str, is_head: bool) -> Response {
+    let temp_path: &Path = temp.as_ref();
+    let size = std::fs::metadata(temp_path)
+        .map(|meta| meta.len())
+        .unwrap_or(0);
+    if is_head {
+        drop(temp);
+        return zip_headers(name, size).body(Body::empty()).unwrap();
+    }
+    let file = match tokio::fs::File::open(temp_path).await {
+        Ok(file) => file,
+        Err(_) => {
+            drop(temp);
+            return plain_error(StatusCode::INTERNAL_SERVER_ERROR, "无法读取压缩包", false);
+        }
+    };
+    let cleanup = CleanupFile {
+        file: Some(Box::pin(file)),
+        temp: Some(temp),
+    };
+    zip_headers(name, size)
+        .body(Body::from_stream(ReaderStream::new(cleanup)))
+        .unwrap()
+}
+
+fn zip_headers(name: &str, size: u64) -> axum::http::response::Builder {
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, "application/zip")
+        .header(header::CONTENT_DISPOSITION, content_disposition(name))
+        .header(header::CONTENT_LENGTH, size.to_string())
+        .header(header::CACHE_CONTROL, "no-store")
+        .header("X-Content-Type-Options", "nosniff")
+}
+
+/// Wraps the temp zip so the file is removed after the response finishes.
+struct CleanupFile {
+    file: Option<Pin<Box<tokio::fs::File>>>,
+    temp: Option<tempfile::TempPath>,
+}
+
+impl AsyncRead for CleanupFile {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<std::io::Result<()>> {
+        match self.file.as_mut() {
+            Some(file) => file.as_mut().poll_read(cx, buf),
+            None => Poll::Ready(Ok(())),
+        }
+    }
+}
+
+impl Drop for CleanupFile {
+    fn drop(&mut self) {
+        self.file.take();
+        self.temp.take();
+    }
+}
+
+/// Build `<folder>/…` into a temp zip. Symlinks and special files are skipped
+/// so a folder download cannot escape the served root.
+fn build_dir_zip(root: &Path, prefix: &str) -> std::io::Result<tempfile::TempPath> {
+    let zip_error = |error: zip::result::ZipError| std::io::Error::other(error.to_string());
+    let mut temp = tempfile::Builder::new()
+        .prefix("mdview-zip-")
+        .suffix(".zip")
+        .tempfile()?;
+    {
+        let mut writer = zip::ZipWriter::new(temp.as_file_mut());
+        let file_options = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Deflated)
+            .unix_permissions(0o644);
+        let dir_options = file_options.unix_permissions(0o755);
+        writer
+            .add_directory(format!("{prefix}/"), dir_options)
+            .map_err(zip_error)?;
+        for entry in WalkDir::new(root).follow_links(false) {
+            let entry = entry.map_err(std::io::Error::other)?;
+            let path = entry.path();
+            if path == root {
+                continue;
+            }
+            let file_type = entry.file_type();
+            if file_type.is_symlink() {
+                continue;
+            }
+            let Ok(relative) = path.strip_prefix(root) else {
+                continue;
+            };
+            let name = format!("{prefix}/{}", relative.to_string_lossy().replace('\\', "/"));
+            if file_type.is_dir() {
+                writer
+                    .add_directory(format!("{name}/"), dir_options)
+                    .map_err(zip_error)?;
+                continue;
+            }
+            if !file_type.is_file() {
+                continue;
+            }
+            let mut file = std::fs::File::open(path)?;
+            writer.start_file(name, file_options).map_err(zip_error)?;
+            std::io::copy(&mut file, &mut writer)?;
+        }
+        writer.finish().map_err(zip_error)?;
+    }
+    std::io::Write::flush(temp.as_file_mut())?;
+    Ok(temp.into_temp_path())
+}
+
+fn zip_overlay_html() -> &'static str {
+    "<div class=\"zip-overlay\" id=\"zip-overlay\" hidden role=\"status\" aria-live=\"polite\">\
+     <div class=\"zip-dialog\"><span class=\"zip-spinner\" aria-hidden=\"true\"></span>\
+     <p class=\"zip-message\" id=\"zip-message\">正在压缩文件夹…</p>\
+     <button class=\"action\" id=\"zip-close\" type=\"button\" hidden>关闭</button></div></div>"
 }
 
 async fn load_archive(
@@ -1461,17 +1731,32 @@ async fn list_dir_with(
             .then_with(|| a.1.to_lowercase().cmp(&b.1.to_lowercase()))
     });
 
+    // Folder zips would bypass the untrusted-file interstitial and --safe
+    // filtering, so both modes keep the action off the page and the route shut.
+    let can_zip = archive.is_none() && state.trust.trusted && !state.safe;
     let mut dir_rows = String::new();
     let mut file_rows = String::new();
     for (is_dir, name, metadata) in &entries {
         let href = join_href(rel, name, *is_dir);
         if *is_dir {
+            let zip_link = if can_zip {
+                format!(
+                    "<a class=\"dl zip\" href=\"{href}?download=zip\" \
+                     aria-label=\"打包下载 {name}\" data-tip=\"下载\" data-zip=\"1\">{download}\
+                     <span class=\"dl-label\">下载</span></a>",
+                    name = escape_html(name),
+                    download = icon("download")
+                )
+            } else {
+                String::new()
+            };
             dir_rows.push_str(&format!(
                 "<div class=\"dir-row\"><span class=\"file-icon folder\">{icon}</span>\
                  <a class=\"nm\" href=\"{href}\">{name}</a>\
-                 <span class=\"row-actions\"></span></div>",
+                 <span class=\"row-actions\">{zip_link}</span></div>",
                 icon = icon("folder"),
-                name = escape_html(name)
+                name = escape_html(name),
+                zip_link = zip_link
             ));
         } else {
             let size_label = format_size(metadata.len());
@@ -1493,7 +1778,7 @@ async fn list_dir_with(
                  <span class=\"meta-size\">{size}</span>\
                  <span class=\"meta-time\">{time}</span>\
                  <span class=\"row-actions\">{source_link}\
-                 <a class=\"dl\" href=\"{href}?download=1\" title=\"下载 {name}\" \
+                 <a class=\"dl\" href=\"{href}?download=1\" data-tip=\"下载\" \
                  aria-label=\"下载 {name}\">{download}<span class=\"dl-label\">下载</span></a>\
                  <span class=\"row-more more-menu\" hidden><button class=\"dl more-btn\" type=\"button\" \
                  aria-label=\"更多操作\" data-tip=\"更多\">{more}</button>\
@@ -1541,9 +1826,10 @@ async fn list_dir_with(
         )
     });
     let body = format!(
-        "<div class=\"content-card\">{island_head}{sections}</div>",
+        "<div class=\"content-card\">{island_head}{sections}</div>{overlay}",
         island_head = island_head.as_deref().unwrap_or_default(),
-        sections = sections
+        sections = sections,
+        overlay = if can_zip { zip_overlay_html() } else { "" }
     );
     html_page(
         state,
@@ -3470,7 +3756,7 @@ async fn html_page(state: &AppState, status: StatusCode, page: Page, is_head: bo
         islands.extend(["islandhead", "more"]);
     }
     if page.kind == PageKind::Dir {
-        islands.extend(["dirrows", "more"]);
+        islands.extend(["dirrows", "more", "dirzip"]);
     }
     islands.push("totop");
     if is_doc || page.kind == PageKind::Source {
@@ -5030,6 +5316,93 @@ mod tests {
                 .unwrap()
                 .contains("attachment")
         );
+    }
+
+    #[tokio::test]
+    async fn directory_zip_download_and_token() {
+        let dir = fixture();
+        let app = app(state(dir.path(), false, 0, 0));
+
+        let (status, headers, body) = call(app.clone(), Method::GET, "/sub/?download=zip").await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            headers.get(header::CONTENT_TYPE).unwrap(),
+            "application/zip"
+        );
+        assert!(
+            headers
+                .get(header::CONTENT_DISPOSITION)
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .contains("sub.zip")
+        );
+        assert!(body.starts_with(b"PK"), "zip magic");
+        let mut archive = zip::ZipArchive::new(std::io::Cursor::new(body)).unwrap();
+        let names = (0..archive.len())
+            .map(|index| archive.by_index(index).unwrap().name().unwrap().to_string())
+            .collect::<Vec<_>>();
+        assert!(names.iter().any(|name| name == "sub/c.md"), "{names:?}");
+
+        let (status, headers, body) =
+            call(app.clone(), Method::GET, "/sub/?download=zip&prepare=1").await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            headers
+                .get(header::CONTENT_TYPE)
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .starts_with("application/json")
+        );
+        let value: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let token = value["token"].as_str().expect("token").to_string();
+        let uri = format!("/sub/?download=zip&token={token}");
+        let (status, _, body) = call(app.clone(), Method::GET, &uri).await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(body.starts_with(b"PK"));
+        // The token is single use.
+        let (status, _, _) = call(app, Method::GET, &uri).await;
+        assert_eq!(status, StatusCode::GONE);
+    }
+
+    #[tokio::test]
+    async fn directory_zip_requires_trust_and_skips_archives() {
+        let dir = fixture();
+        let (_, _, body) = call(app(state(dir.path(), false, 0, 0)), Method::GET, "/").await;
+        let html = String::from_utf8(body).unwrap();
+        assert!(html.contains("download=zip"), "{html}");
+        assert!(html.contains("data-zip=\"1\""), "{html}");
+        assert!(html.contains("id=\"zip-overlay\""), "{html}");
+
+        let untrusted = app(state_untrusted(dir.path(), false, 0, 0));
+        let (status, _, _) = call(untrusted.clone(), Method::GET, "/sub/?download=zip").await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        let (_, _, body) = call(untrusted, Method::GET, "/").await;
+        let html = String::from_utf8(body).unwrap();
+        assert!(!html.contains("download=zip"), "{html}");
+        assert!(!html.contains("id=\"zip-overlay\""), "{html}");
+
+        let safe = app(state(dir.path(), true, 0, 0));
+        let (status, _, _) = call(safe.clone(), Method::GET, "/sub/?download=zip").await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        let (_, _, body) = call(
+            app(state(dir.path(), false, 0, 0)),
+            Method::GET,
+            "/sub/?download=zip",
+        )
+        .await;
+        assert!(body.starts_with(b"PK"));
+    }
+
+    #[tokio::test]
+    async fn archive_directories_have_no_folder_zip() {
+        let dir = archive_fixture();
+        let app = app(state(dir.path(), false, 0, 0));
+        let (status, _, body) = call(app, Method::GET, "/sample.zip/").await;
+        assert_eq!(status, StatusCode::OK);
+        let html = String::from_utf8(body).unwrap();
+        assert!(!html.contains("data-zip"), "{html}");
     }
 
     #[tokio::test]
