@@ -17,6 +17,7 @@ README 是**复测文档**，不是测试执行报告。必须包含：
 |---|---|
 | `archives/` | ZIP 容器（JAR/EPUB/CBZ）、tar.bz2/tar.xz、包内 Markdown/HTML、嵌套包 |
 | `toc-all-levels/` | 主岛铺满/分栏动效、TOC 常驻岛/细轨断点、悬停标题、多 h1、长文档滚动（Issue #63 / #65） |
+| `large-source-highlight/` | 大源码滚动高亮单块空闲调度；复用浏览器探针的 `big.rs` / `wide.txt`（Issue #70，README-only） |
 | `search-progressive/` | 搜索分批：45 个文件首批 40、继续搜索追加 5、计数更新与无 JS 链接（Issue #66） |
 | `page-head/` | Markdown/源码/目录/搜索四类页头统一结构、文件名 H1、元信息徽标与 800px 表单布局（Issue #65） |
 | `html-preview/` | HTML Trust 原文、未信任第二 origin、子资源、SVG |

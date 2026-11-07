@@ -21,3 +21,4 @@
 | 2026-11-07 | 渐进搜索与扫描上限 | [browser-report-2026-11-07-search-progressive.md](browser-report-2026-11-07-search-progressive.md) | [`../evidence/2026-11-07/`](../evidence/2026-11-07/) | F-99 |
 | 2026-11-07 | 固定页头岛（已被顶栏方案取代） | [browser-report-2026-11-07-fixed-head.md](browser-report-2026-11-07-fixed-head.md) | [`../evidence/2026-11-07/`](../evidence/2026-11-07/) | F-100 |
 | 2026-11-07 | 顶栏页面上下文 | [browser-report-2026-11-07-topbar-context.md](browser-report-2026-11-07-topbar-context.md) | [`../evidence/2026-11-07/`](../evidence/2026-11-07/) | F-29 / F-45 / F-100 |
+| 2026-11-07 | 大源码高亮空闲调度 | [test-report-2026-11-07-large-source-highlight.md](test-report-2026-11-07-large-source-highlight.md) | 无截图（CDP 长任务数据） | F-101 |

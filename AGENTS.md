@@ -31,7 +31,7 @@ bash tests/run-all.sh
 [ADR 0023](docs/architecture/adr/0023-dev-build-artifact-size.md)。
 
 必须全绿：`cargo test`（96 单元 + 134 渲染兼容 + 27 golden）、292 项黑盒 HTTP、
-9 项 pty 信任测试、336 项 headless Chrome 验收、4 项源码页性能预算。
+9 项 pty 信任测试、338 项 headless Chrome 验收、4 项源码页性能预算。
 
 ## 协作流程
 
@@ -165,7 +165,9 @@ Single-context: root `GLOSSARY.md` + `docs/architecture/adr/`. See
    一次遍历完整 root 再返回。
 8. **大文本源码页全文分块**：>256 KB 仍由服务端输出全文，按 500 行分块，
    用 CSS `content-visibility: auto` 跳过离屏布局与绘制；行锚点与语法高亮由
-   `web/src/islands/source.ts` 按可见块懒加载。`content-visibility` 必须放在
+   `web/src/islands/source.ts` 按可见块懒加载。高亮必须每轮空闲只处理一个块，
+   排队前/出队时检查是否仍在视口附近，快速滚过时跳过；不要把多个可见块在一次
+   同步循环里全部 `highlightElement`。`content-visibility` 必须放在
    `@supports (contain-intrinsic-width: none) and (contain-intrinsic-height: 1px)`
    里（长属性 95/98 才支持，86–97 要回退全量渲染）；`replaceChildren` 要有
    `textContent` + `appendChild` 回退。不要恢复服务端截断、`?text=1`

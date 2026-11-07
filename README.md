@@ -99,7 +99,7 @@ cargo build --release
 - Markdown 语义与代码高亮对齐 VS Code；正文采用文档阅读排版：阅读行上限 1200px、
   16px、1.7 行高；渲染页带 `data-sourcepos`，供搜索结果行定位到对应块；
 - 客户端高亮：highlight.js 11.11.1 完整语言包，仅对明确 `language-*` 的代码块
-  高亮（不做自动语言探测）；大源码按可见分块懒高亮，单块仍有大小上限；代码块
+  高亮（不做自动语言探测）；大源码按可见分块懒高亮，每轮空闲只处理一个块，单块仍有大小上限；代码块
   复制按钮、图片放大遮罩、回到顶部按钮都由脚本注入（禁用 JS 时没有死按钮）；
 - 表格单元格输出 `style="text-align:…"`（与 VS Code 一致，不用 `align=`）；
 - 协议校验：拒绝 `javascript:` / `vbscript:` / `file:` / 非法 `data:` /
@@ -270,7 +270,7 @@ cargo test                      # 96 单元 + 134 渲染兼容 + 27 golden
 cargo clippy --all-targets -- -D warnings
 bash tests/selftest-rust.sh     # 292 项真二进制 HTTP 断言
 node tests/check-css-baseline.mjs # Chromium 88 基线黑名单 + 深色色板同步
-node tests/browser-probe.mjs      # 336 项 headless Chrome 验收
+node tests/browser-probe.mjs      # 338 项 headless Chrome 验收
 node tests/perf-source.mjs        # 4 项源码页性能预算
 bash tests/trust-tty.sh           # 9 项真实 pty 信任测试
 ```

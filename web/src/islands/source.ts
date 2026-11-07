@@ -4,6 +4,9 @@ const CHUNK_MARGIN = 1500;
 const LINE_HEIGHT = 21;
 const MAX_HIGHLIGHT_CHARS = 256 * 1024;
 
+const HIGHLIGHT_QUEUE: HTMLElement[] = [];
+let highlightScheduled = false;
+
 function highlightSmallSource(source: HTMLElement): void {
   const code = source.querySelector<HTMLElement>('.source .code code');
   if (!code || !window.hljs || !hasExplicitLanguage(code)) return;
@@ -63,8 +66,18 @@ export function mountSource(): void {
     chunk.dataset.gutterReady = '1';
   }
 
-  function ensureHighlight(chunk: HTMLElement): void {
+  function nearViewport(chunk: HTMLElement): boolean {
+    const box = scrollRoot
+      ? scrollRoot.getBoundingClientRect()
+      : { top: 0, bottom: window.innerHeight || 800 };
+    const rect = chunk.getBoundingClientRect();
+    return !(rect.bottom < box.top - CHUNK_MARGIN || rect.top > box.bottom + CHUNK_MARGIN);
+  }
+
+  function highlightChunk(chunk: HTMLElement): void {
+    delete chunk.dataset.highlightQueued;
     if (chunk.dataset.highlightReady === '1') return;
+    if (!nearViewport(chunk)) return;
     chunk.dataset.highlightReady = '1';
     const code = chunk.querySelector<HTMLElement>('.code code');
     if (!window.hljs || !code || !hasExplicitLanguage(code)) return;
@@ -77,6 +90,40 @@ export function mountSource(): void {
     } catch {
       // keep plain text
     }
+  }
+
+  function scheduleHighlight(): void {
+    if (highlightScheduled) return;
+    highlightScheduled = true;
+    const run = (): void => {
+      highlightScheduled = false;
+      const chunk = HIGHLIGHT_QUEUE.shift();
+      if (!chunk) return;
+      highlightChunk(chunk);
+      if (HIGHLIGHT_QUEUE.length > 0) scheduleHighlight();
+    };
+    const idle = (window as Window & {
+      requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
+    }).requestIdleCallback;
+    if (idle) idle(run, { timeout: 250 });
+    else window.setTimeout(run, 16);
+  }
+
+  function ensureHighlight(chunk: HTMLElement): void {
+    if (chunk.dataset.highlightReady === '1' || chunk.dataset.highlightQueued === '1') return;
+    const code = chunk.querySelector<HTMLElement>('.code code');
+    if (!window.hljs || !code || !hasExplicitLanguage(code)) {
+      chunk.dataset.highlightReady = '1';
+      return;
+    }
+    if (code.textContent && code.textContent.length > MAX_HIGHLIGHT_CHARS) {
+      chunk.dataset.highlightReady = '1';
+      code.dataset.highlightSkipped = '1';
+      return;
+    }
+    chunk.dataset.highlightQueued = '1';
+    HIGHLIGHT_QUEUE.push(chunk);
+    scheduleHighlight();
   }
 
   let targetAnchor: HTMLElement | null = null;
@@ -120,12 +167,8 @@ export function mountSource(): void {
   }
 
   function enhanceVisible(): void {
-    const box = scrollRoot
-      ? scrollRoot.getBoundingClientRect()
-      : { top: 0, bottom: window.innerHeight || 800 };
     chunks.forEach((chunk) => {
-      const rect = chunk.getBoundingClientRect();
-      if (rect.bottom < box.top - CHUNK_MARGIN || rect.top > box.bottom + CHUNK_MARGIN) return;
+      if (!nearViewport(chunk)) return;
       ensureGutter(chunk);
       ensureHighlight(chunk);
     });
