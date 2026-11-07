@@ -426,9 +426,10 @@ async function main() {
     );
     check('主岛操作齐全', (await evaluate('[...document.querySelectorAll(".island-actions .action")].map((a) => a.getAttribute("data-tip")).join(",")')) === '搜索,复制,下载,源码,导出图片,导出 PDF');
     check('主岛功能区为 sticky 顶栏', (await evaluate(`(() => {
-      const card = document.querySelector('.content-card').getBoundingClientRect();
+      const cardEl = document.querySelector('.content-card');
+      const card = cardEl.getBoundingClientRect();
       const head = document.querySelector('.island-head').getBoundingClientRect();
-      return Math.abs(head.x - card.x) <= 2 && Math.abs(head.width - card.width) <= 2 && getComputedStyle(document.querySelector('.island-head')).position === 'sticky';
+      return Math.abs(head.x - card.x) <= 2 && Math.abs(head.width - cardEl.clientWidth) <= 2 && getComputedStyle(document.querySelector('.island-head')).position === 'sticky';
     })()`)) === true);
     check('代码块数量', (await evaluate('document.querySelectorAll("pre code").length')) === 2);
     check('highlight.js 着色', await waitFor('document.querySelectorAll("pre code.hljs span").length > 0', 3000));
@@ -1212,11 +1213,12 @@ async function main() {
     check('搜索结果无打开文档', (await evaluate('!document.body.innerText.includes("打开文档")')) === true);
     check('搜索页 H1 无下划线', (await evaluate('getComputedStyle(document.querySelector(".search-head h1")).borderBottomWidth')) === '0px');
     const searchGeom = await evaluate(`(() => {
-      const card = document.querySelector('.content-card').getBoundingClientRect();
+      const cardEl = document.querySelector('.content-card');
+      const card = cardEl.getBoundingClientRect();
       const head = document.querySelector('.search-head').getBoundingClientRect();
       const title = document.querySelector('.search-head h1').getBoundingClientRect();
       const form = document.querySelector('.search-page-form').getBoundingClientRect();
-      return { cardX: card.x, cardRight: card.right, headX: head.x, headRight: head.right, titleX: title.x, formX: form.x, formRight: form.right };
+      return { cardX: card.x, cardRight: card.x + cardEl.clientLeft + cardEl.clientWidth, headX: head.x, headRight: head.right, titleX: title.x, formX: form.x, formRight: form.right };
     })()`);
     check('搜索页头平铺', Math.round(searchGeom.titleX - searchGeom.headX) <= 32 && Math.abs(searchGeom.headX - searchGeom.cardX) <= 2 && Math.abs(searchGeom.headRight - searchGeom.cardRight) <= 2, JSON.stringify(searchGeom));
     check('搜索页头表单在右侧', searchGeom.formX > searchGeom.titleX && searchGeom.formRight >= searchGeom.headRight - 40, JSON.stringify(searchGeom));
@@ -1293,9 +1295,12 @@ async function main() {
     check('目录页无分组标题', (await evaluate('!document.querySelector(".dir-section h2") && !!document.querySelector(".dir-list")')) === true);
     check('目录页只保留面包屑', (await evaluate('!document.querySelector(".page-head") && !!document.querySelector(".gap-crumb .crumbs")')) === true);
     check('目录列表居中留白', (await evaluate(`(() => {
-      const card = document.querySelector('.content-card').getBoundingClientRect();
+      const cardEl = document.querySelector('.content-card');
+      const card = cardEl.getBoundingClientRect();
       const list = document.querySelector('.dir-list').getBoundingClientRect();
-      return Math.round(list.width) <= 1100 && Math.abs((list.left - card.left) - (card.right - list.right)) <= 1;
+      const innerLeft = card.left + cardEl.clientLeft;
+      const innerRight = innerLeft + cardEl.clientWidth;
+      return Math.round(list.width) <= 1100 && Math.abs((list.left - innerLeft) - (innerRight - list.right)) <= 1;
     })()`)) === true);
     check('目录页面包屑完整', await crumbsComplete('.gap-crumb .crumbs', 'sub'));
     check('目录页面包屑显示目录名', (await evaluate('document.querySelector(".gap-crumb .crumbs")?.textContent'))?.includes('sub') === true);
@@ -1316,9 +1321,10 @@ async function main() {
     check('源码页预览按钮', (await evaluate(`(() => { const link = [...document.querySelectorAll('.island-actions .action')].find((a) => a.getAttribute('data-tip') === '预览'); return link?.getAttribute('href')?.includes('page.md') === true; })()`)) === true);
     check('源码页有下载按钮', (await evaluate(`document.querySelectorAll('.island-actions a.action[href*="?download=1"]').length`)) === 1);
     check('源码页功能区为 sticky 顶栏', (await evaluate(`(() => {
-      const card = document.querySelector('.content-card').getBoundingClientRect();
+      const cardEl = document.querySelector('.content-card');
+      const card = cardEl.getBoundingClientRect();
       const head = document.querySelector('.island-head').getBoundingClientRect();
-      return Math.abs(head.x - card.x) <= 2 && Math.abs(head.width - card.width) <= 2 && getComputedStyle(document.querySelector('.island-head')).position === 'sticky';
+      return Math.abs(head.x - card.x) <= 2 && Math.abs(head.width - cardEl.clientWidth) <= 2 && getComputedStyle(document.querySelector('.island-head')).position === 'sticky';
     })()`)) === true);
     check('源码页行锚点', (await evaluate('document.querySelector("#L1")?.textContent')) === '1');
     check('源码页原始内容', (await evaluate('document.querySelector(".source code").textContent')).startsWith('# Probe'));
