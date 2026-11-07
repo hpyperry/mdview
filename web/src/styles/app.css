@@ -1065,6 +1065,27 @@ html.no-js .shell.has-toc { grid-template-columns: minmax(0, 1fr); }
 .shell { grid-template-columns: minmax(0, 1fr); }
 .dir-list { padding: 6px 18px 18px; }
 
+/* Directory listings sit in a narrower centered column; file previews stay
+   full-bleed. The file page fades in so the width change reads as a step. */
+body[data-page="dir"] .dir-list,
+body[data-page="dir"] .empty-state {
+  width: min(1100px, 100%);
+  margin-left: auto;
+  margin-right: auto;
+}
+@keyframes card-enter {
+  from { opacity: 0; transform: translateY(7px); }
+  to { opacity: 1; transform: none; }
+}
+body[data-page="doc"] .content-card,
+body[data-page="source"] .content-card {
+  animation: card-enter .24s cubic-bezier(.2, .7, .25, 1) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  body[data-page="doc"] .content-card,
+  body[data-page="source"] .content-card { animation: none; }
+}
+
 .nav-panel {
   display: none;
   position: fixed;
