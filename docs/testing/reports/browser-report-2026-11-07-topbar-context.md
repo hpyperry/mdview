@@ -24,7 +24,7 @@
 | 单元 / 集成 | `cargo test` | 96 + 134 + 27 passed |
 | 黑盒 HTTP | `bash tests/selftest-rust.sh` | PASS=292 FAIL=0 |
 | TTY Trust | `bash tests/trust-tty.sh` | PASS=9 FAIL=0 |
-| 浏览器探针 | `node tests/browser-probe.mjs` | **PASS=336 FAIL=0** |
+| 浏览器探针 | `node tests/browser-probe.mjs` | **PASS=338 FAIL=0** |
 | 源码页性能 | `node tests/perf-source.mjs` | 4 项预算通过 |
 | artifact 冒烟 | `bash tests/smoke-artifact.sh` | PASS=7 FAIL=0 |
 
