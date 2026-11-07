@@ -1188,7 +1188,7 @@ async function main() {
       '大源码滚动后继续着色',
       await waitFor(`document.querySelectorAll(".source-chunk code.hljs").length > ${initialHighlights}`, 4000),
     );
-    check('大源码高亮队列清空', (await evaluate('document.querySelectorAll(".source-chunk[data-highlight-queued]").length')) === 0);
+    check('大源码高亮队列清空', await waitFor('document.querySelectorAll(".source-chunk[data-highlight-queued]").length === 0', 4000));
     await goto('/huge-code.md');
     check('超大代码块标记未高亮', await waitFor('document.querySelector(".code-block .lang")?.textContent.includes("高亮已关闭")', 3000));
     check('超大代码块不着色', (await evaluate('document.querySelectorAll(".code-block code.hljs").length')) === 0);
