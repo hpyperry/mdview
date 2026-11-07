@@ -36,7 +36,7 @@ fn main() {
 
     if let Ok(prebuilt) = env::var("MDVIEW_WEB_PREBUILT") {
         let prebuilt = PathBuf::from(prebuilt);
-        for asset in ["app.js", "app.css"] {
+        for asset in ["app.js", "app.css", "hlworker.js"] {
             let source = prebuilt.join(asset);
             require_asset(&source);
             fs::copy(&source, out_dir.join(asset))
@@ -66,7 +66,7 @@ fn main() {
     if !status.success() {
         panic!("`npm run build:web` failed with {status}");
     }
-    for asset in ["app.js", "app.css"] {
+    for asset in ["app.js", "app.css", "hlworker.js"] {
         require_asset(&out_dir.join(asset));
     }
 }

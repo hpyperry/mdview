@@ -257,6 +257,7 @@ async function writeFixture(root) {
   await writeFile(join(root, 'huge-code.md'), `# Huge\n\n\`\`\`js\n${'const x = 1;\n'.repeat(22000)}\`\`\`\n`);
   const bigLines = Array.from({ length: 15000 }, (_, i) => `line ${i + 1} the quick brown fox jumps over the lazy dog`).join('\n') + '\n';
   await writeFile(join(root, 'big.txt'), bigLines);
+  await writeFile(join(root, 'large-single.js'), `/* large single block */\nconst payload = "${'x'.repeat(320 * 1024)}";\n`);
   await copyFile(join(REPO, 'tests', 'fixtures', 'large-source-highlight', 'root', 'big.rs'), join(root, 'big.rs'));
   const wideText = `${'wide-line-'.repeat(450)}\n${Array.from({ length: 12000 }, (_, i) => `row ${i + 1} ${'x'.repeat(30)}`).join('\n')}\n`;
   await writeFile(join(root, 'wide.txt'), wideText);
@@ -457,6 +458,7 @@ async function main() {
     );
     check('导航预取后仍关闭', (await evaluate('getComputedStyle(document.getElementById("nav-panel")).display')) === 'none');
     check('无外部资源请求', requests.every((url) => url.startsWith(base) || url.startsWith('data:')), requests.join(', '));
+    check('CSP 允许同源 Worker', (await evaluate(`fetch('/').then((r) => r.headers.get('content-security-policy') || '').then((v) => v.includes("worker-src 'self'"))`)) === true);
 
     await evaluate('document.querySelector(".copy-btn").click()');
     await sleep(300);
@@ -1136,7 +1138,7 @@ async function main() {
     check('源码全文分块容器', (await evaluate('document.querySelectorAll(".source-chunked .source-chunk").length')) === 31);
     check('源码页只挂 source 岛', await waitFor('window.__mdviewIslands?.mounted.includes("source") && !window.__mdviewIslands.mounted.includes("toc")', 3000));
     check('源码末行在页面内', (await evaluate('document.querySelector(".source-chunked")?.textContent.includes("line 15000")')) === true);
-    check('源码全文提示', (await evaluate('document.querySelector(".source-note")?.textContent.includes("15001 行") && document.querySelector(".source-note")?.textContent.includes("已加载完整内容")')) === true);
+    check('源码全文提示', (await evaluate('document.querySelector(".source-note")?.textContent.includes("15001 行") && document.querySelector(".source-note")?.textContent.includes("加载完整内容")')) === true);
     check('源码提示无实现说明', (await evaluate('!document.querySelector(".source-note")?.textContent.includes("浏览器按可视区域")')) === true);
     check('源码分块按需绘制', (await evaluate('getComputedStyle(document.querySelector(".source-chunk")).contentVisibility')) === 'auto');
     check('源码分块加载 < 3000ms', Date.now() - chunkedStarted < 3000);
@@ -1162,12 +1164,30 @@ async function main() {
     check('大源码按块着色', await waitFor('document.querySelectorAll(".source-chunk code.hljs").length > 0', 3000));
     check('大源码着色有界', (await evaluate('document.querySelectorAll(".source-chunk code.hljs").length')) < 10);
     const initialHighlights = await evaluate('document.querySelectorAll(".source-chunk code.hljs").length');
-    await scrollContentToBottom();
+    const scrolledTo = await scrollContentToBottom();
+    const afterScroll = await waitFor(
+      `document.querySelectorAll(".source-chunk code.hljs").length > ${initialHighlights}`,
+      4000,
+    );
     check(
       '大源码滚动后继续着色',
-      await waitFor(`document.querySelectorAll(".source-chunk code.hljs").length > ${initialHighlights}`, 4000),
+      afterScroll,
+      JSON.stringify({
+        initialHighlights,
+        scrolledTo,
+        finalHighlights: await evaluate('document.querySelectorAll(".source-chunk code.hljs").length'),
+        cardScroll: await currentScrollTop(),
+        rendered: await evaluate('[...document.querySelectorAll(".source-chunk")].filter((c) => c.getBoundingClientRect().top < innerHeight + 500).length'),
+      }),
     );
     check('大源码高亮队列清空', await waitFor('document.querySelectorAll(".source-chunk[data-highlight-queued]").length === 0', 4000));
+    await goto('/large-single.js?raw=1');
+    check('大单块源码不分块', (await evaluate('!document.querySelector(".source-chunked")')) === true);
+    check(
+      '大单块源码 Worker 高亮',
+      await waitFor('document.querySelector(".source .code code.hljs") !== null', 4000),
+    );
+    check('大单块源码请求 Worker', requests.some((url) => url.includes('/_assets/hlworker.js')));
     await goto('/huge-code.md');
     check('超大代码块标记未高亮', await waitFor('document.querySelector(".code-block .lang")?.textContent.includes("高亮已关闭")', 3000));
     check('超大代码块不着色', (await evaluate('document.querySelectorAll(".code-block code.hljs").length')) === 0);
@@ -1329,6 +1349,13 @@ async function main() {
     check('源码页行锚点', (await evaluate('document.querySelector("#L1")?.textContent')) === '1');
     check('源码页原始内容', (await evaluate('document.querySelector(".source code").textContent')).startsWith('# Probe'));
     check('源码页面包屑完整', await crumbsComplete('.gap-crumb .crumbs', 'page.md'));
+    await goto('/small.rs?raw=1');
+    check('源码页短文件铺满主岛', (await evaluate(`(() => {
+      const card = document.querySelector('.content-card').getBoundingClientRect();
+      const wrap = document.querySelector('.source-wrap').getBoundingClientRect();
+      return Math.abs(wrap.bottom - card.bottom) <= 2 && !document.querySelector('.source-note');
+    })()`)) === true);
+    check('源码页短文件左侧行号', (await evaluate('document.querySelectorAll(".gutter a").length')) === 5);
 
     console.log('== html trusted ==');
     await goto('/page.html');

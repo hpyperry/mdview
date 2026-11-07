@@ -26,7 +26,7 @@ use tokio_util::io::ReaderStream;
 use walkdir::WalkDir;
 
 use crate::archive::{self, ArchiveRequest, ArchiveStore, Extracted};
-use crate::assets::{APP_CSS, APP_JS, HIGHLIGHT_CSS, HIGHLIGHT_JS, MARKDOWN_CSS};
+use crate::assets::{APP_CSS, APP_JS, HIGHLIGHT_CSS, HIGHLIGHT_JS, HLWORKER_JS, MARKDOWN_CSS};
 use crate::cli::Cli;
 use crate::encoding;
 use crate::render::render_markdown_with_sourcepos;
@@ -292,6 +292,7 @@ pub fn app(state: AppState) -> Router {
         .route("/_assets/markdown.css", get(asset_markdown_css))
         .route("/_assets/app.css", get(asset_app_css))
         .route("/_assets/app.js", get(asset_app_js))
+        .route("/_assets/hlworker.js", get(asset_hlworker_js))
         .fallback(handle)
         .with_state(state.clone())
         .layer(middleware::from_fn_with_state(state, log_request))
@@ -460,6 +461,25 @@ async fn asset_app_js(
         headers,
         query,
         APP_JS,
+        "text/javascript; charset=utf-8",
+    )
+    .await
+}
+
+async fn asset_hlworker_js(
+    State(state): State<AppState>,
+    method: Method,
+    uri: Uri,
+    headers: HeaderMap,
+    Query(query): Query<HashMap<String, String>>,
+) -> Response {
+    asset_or_file(
+        state,
+        method,
+        uri,
+        headers,
+        query,
+        HLWORKER_JS,
         "text/javascript; charset=utf-8",
     )
     .await
@@ -2685,7 +2705,11 @@ async fn source_page(
     };
     let encoding_label = decoded.label();
     let text = decoded.text;
-    let chunked_mode = size as u64 > CHUNKED_SOURCE_THRESHOLD;
+    // Chunking exists for very long files; a large file with only a handful of
+    // lines (for example a minified bundle) fits in one block and should not
+    // show the "large file" note.
+    let total_lines = text.split('\n').count();
+    let chunked_mode = size as u64 > CHUNKED_SOURCE_THRESHOLD && total_lines > SOURCE_CHUNK_LINES;
     let name = path.file_name().and_then(OsStr::to_str).unwrap_or("文件");
     let preview_href = if info.kind == Kind::Html && !state.safe {
         if state.trust.trusted {
@@ -2713,7 +2737,7 @@ async fn source_page(
             format!(
                 "<div class=\"source-wrap source-chunked\" data-source-lines=\"{total}\" \
                  data-chunk-lines=\"{chunk_lines}\">{chunks}</div>\
-                 <p class=\"source-note\">文件较大（{size} · {total} 行），已加载完整内容。</p>",
+                 <p class=\"source-note\">文件较大（{size} · {total} 行），已分块加载完整内容。</p>",
                 total = total,
                 chunk_lines = SOURCE_CHUNK_LINES,
                 chunks = chunks,
@@ -4199,6 +4223,7 @@ fn csp_header(level: u8, nonce: &str) -> Option<String> {
          media-src 'self' https: data:{img_extra}; script-src 'nonce-{nonce}'; \
          style-src 'self' 'unsafe-inline' https: data:{style_extra}; \
          font-src 'self' https: data:{font_extra}; frame-src 'none'; \
+         worker-src 'self'; \
          form-action 'self'; connect-src 'self'; base-uri 'none'; object-src 'none'"
     ))
 }
@@ -4648,11 +4673,30 @@ mod tests {
         assert!(html.contains("data-chunk-lines=\"500\""), "{html}");
         assert_eq!(html.matches("class=\"source-chunk\"").count(), 24);
         assert!(html.contains("last line marker"), "last line missing");
-        assert!(html.contains("已加载完整内容"), "{html}");
+        assert!(html.contains("已分块加载完整内容"), "{html}");
         assert!(!html.contains("浏览器按可视区域"), "{html}");
         assert!(!html.contains("source-virtual"), "{html}");
         assert!(!html.contains("?text=1"), "{html}");
         assert!(!html.contains("前 1000 行"), "{html}");
+    }
+
+    #[tokio::test]
+    async fn large_few_line_file_is_not_chunked() {
+        let dir = fixture();
+        let long_line = "x".repeat(300 * 1024);
+        std::fs::write(
+            dir.path().join("long.txt"),
+            format!("{long_line}\nsecond\nthird\n"),
+        )
+        .unwrap();
+        let app = app(state(dir.path(), false, 0, 0));
+
+        let (status, _, body) = call(app, Method::GET, "/long.txt").await;
+        assert_eq!(status, StatusCode::OK);
+        let html = String::from_utf8(body).unwrap();
+        assert!(!html.contains("source-chunked"), "{html}");
+        assert!(!html.contains("文件较大"), "{html}");
+        assert!(html.contains("second"), "{html}");
     }
 
     #[tokio::test]
@@ -6268,6 +6312,7 @@ mod tests {
         assert!(csp.contains("form-action 'self'"));
         assert!(csp.contains("connect-src 'self'"));
         assert!(csp.contains("frame-src 'none'"));
+        assert!(csp.contains("worker-src 'self'"));
         assert!(!csp.contains("'self' 'nonce"));
 
         let (_, headers, _) = call(strict, Method::GET, "/").await;

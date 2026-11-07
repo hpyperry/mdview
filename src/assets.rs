@@ -7,6 +7,7 @@ pub const HIGHLIGHT_JS: &[u8] = include_bytes!("../assets/highlight.min.js");
 pub const HIGHLIGHT_CSS: &str = include_str!("../assets/highlight.css");
 pub const MARKDOWN_CSS: &str = include_str!("../assets/markdown.css");
 pub const APP_JS: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/app.js"));
+pub const HLWORKER_JS: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/hlworker.js"));
 pub const APP_CSS: &str = include_str!(concat!(env!("OUT_DIR"), "/app.css"));
 
 /// FNV-1a over all cacheable assets. The query string on
@@ -23,6 +24,7 @@ pub fn asset_version() -> &'static str {
             HIGHLIGHT_CSS.as_bytes(),
             MARKDOWN_CSS.as_bytes(),
             APP_JS,
+            HLWORKER_JS,
             APP_CSS.as_bytes(),
         ] {
             for &byte in bytes {

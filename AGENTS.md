@@ -30,8 +30,8 @@ bash tests/run-all.sh
 [`docs/guides/build-hygiene.md`](docs/guides/build-hygiene.md)，取舍见
 [ADR 0023](docs/architecture/adr/0023-dev-build-artifact-size.md)。
 
-必须全绿：`cargo test`（96 单元 + 134 渲染兼容 + 27 golden）、292 项黑盒 HTTP、
-9 项 pty 信任测试、331 项 headless Chrome 验收、4 项源码页性能预算。
+必须全绿：`cargo test`（100 单元 + 137 渲染兼容 + 27 golden）、303 项黑盒 HTTP、
+9 项 pty 信任测试、338 项 headless Chrome 验收、4 项源码页性能预算。
 
 ## 协作流程
 
@@ -129,7 +129,8 @@ Single-context: root `GLOSSARY.md` + `docs/architecture/adr/`. See
    - 链接/图片一律过 `is_safe_link`；拒绝 `javascript:`/`vbscript:`/`file:`/
      非法 `data:`/`vscode:`；`data:image/*;…` 是唯一放行例外；
    - 裸 HTML 虽然透传，但 CSP 的 `script-src` 只信任 per-response nonce，
-     不得加 `'self'` 或 `'unsafe-inline'`；
+     不得加 `'self'` 或 `'unsafe-inline'`；只有高亮 Worker 使用
+     `worker-src 'self'`，不要改成 `blob:` 或放宽 `script-src`；
    - 未信任目录的一次性令牌绑定路径、60 秒、消费一次；
    - 路径必须 canonicalize 后检查 `starts_with(root)`；拒绝 NUL/反斜杠。
 3. **URL 管线只有 `rewrite_target` 一条路**：切 `?`/`#` → 解码两次 → 相对解析 →
@@ -163,11 +164,14 @@ Single-context: root `GLOSSARY.md` + `docs/architecture/adr/`. See
    搜索必须分批：每批最多 2000 个文件/约 1.2 秒、40 组、200 条、单文件 5 条；用
    `cursor` 续扫，结果底部「继续搜索」；有 JS 时追加，无 JS 时下一页。不要恢复
    一次遍历完整 root 再返回。
-8. **大文本源码页全文分块**：>256 KB 仍由服务端输出全文，按 500 行分块，
-   用 CSS `content-visibility: auto` 跳过离屏布局与绘制；行锚点与语法高亮由
+8. **大文本源码页全文分块**：>256 KB 且 >500 行才按 500 行分块（1 MB/11 行这类
+   文件保持单块，不显示「文件较大」提示），仍由服务端输出全文，用 CSS
+   `content-visibility: auto` 跳过离屏布局与绘制；行锚点与语法高亮由
    `web/src/islands/source.ts` 按可见块懒加载。高亮必须每轮空闲只处理一个块，
    排队前/出队时检查是否仍在视口附近，快速滚过时跳过；不要把多个可见块在一次
-   同步循环里全部 `highlightElement`。`content-visibility` 必须放在
+   同步循环里全部 `highlightElement`。单块文本 >256K 字符交给
+   `web/src/worker-highlight.ts` 的 Worker（3 秒超时，超时/出错回落纯文本），
+   不要在主线程高亮大块，也不要重新加 `blob:` worker。`content-visibility` 必须放在
    `@supports (contain-intrinsic-width: none) and (contain-intrinsic-height: 1px)`
    里（长属性 95/98 才支持，86–97 要回退全量渲染）；`replaceChildren` 要有
    `textContent` + `appendChild` 回退。不要恢复服务端截断、`?text=1`
@@ -264,6 +268,7 @@ Single-context: root `GLOSSARY.md` + `docs/architecture/adr/`. See
 | 顶栏文件名 / 缝隙面包屑 / 主岛功能区 | `html_page`、`PageHead`、`island_head_html` + `app.css` 的 `.topbar-title`/`.gap-crumb`/`.island-head` |
 | 搜索页页头 / 错误页 | `PageHead`/`PageMeta`/`PageAction` + `app.css` 的 `.page-head` |
 | 文件查找 / 复制 | `web/src/islands/filetools.ts` + `.find-panel` |
+| 大块语法高亮 Worker | `web/build.mjs` 生成 `hlworker.js` + `web/src/worker-highlight.ts` |
 | 文件夹打包下载 | `src/server.rs` 的 `directory_zip`/`build_dir_zip` + `web/src/islands/dirzip.ts` |
 | 顶部栏/导航/页面 chrome/内容面 | `html_page`、`crumbs_html`、`nav.tsx` |
 | TOC 常驻岛/细轨/返回顶部 | `web/src/islands/toc.tsx` + `app.css` 的 `.toc-island`/`.toc-tip`/`.totop` 媒体查询 |

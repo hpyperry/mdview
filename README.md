@@ -1,4 +1,4 @@
-# mdview 2.4 —— 单文件离线 Markdown 预览服务器
+# mdview 2.5 —— 单文件离线 Markdown 预览服务器
 
 用一个可执行文件，把一个目录变成可浏览的文档站：Markdown 渲染、文本源码查看、
 压缩包虚拟目录、所有类型下载、全文搜索；不联网、不请求任何外部资源。Markdown 语义与代码高亮
@@ -15,7 +15,7 @@ cargo build --release
 # 打开 http://127.0.0.1:8000/
 ```
 
-产物是单个二进制（macOS arm64 约 **4.3 MB**，内嵌 CSS、highlight.js、岛屿前端与压缩包解码器）。
+产物是单个二进制（macOS arm64 约 **6.0 MB**，内嵌 CSS、highlight.js、高亮 Worker、岛屿前端与压缩包解码器）。
 **运行时**不需要 Python、Node 或任何动态资源；**从源码构建**需要 Node 22 +
 `web/` 的 npm 依赖，`build.rs` 会在编译时生成并嵌入 `app.js`/`app.css`。
 跨平台 musl 构建可先执行 `npm --prefix web run build:web`，再用
@@ -53,7 +53,9 @@ cargo build --release
 [0019](docs/architecture/adr/0019-file-encoding-detection.md)（文件编码检测与 UTF-8 预览）、
 [0020](docs/architecture/adr/0020-nav-layered-preload.md)（全站导航三层预载与按需展开）、
 [0021](docs/architecture/adr/0021-archive-format-expansion.md)（tar 家族与 ZIP 容器扩展）、
-[0025](docs/architecture/adr/0025-html-second-origin.md)（未信任 HTML 的第二 origin 静态镜像）。
+[0025](docs/architecture/adr/0025-html-second-origin.md)（未信任 HTML 的第二 origin 静态镜像）、
+[0034](docs/architecture/adr/0034-topbar-title-gap-crumb-island-head.md)（顶栏文件名、缝隙面包屑、主岛功能区）、
+[0035](docs/architecture/adr/0035-source-page-fill-and-worker-highlight.md)（源码页铺满与 Worker 高亮）。
 完整索引见 [`docs/architecture/adr/README.md`](docs/architecture/adr/README.md)。
 
 ## 功能
@@ -67,13 +69,16 @@ cargo build --release
   默认收起的浮层，不占用正文网格；桌面端顶栏与主岛固定，正文在岛内滚动，移动端
   保留普通页面滚动；
 - 内容面铺满 `.app`（最大 1680px）、阅读行最大 1200px；顶栏只保留最左侧导航、
-  右侧搜索和主题，不再放 logo 或页面信息；Markdown/源码/目录/搜索统一使用内容区
-  的 sticky 页头岛（面包屑 + 标题 + 元信息徽标 + 操作），长面包屑在页头内换行；
-  顶栏、主岛、TOC 岛间距统一 24px；正文保持阅读行，代码块、表格随内容面变宽；
+  居中文件名、全局搜索和主题；面包屑放在顶栏与主岛之间的缝隙，长路径换行时缝隙
+  自然增高；文件信息右对齐、操作左对齐，固定在主岛顶部 sticky 栏；窄屏先收
+  「更多」再隐藏文件信息；顶栏、主岛、TOC 岛间距统一 24px；
+- 目录页列表限宽 1100px 居中，文件预览页铺满并有约 240ms 淡入；目录行操作常驻、
+  固定两个槽位，超出收进「更多」；文件夹行可打包下载（可信根）；
+- 文档/源码页提供文件内查找与复制：查找浮层显示匹配计数、上一个/下一个与 Esc，
+  复制取回原始全文；HTML 源码页的预览入口也在主岛功能区；
 - 全站导航树只预载根 + 三层目录，更深目录按需展开；空闲预取带当前路径脊柱，
   深页打开导航也能一次定位当前文件；目录行只展开/收起，文件行才导航；当前路径
   自动展开，用户展开状态本地记忆；桌面端悬停目录会预热下一层；
-- 顶部栏只保留产品名、搜索图标、主题三态和导航开关；页面路径放在正文头部；
 - 导航默认收起，每次加载都收起；桌面浮岛覆盖、不挤压正文，≤900px 为抽屉 + 遮罩；
 - 搜索：图标 + 按需弹层（`/` 打开），提交进入搜索页；文件名覆盖所有文件，
   正文覆盖 Markdown/文本；每条结果整行是链接：Markdown 内容行跳到渲染页的
@@ -98,7 +103,8 @@ cargo build --release
 - Markdown 语义与代码高亮对齐 VS Code；正文采用文档阅读排版：阅读行上限 1200px、
   16px、1.7 行高；渲染页带 `data-sourcepos`，供搜索结果行定位到对应块；
 - 客户端高亮：highlight.js 11.11.1 完整语言包，仅对明确 `language-*` 的代码块
-  高亮（不做自动语言探测）；大源码按可见分块懒高亮，每轮空闲只处理一个块，单块仍有大小上限；代码块
+  高亮（不做自动语言探测）；小代码块同步高亮，单块 >256K 字符交给同源 Web Worker，
+  3 秒超时后回落纯文本；大源码按可见分块懒高亮，每轮空闲只处理一个块；代码块
   复制按钮、图片放大遮罩、回到顶部按钮都由脚本注入（禁用 JS 时没有死按钮）；
 - 表格单元格输出 `style="text-align:…"`（与 VS Code 一致，不用 `align=`）；
 - 协议校验：拒绝 `javascript:` / `vbscript:` / `file:` / 非法 `data:` /
@@ -111,7 +117,7 @@ cargo build --release
 - 预览与搜索先按 BOM、UTF-8 校验、UTF-16 启发式和 chardetng 检测文件编码，
   再解码成 Unicode 输出 UTF-8；GBK、Shift_JIS、UTF-16（BOM）等不再按 UTF-8
   lossy 显示。
-- Markdown 页头与源码页显示检测编码；BOM 显示 ` BOM`，解码出现替换字符时显示
+- Markdown 与源码页的文件信息显示检测编码；BOM 显示 ` BOM`，解码出现替换字符时显示
   `（有替换）`。
 - 下载与 raw 子资源保留原始字节；非 HTML 文本的 `Content-Type` charset 使用检测
   值（流式响应只看前 64 KiB），HTML 响应保持 `text/html` 不带 charset，由 BOM/
@@ -123,20 +129,21 @@ cargo build --release
 
 | 请求 | 行为 |
 |------|------|
-| `GET /dir/` | 目录索引：无分组统一列表（目录在前）、名称/大小/时间/操作固定列、下载按钮；上级导航在面包屑；不自动寻找 `index.html`/`index.htm` |
-| `GET /x.md` | 渲染为 HTML（未信任目录先出现一次确认页）；页头显示检测编码 |
-| `GET /x.md?raw=1` | 源码查看页：文件名为标题，类型/大小/行数/编码名/时间标签、行号、`id="L<n>"` 行锚点、预览/下载入口 |
+| `GET /dir/` | 目录索引：无分组统一列表（目录在前）、名称/大小/时间/操作固定列；文件下载常驻，文件夹可打包下载；面包屑在顶栏与主岛之间；不自动寻找 `index.html`/`index.htm` |
+| `GET /x.md` | 渲染为 HTML（未信任目录先出现一次确认页）；文件信息显示检测编码 |
+| `GET /x.md?raw=1` | 源码查看页：文件名在顶栏、类型/大小/行数/编码名/时间在缝隙主岛顶部、行号与 `id="L<n>"` 行锚点；功能区含搜索/复制/下载/预览 |
 | `GET /x.md?download=1` | 原始字节 + `Content-Disposition`；非 HTML 文本 charset 用检测值 |
 | `GET /x.html` | 已信任根：原字节 `text/html` 顶层返回，无外壳/沙箱；未信任根：302 到 HTML 第二 origin |
 | `GET /x.html?raw=1` | HTML 源码页；可信/未信任都可用，“预览”tab 指向对应 origin |
 | `GET /x.html?view=1` | 不再有独立语义；按普通 HTML 请求处理（未信任时同样 302） |
 | `GET :htmlPort/x.html` | HTML 第二 origin（未信任根）：只读静态镜像，真实 MIME；无外壳/导航/搜索；存储、Service Worker、module 正常 |
 | `GET /x.html?download=1` | 原始字节 + `Content-Disposition`；保持 `text/html` 不带 charset |
-| `GET /a.zip/` | 压缩包虚拟目录：包名/格式/大小/条目数与“下载压缩包”；包内目录与文件复用目录列表 |
+| `GET /a.zip/` | 压缩包虚拟目录：面包屑显示包名；主岛功能区提供“下载压缩包”；包内目录与文件复用目录列表 |
+| `GET /dir/?download=zip` | 可信根下的文件夹打包下载：生成 zip 后流式返回；`prepare=1` 为一次性 token 准备接口 |
 | `GET /a.zip/docs/x.md` | 包内条目；Markdown/源码/图片/PDF/HTML 走现有管线；相对链接保持在包内 |
 | `GET /a.zip?download=1` | 下载原压缩包 |
 | `GET /a.zip/docs/x?download=1` | 下载解包后的条目 |
-| 已知文本扩展名/文件名 | 源码查看页（文件名标题 + 类型/大小/行数/编码名/时间标签 + 行号与客户端高亮）；> 256 KB 全文分块 |
+| 已知文本扩展名/文件名 | 源码查看页（顶栏文件名 + 类型/大小/行数/编码名/时间 + 行号与客户端高亮）；>256 KB 且 >500 行才分块 |
 | 无扩展名 | 前 512 字节无 NUL → 文本；有 NUL → 下载 |
 | 图片 / PDF | 按 MIME 内联；SVG 直开带 CSP `sandbox`，脚本不执行 |
 | 其他 | `application/octet-stream` 下载 |
@@ -169,9 +176,10 @@ HTML 文件内部的 CSS/JS/图片等子资源按真实 MIME 返回，不受该�
 （只读静态镜像）：脚本、storage、Service Worker、module 与同源 fetch 正常，但
 读不到主 origin 的 `/_nav?__mdview=nav`、搜索或 localStorage；`--safe` 下只提供
 源码，不启动第二 origin。
-超过 **256 KB** 的文本源码页仍由服务端输出**全文**，按 500 行分块并用
-`content-visibility: auto` 跳过离屏布局与绘制；无 JS 时同样能读到全文。
-行锚点与语法高亮由脚本按可见分块懒加载。
+超过 **256 KB 且超过 500 行** 的文本源码页仍由服务端输出**全文**，按 500 行
+分块并用 `content-visibility: auto` 跳过离屏布局与绘制；1 MB/11 行这类少行文件
+保持单块，不再显示“文件较大”。无 JS 时同样能读到全文；行锚点与语法高亮由脚本
+按可见分块懒加载，单块 >256K 字符改由同源 Worker 高亮。
 渲染结果按 `(path, mtime, size)` 缓存，上限 128 条。
 
 ## 命令行
@@ -214,7 +222,8 @@ SVG 直开始终带 `CSP: sandbox`，`<script>` 不执行（`<img>` 内嵌不受
 CSP 四档：0 Strict（默认）、1 允许 HTTP、2 关闭（不推荐）、3 允许 localhost HTTP。
 所有 mdview 生成页面带 `X-Content-Type-Options: nosniff`；`script-src` 只信任每个
 响应新生成的 nonce，**没有 `'self'`**；`frame/base/object 'none'`；`form-action
-'self'`（仅用于本站搜索表单）。独立 HTML 原文（trusted 主 origin 或未信任的
+'self'`（仅用于本站搜索表单）；`worker-src 'self'` 只给同源高亮 Worker，
+不使用 `blob:`。独立 HTML 原文（trusted 主 origin 或未信任的
 HTML 第二 origin）不套这条 CSP；只有直开的 SVG 保留自己的 `sandbox` CSP。
 
 第二 origin 是**整个服务根**的静态镜像，能读隐藏文件与 `.git`；不要在含机密的
@@ -265,11 +274,11 @@ Chromium 86/87 不再承诺。页面不使用 `light-dark()`/`color-mix()` 等�
 ```bash
 npm --prefix web ci
 npm --prefix web run typecheck
-cargo test                      # 96 单元 + 134 渲染兼容 + 27 golden
+cargo test                      # 100 单元 + 137 渲染兼容 + 27 golden
 cargo clippy --all-targets -- -D warnings
-bash tests/selftest-rust.sh     # 292 项真二进制 HTTP 断言
+bash tests/selftest-rust.sh     # 303 项真二进制 HTTP 断言
 node tests/check-css-baseline.mjs # Chromium 88 基线黑名单 + 深色色板同步
-node tests/browser-probe.mjs      # 331 项 headless Chrome 验收
+node tests/browser-probe.mjs      # 338 项 headless Chrome 验收
 node tests/perf-source.mjs        # 4 项源码页性能预算
 bash tests/trust-tty.sh           # 9 项真实 pty 信任测试
 ```
@@ -321,8 +330,8 @@ md-preview/
   EUC-KR/Big5），无 BOM 且以非 ASCII 为主的中文 UTF-16 可能识别失败；UTF-32
   按二进制下载。本轮不提供手动编码覆盖。
 - 搜索每次实时扫盘：文件名覆盖所有文件，正文覆盖 Markdown 文档/文本；无索引、无编辑保存。
-- 超过 256 KB 的源码页全文输出并按 500 行分块渐进绘制；无 JS 可读全文，但精确
-  行号深链与懒高亮需要 JS。首次响应会携带完整源码，网络传输量随文件增大。
+- 超过 256 KB 且 >500 行的源码页全文输出并按 500 行分块渐进绘制；无 JS 可读全文，
+  但精确行号深链与懒高亮需要 JS。首次响应会携带完整源码，网络传输量随文件增大。
 - Trust 判定按根目录路径字符串保存；移动目录后需要重新确认。
 - 从源码构建需要 Node 22 与 `web/` 的 npm 依赖；运行时不需要。
 - 导航默认收起；无 JS 时不显示导航。目录行只展开，不进入目录页。

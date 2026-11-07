@@ -1,4 +1,5 @@
-import { hasExplicitLanguage } from '../utils';
+import { hasExplicitLanguage, languageOf } from '../utils';
+import { highlightInWorker } from '../worker-highlight';
 
 const CHUNK_MARGIN = 1500;
 const LINE_HEIGHT = 21;
@@ -7,13 +8,30 @@ const MAX_HIGHLIGHT_CHARS = 256 * 1024;
 const HIGHLIGHT_QUEUE: HTMLElement[] = [];
 let highlightScheduled = false;
 
-function highlightSmallSource(source: HTMLElement): void {
-  const code = source.querySelector<HTMLElement>('.source .code code');
-  if (!code || !window.hljs || !hasExplicitLanguage(code)) return;
-  if (code.textContent && code.textContent.length > MAX_HIGHLIGHT_CHARS) {
+function highlightLarge(code: HTMLElement): void {
+  if (!hasExplicitLanguage(code)) {
     code.dataset.highlightSkipped = '1';
     return;
   }
+  const language = languageOf(code);
+  void highlightInWorker(code.textContent || '', language).then((html) => {
+    if (html == null) {
+      code.dataset.highlightSkipped = '1';
+      return;
+    }
+    code.innerHTML = html;
+    code.classList.add('hljs');
+  });
+}
+
+function highlightSmallSource(source: HTMLElement): void {
+  const code = source.querySelector<HTMLElement>('.source .code code');
+  if (!code || !hasExplicitLanguage(code)) return;
+  if (code.textContent && code.textContent.length > MAX_HIGHLIGHT_CHARS) {
+    highlightLarge(code);
+    return;
+  }
+  if (!window.hljs) return;
   try {
     window.hljs.highlightElement(code);
   } catch {
@@ -80,11 +98,12 @@ export function mountSource(): void {
     if (!nearViewport(chunk)) return;
     chunk.dataset.highlightReady = '1';
     const code = chunk.querySelector<HTMLElement>('.code code');
-    if (!window.hljs || !code || !hasExplicitLanguage(code)) return;
+    if (!code || !hasExplicitLanguage(code)) return;
     if (code.textContent && code.textContent.length > MAX_HIGHLIGHT_CHARS) {
-      code.dataset.highlightSkipped = '1';
+      highlightLarge(code);
       return;
     }
+    if (!window.hljs) return;
     try {
       window.hljs.highlightElement(code);
     } catch {
@@ -112,13 +131,17 @@ export function mountSource(): void {
   function ensureHighlight(chunk: HTMLElement): void {
     if (chunk.dataset.highlightReady === '1' || chunk.dataset.highlightQueued === '1') return;
     const code = chunk.querySelector<HTMLElement>('.code code');
-    if (!window.hljs || !code || !hasExplicitLanguage(code)) {
+    if (!code || !hasExplicitLanguage(code)) {
       chunk.dataset.highlightReady = '1';
       return;
     }
     if (code.textContent && code.textContent.length > MAX_HIGHLIGHT_CHARS) {
       chunk.dataset.highlightReady = '1';
-      code.dataset.highlightSkipped = '1';
+      highlightLarge(code);
+      return;
+    }
+    if (!window.hljs) {
+      chunk.dataset.highlightReady = '1';
       return;
     }
     chunk.dataset.highlightQueued = '1';
