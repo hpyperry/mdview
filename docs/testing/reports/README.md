@@ -23,3 +23,4 @@
 | 2026-11-07 | 顶栏页面上下文（已被干净顶栏取代） | [browser-report-2026-11-07-topbar-context.md](browser-report-2026-11-07-topbar-context.md) | [`../evidence/2026-11-07/`](../evidence/2026-11-07/) | F-29 / F-45 / F-100 |
 | 2026-11-07 | 干净顶栏与页头岛 | [browser-report-2026-11-07-clean-topbar.md](browser-report-2026-11-07-clean-topbar.md) | [`../evidence/2026-11-07/`](../evidence/2026-11-07/) | F-29 / F-45 / F-100 |
 | 2026-11-07 | 大源码高亮空闲调度 | [test-report-2026-11-07-large-source-highlight.md](test-report-2026-11-07-large-source-highlight.md) | 无截图（CDP 长任务数据） | F-101 |
+| 2026-11-07 | 布局 v5（顶栏/缝隙/主岛功能区）与文件工具 | [browser-report-2026-11-07-layout-v5.md](browser-report-2026-11-07-layout-v5.md) | [`../evidence/2026-11-07/`](../evidence/2026-11-07/) | F-100 / F-22 |

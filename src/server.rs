@@ -3756,7 +3756,10 @@ async fn html_page(state: &AppState, status: StatusCode, page: Page, is_head: bo
         islands.extend(["islandhead", "more"]);
     }
     if page.kind == PageKind::Dir {
-        islands.extend(["dirrows", "more", "dirzip"]);
+        islands.extend(["dirrows", "dirzip"]);
+        if !has_island_head {
+            islands.push("more");
+        }
     }
     islands.push("totop");
     if is_doc || page.kind == PageKind::Source {

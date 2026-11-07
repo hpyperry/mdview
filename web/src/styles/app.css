@@ -301,6 +301,7 @@ html[data-sidebar="collapsed"] .sidebar { padding: 0; border: 0; overflow: hidde
   background: rgba(31, 35, 40, .35);
 }
 .zip-overlay[hidden] { display: none; }
+.zip-dialog .action[hidden] { display: none; }
 .zip-dialog {
   display: flex;
   flex-direction: column;
