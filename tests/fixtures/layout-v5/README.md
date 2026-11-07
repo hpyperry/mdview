@@ -15,6 +15,12 @@ target/release/mdview \
 
 夹具根可以直接作为 `--root`；`--trust` 是文件夹打包下载和文件内查找的前提。
 
+大源码/Worker 复测需要以仓库根为 root：
+
+```bash
+target/release/mdview --root . --trust --host 127.0.0.1 --port 8300 --port-tries 0
+```
+
 ## 复测入口
 
 | 场景 | URL | 预期 |
@@ -25,6 +31,8 @@ target/release/mdview \
 | 文件内查找 | `/guide.md` 点搜索，输入 `needle` | 浮层显示 `1/1`，命中高亮，Enter/上下切换，Esc 关闭并清高亮 |
 | 复制全文 | `/guide.md` 点复制 | 剪贴板为 Markdown 原文，图标变勾并显示「已复制」 |
 | 源码页 | `/code.rs` | 文件名/信息同文档页；左侧搜索/复制/下载，行号完整；无 TOC |
+| 短源码铺满 | `/tests/fixtures/layout-v5/root/code.rs?raw=1`（root 为仓库根） | 代码背景与行号栏延伸到主岛底部，无“文件较大”提示 |
+| 大单块 Worker | `/assets/highlight.min.js?raw=1`（root 为仓库根） | 1 MB/11 行不分块、无提示；约 0.5 秒后由 Worker 上色，主线程可继续滚动 |
 | HTML 源码 | `/page.html?raw=1` | 无“预览/源码”分段条；预览入口在主岛功能区 |
 | 高亮主题 | `/code.rs` 切浅色/深色 | 注释绿、关键字蓝/深蓝、字符串红/橙，浅色不再复用深色 token |
 | 目录留白 | `/` 视口 1440 | 列表左右各约 170px 留白；文件页恢复铺满 |
