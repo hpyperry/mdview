@@ -35,4 +35,5 @@
 | [0029](0029-fixed-island-inner-scroll.md) | 固定主岛：内容在岛内滚动 | accepted |
 | [0030](0030-progressive-search-batches.md) | 搜索分批扫描与渐进追加 | accepted |
 | [0031](0031-fixed-page-head-island.md) | 文档页头固定为独立页头岛 | superseded by [0032](0032-topbar-page-context.md) |
-| [0032](0032-topbar-page-context.md) | 页面身份与操作迁入全局顶栏 | accepted |
+| [0032](0032-topbar-page-context.md) | 页面身份与操作迁入全局顶栏 | superseded by [0033](0033-clean-topbar-page-head.md) |
+| [0033](0033-clean-topbar-page-head.md) | 顶栏只保留外壳控制，页面身份回到底部页头岛 | accepted |

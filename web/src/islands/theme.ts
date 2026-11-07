@@ -19,7 +19,7 @@ function apply(mode: ThemeMode, button: HTMLElement): void {
   root.dataset.themeMode = mode;
   if (mode === 'system') delete root.dataset.theme;
   else root.dataset.theme = mode;
-  button.title = `主题：${labels[mode]}`;
+  button.dataset.tip = `主题：${labels[mode]}`;
   button.setAttribute('aria-label', `切换主题，当前${labels[mode]}`);
 }
 

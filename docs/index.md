@@ -34,7 +34,7 @@
 收尾括号 (见 https://example.com/c) 归句子。
 
 > linkify 采用 comrak 行为（ADR 0007）：`www.example.com` 和裸邮箱也会变成链接；
-> 全角句号**会**被算进 URL。这是记录在案的 accepted deviation。
+> 全角句末标点与 U+3000 空格会结束链接，URL 路径里的汉字保留。
 
 ## 列表
 

@@ -175,10 +175,14 @@ chk "目录显示文件大小" "$HOME_HTML" 'class="meta-size"><1 KB'
 nchk "目录不显示字节单位" "$HOME_HTML" ' B · '
 chk "目录有独立时间列" "$HOME_HTML" 'class="meta-time"'
 chk "目录有固定操作列" "$HOME_HTML" 'class="row-actions"'
-chk "目录统计用项目" "$HOME_HTML" '个项目'
+chk "目录列表" "$HOME_HTML" 'class="dir-list"'
+nchk "目录无项目统计" "$HOME_HTML" '个项目'
+chk "文件夹打包下载入口" "$HOME_HTML" 'sub/?download=zip'
+chk "文件夹打包下载 MIME" "$(header "$BASE/sub/?download=zip" content-type)" "application/zip"
+chk "文件夹打包下载 magic" "$(curl -s "$BASE/sub/?download=zip" | head -c 2)" "PK"
 nchk "目录无只读文档库" "$HOME_HTML" '只读文档库'
 chk "文件带下载入口" "$HOME_HTML" 'a.md?download=1'
-nchk "目录不带下载入口" "$HOME_HTML" 'sub/?download=1'
+nchk "目录不带文件下载入口" "$HOME_HTML" 'sub/?download=1' 
 ROOT_FILES="$(find "$ROOT" -maxdepth 1 -mindepth 1 -type f | wc -l | tr -d ' ')"
 chk_num "下载入口数等于文件数" "$(count "$HOME_HTML" '?download=1')" "$ROOT_FILES"
 nchk "根目录无上级链接" "$HOME_HTML" '上级目录'
@@ -214,11 +218,11 @@ chk "源码页标题文件名" "$SRC" '<h1>b.txt</h1>'
 chk "源码页类型标签" "$SRC" '>文本<'
 chk "源码页大小标签" "$SRC" '&lt;1 KB'
 chk "源码页行数标签" "$SRC" '3 行'
-chk "源码页修改时间标签" "$SRC" '更新于 '
+chk "源码页文件信息" "$SRC" 'class="island-meta"'
 chk "源码页行锚点" "$SRC" 'id="L1"'
 chk "源码页内容" "$SRC" "hello"
-nchk "源码页无下载入口" "$SRC" "?download=1"
-chk "源码页岛清单" "$SRC" 'data-islands="theme nav search totop source"'
+chk "源码页有下载入口" "$SRC" "?download=1"
+chk "源码页岛清单" "$SRC" 'data-islands="theme nav search islandhead more totop filetools source"' 
 nchk "源码页不挂 TOC 岛" "$SRC" ' totop toc'
 
 BIG="$(curl -s "$BASE/big.txt")"
@@ -232,7 +236,7 @@ nchk "大源码不截断" "$BIG" '前 1000 行'
 nchk "大源码无 text 通道" "$BIG" '?text=1'
 
 RENDER="$(curl -s "$BASE/a.md")"
-chk "文档岛清单" "$RENDER" 'data-islands="theme nav search actions totop toc linetarget code zoom export"'
+chk "文档岛清单" "$RENDER" 'data-islands="theme nav search islandhead more totop filetools toc linetarget code zoom export"' 
 nchk "文档不挂 source 岛" "$RENDER" ' source"'
 chk "渲染页行定位数据" "$RENDER" 'data-sourcepos='
 chk "Markdown 标题" "$RENDER" ">Hello</h1>"
@@ -249,7 +253,8 @@ chk "raw 原文" "$RAW" "# Hello"
 nchk "raw 不渲染" "$RAW" "<strong>bold</strong>"
 chk "raw 行锚点" "$RAW" 'id="L1"'
 chk "raw 回渲染链接" "$RAW" '预览'
-nchk "raw 无下载入口" "$RAW" "?download=1"
+chk "raw 有下载入口" "$RAW" "?download=1"
+chk "raw 有查找面板" "$RAW" 'id="find-panel"' 
 LINE5_SRC="$(sed -n '5p' "$ROOT/a.md")"
 chk "raw 第 5 行内容一致" "$RAW" "$LINE5_SRC"
 
@@ -279,7 +284,8 @@ chk "HTML 信任目录 MIME" "$(ctype "$BASE/page.html")" "text/html"
 nchk "HTML 信任目录无 CSP" "$(header "$BASE/page.html" content-security-policy)" "sandbox"
 chk "HTML 信任目录 view=1 也是原文" "$(curl -s "$BASE/page.html?view=1")" '<h1>HTML Probe</h1>'
 chk "HTML 信任目录 iframe 请求也是原文" "$(curl -s -H 'Sec-Fetch-Dest: iframe' "$BASE/page.html")" '<h1>HTML Probe</h1>'
-chk "HTML 源码有 tabs" "$(curl -s "$BASE/page.html?raw=1")" 'html-toolbar'
+chk "HTML 源码有动作区" "$(curl -s "$BASE/page.html?raw=1")" 'id="find-panel"'
+nchk "HTML 源码无分段 tabs" "$(curl -s "$BASE/page.html?raw=1")" 'html-toolbar'
 chk "HTML 源码行锚点" "$(curl -s "$BASE/page.html?raw=1")" 'id="L1"'
 nchk "HTML 源码无 iframe" "$(curl -s "$BASE/page.html?raw=1")" '<iframe'
 chk "CSS 子资源 MIME" "$(curl -s -o /dev/null -w '%{content_type}' -H 'Sec-Fetch-Dest: style' "$BASE/style.css")" "text/css; charset=utf-8"
@@ -292,12 +298,14 @@ chk "旧客户端直接导航仍是源码页" "$(curl -s -H 'Accept: text/html,a
 chk "SVG 直开 CSP sandbox" "$(header "$BASE/evil.svg" content-security-policy)" "sandbox allow-top-navigation-by-user-activation"
 chk "HTML 搜索行跳源码" "$(curl -s "$BASE/search?__mdview=search&q=htmlneedle")" 'href="/page.html?raw=1#L1"'
 chk "HTML 目录行有源码入口" "$HOME_HTML" 'href="/page.html?raw=1"'
-chk "目录下载图标有悬浮文案" "$HOME_HTML" 'title="下载 page.html"'
-chk "目录源码图标有悬浮文案" "$HOME_HTML" 'title="查看 page.html 源码"'
+chk "目录下载图标 aria 文案" "$HOME_HTML" 'aria-label="下载 page.html"'
+chk "目录下载图标 hover 文案" "$HOME_HTML" 'data-tip="下载"'
+nchk "目录下载图标不再用原生 title" "$HOME_HTML" 'title="下载 page.html"'
+chk "目录源码图标有悬浮文案" "$HOME_HTML" 'title="查看 page.html 源码"' 
 chk "压缩包重定向" "$(code "$BASE/sample.zip")" "301"
 chk "压缩包页面 200" "$(code "$BASE/sample.zip/")" "200"
-chk "压缩包页面标题" "$(curl -s "$BASE/sample.zip/")" '<h1>sample.zip</h1>'
-chk "压缩包格式与条目" "$(curl -s "$BASE/sample.zip/")" ">ZIP</span>"
+chk "压缩包页面标题" "$(curl -s "$BASE/sample.zip/")" 'class="current">sample.zip'
+nchk "压缩包页无类型标签" "$(curl -s "$BASE/sample.zip/")" "个条目" 
 chk "压缩包下载入口" "$(curl -s "$BASE/sample.zip/")" "下载压缩包"
 chk "包内 Markdown" "$(curl -s "$BASE/sample.zip/docs/a.md")" "Archive A"
 chk "包内 Markdown 图片" "$(curl -s "$BASE/sample.zip/docs/a.md")" 'src="/sample.zip/docs/pic.png"'
@@ -309,11 +317,11 @@ chk "整包下载" "$(header "$BASE/sample.zip?download=1" content-disposition)"
 chk "tar.gz 条目" "$(curl -s "$BASE/sample.tar.gz/docs/a.md")" "Archive A"
 chk "7z 条目" "$(curl -s "$BASE/sample.7z/docs/a.md")" "Archive A"
 chk "嵌套 zip 不递归" "$(header "$BASE/sample.zip/inner.zip" content-type)" "application/zip"
-chk "tar 页面标签" "$(curl -s "$BASE/sample.tar/")" ">tar</span>"
+chk "tar 页面标题" "$(curl -s "$BASE/sample.tar/")" 'class="current">sample.tar' 
 chk "tar 条目" "$(curl -s "$BASE/sample.tar/docs/a.md")" "Archive A"
-chk "tar.bz2 页面标签" "$(curl -s "$BASE/sample.tar.bz2/")" ">tar.bz2</span>"
+chk "tar.bz2 页面标题" "$(curl -s "$BASE/sample.tar.bz2/")" 'class="current">sample.tar.bz2' 
 chk "tar.bz2 条目" "$(curl -s "$BASE/sample.tar.bz2/docs/a.md")" "Archive A"
-chk "tar.xz 页面标签" "$(curl -s "$BASE/sample.tar.xz/")" ">tar.xz</span>"
+chk "tar.xz 页面标题" "$(curl -s "$BASE/sample.tar.xz/")" 'class="current">sample.tar.xz' 
 chk "tar.xz 条目" "$(curl -s "$BASE/sample.tar.xz/docs/a.md")" "Archive A"
 chk "tar 嵌套 zip 不递归" "$(header "$BASE/sample.tar/inner.zip" content-type)" "application/zip"
 HIGH_DICT_CODE="$(code "$BASE/high-dict.tar.xz/")"
@@ -322,12 +330,12 @@ if [ "$HIGH_DICT_CODE" = "400" ] || [ "$HIGH_DICT_CODE" = "413" ]; then
 else
   bad "xz 大字典拒绝 (got $HIGH_DICT_CODE)"
 fi
-chk "JAR 页面标签" "$(curl -s "$BASE/sample.jar/")" ">JAR</span>"
+chk "JAR 页面标题" "$(curl -s "$BASE/sample.jar/")" 'class="current">sample.jar' 
 chk "JAR 清单源码" "$(curl -s "$BASE/sample.jar/META-INF/MANIFEST.MF")" "Manifest-Version"
-chk "EPUB 页面标签" "$(curl -s "$BASE/sample.epub/")" ">EPUB</span>"
+chk "EPUB 页面标题" "$(curl -s "$BASE/sample.epub/")" 'class="current">sample.epub' 
 chk "EPUB 章节源码" "$(curl -s "$BASE/sample.epub/OEBPS/chapter1.xhtml")" "xhtmlneedle"
 chk "EPUB 章节行锚点" "$(curl -s "$BASE/sample.epub/OEBPS/chapter1.xhtml")" 'id="L1"'
-chk "CBZ 页面标签" "$(curl -s "$BASE/sample.cbz/")" ">CBZ</span>"
+chk "CBZ 页面标题" "$(curl -s "$BASE/sample.cbz/")" 'class="current">sample.cbz' 
 chk "CBZ 图片" "$(ctype "$BASE/sample.cbz/page-01.png")" "image/png"
 chk "xhtml 源码页" "$(curl -s "$BASE/page.xhtml")" "xhtmlneedle"
 chk "xhtml 源码标签" "$(curl -s "$BASE/page.xhtml")" "XHTML"
@@ -389,13 +397,13 @@ chk ".markdown 搜索内容" "$(curl -s "$BASE/search?__mdview=search&q=markdown
 # and keep original bytes for downloads/raw.
 chk "GBK Markdown 预览" "$(curl -s "$BASE/gbk.md")" "中文标题"
 chk "GBK Markdown 编码标签" "$(curl -s "$BASE/gbk.md")" "GBK"
-chk "GBK 源码编码标签" "$(curl -s "$BASE/gbk.txt")" 'title="检测编码：GBK"><span>GBK</span>'
+chk "GBK 源码编码标签" "$(curl -s "$BASE/gbk.txt")" 'title="检测编码：GBK">GBK</span>' 
 chk "GBK 搜索正文" "$(curl -s "$BASE/search?__mdview=search&q=%E4%B8%AD%E6%96%87")" 'href="/gbk.md#L1"'
 chk "GBK 下载 charset" "$(header "$BASE/gbk.txt?download=1" content-type)" "charset=gbk"
 chk "GBK CSS raw charset" "$(curl -s -o /dev/null -w '%{content_type}' -H 'Sec-Fetch-Dest: style' "$BASE/gbk.css")" "text/css; charset=gbk"
 chk_num "GBK CSS 原始字节" "$(curl -s -H 'Sec-Fetch-Dest: style' "$BASE/gbk.css" | wc -c | tr -d ' ')" "$(wc -c <"$ROOT/gbk.css" | tr -d ' ')"
 chk "UTF-16 预览" "$(curl -s "$BASE/utf16le.txt")" "UTF-16LE 文本"
-chk "UTF-16 编码标签" "$(curl -s "$BASE/utf16le.txt")" 'title="检测编码：UTF-16LE BOM"><span>UTF-16LE BOM</span>'
+chk "UTF-16 编码标签" "$(curl -s "$BASE/utf16le.txt")" 'title="检测编码：UTF-16LE BOM">UTF-16LE BOM</span>' 
 chk "UTF-16 Markdown 预览" "$(curl -s "$BASE/utf16.md")" "UTF-16 标题"
 chk "UTF-16 Markdown 标签" "$(curl -s "$BASE/utf16.md")" "UTF-16LE BOM"
 nchk "UTF-32 不进源码页" "$(curl -s "$BASE/utf32le.txt")" "source-encoding"
@@ -486,7 +494,7 @@ chk "--no-search 关闭路由" "$(code "$NOS/search?__mdview=search&q=x")" "404"
 chk "--no-search 同名文件仍可取" "$(code "$NOS/search")" "200"
 NOS_HTML="$(curl -s "$NOS/")"
 nchk "--no-search 无搜索入口" "$NOS_HTML" 'id="search-open"'
-chk "--no-search 岛清单省略 search" "$NOS_HTML" 'data-islands="theme nav totop"'
+chk "--no-search 岛清单省略 search" "$NOS_HTML" 'data-islands="theme nav dirrows dirzip more totop"' 
 
 echo "== max-preview server =="
 MP="$TMP/maxprev"
@@ -542,7 +550,8 @@ chk "未信任 HTML Location" "$(header "$UNTRUST/page.html" location)" "$HTML_O
 chk "未信任 ?view=1 也是 302" "$(code "$UNTRUST/page.html?view=1")" "302"
 chk "未信任 ?view=1 Location" "$(header "$UNTRUST/page.html?view=1" location)" "$HTML_ORIGIN/page.html"
 chk "未信任 object 不绕过" "$(curl -s -o /dev/null -w '%{http_code}' -H 'Sec-Fetch-Dest: object' "$UNTRUST/page.html")" "302"
-chk "未信任 HTML 源码 tabs" "$(curl -s "$UNTRUST/page.html?raw=1")" 'html-toolbar'
+chk "未信任 HTML 源码有动作区" "$(curl -s "$UNTRUST/page.html?raw=1")" 'id="find-panel"'
+nchk "未信任 HTML 源码无分段 tabs" "$(curl -s "$UNTRUST/page.html?raw=1")" 'html-toolbar' 
 chk "未信任源码预览指向第二 origin" "$(curl -s "$UNTRUST/page.html?raw=1")" "href=\"$HTML_ORIGIN/page.html\""
 chk "第二 origin 原文" "$(curl -s "$HTML_ORIGIN/page.html")" '<h1>HTML Probe</h1>'
 chk "第二 origin HTML MIME" "$(ctype "$HTML_ORIGIN/page.html")" "text/html"

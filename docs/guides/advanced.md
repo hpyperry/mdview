@@ -54,7 +54,8 @@ front matter / URL 与 alt 的硬边角采用 comrak 行为
 
 1. `www.example.com` 会被补成 `http://` 链接；
 2. 裸邮箱成为 `mailto:`；
-3. 全角句号会被算进 URL（`https://e.com/a。结束` 整段成为链接）；
+3. 全角句末标点与 U+3000 空格会结束链接（`https://e.com/a。结束` 只链接到 `/a`），
+   但 URL 路径里的汉字保留；
 4. `https://e.com/a&copy;` 会在 `&` 前截断，`©` 留在链接外；
 5. 尾部 `:` 归句子。
 

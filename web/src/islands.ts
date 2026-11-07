@@ -2,7 +2,11 @@ import type { IslandDefinition } from './types';
 import { mountTheme } from './islands/theme';
 import { mountNav } from './islands/nav';
 import { mountSearch } from './islands/search';
-import { mountTopbarActions } from './islands/actions';
+import { mountMore } from './islands/more';
+import { mountDirRows } from './islands/dirrows';
+import { mountFileTools } from './islands/filetools';
+import { mountDirZip } from './islands/dirzip';
+import { mountIslandHead } from './islands/islandhead';
 import { mountBackToTop } from './islands/totop';
 import { mountToc } from './islands/toc';
 import { mountLineTarget } from './islands/linetarget';
@@ -30,11 +34,35 @@ export const islands: Record<string, IslandDefinition> = {
     root: () => document.querySelector('.search-wrap'),
     mount: mountSearch,
   },
-  actions: {
-    name: 'actions',
+  islandhead: {
+    name: 'islandhead',
     when: 'immediate',
-    root: () => document.querySelector('.topbar-page-actions'),
-    mount: mountTopbarActions,
+    root: () => document.querySelector('.island-head'),
+    mount: mountIslandHead,
+  },
+  filetools: {
+    name: 'filetools',
+    when: 'immediate',
+    root: () => document.querySelector('.island-head'),
+    mount: mountFileTools,
+  },
+  dirzip: {
+    name: 'dirzip',
+    when: 'immediate',
+    root: () => document.getElementById('zip-overlay'),
+    mount: mountDirZip,
+  },
+  dirrows: {
+    name: 'dirrows',
+    when: 'immediate',
+    root: () => document.querySelector('.dir-row'),
+    mount: mountDirRows,
+  },
+  more: {
+    name: 'more',
+    when: 'immediate',
+    root: () => document.querySelector('.more-menu'),
+    mount: mountMore,
   },
   totop: {
     name: 'totop',

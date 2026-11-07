@@ -69,12 +69,12 @@ function headingOffset(): number {
   return (bar?.getBoundingClientRect().height || 56) + 32;
 }
 
-/// The desktop page head is sticky; headings must land below it.
+/// The island head is sticky inside the main island; headings must land
+/// below it. The rest of the page scrolls away.
 function fixedHeadOffset(): number {
-  const head = document.querySelector<HTMLElement>('.page-head');
+  const head = document.querySelector<HTMLElement>('.island-head');
   if (head && getComputedStyle(head).position === 'sticky') {
-    const top = Number.parseFloat(getComputedStyle(head).top) || 0;
-    return head.getBoundingClientRect().height + top + 24;
+    return head.getBoundingClientRect().height + 20;
   }
   return 20;
 }

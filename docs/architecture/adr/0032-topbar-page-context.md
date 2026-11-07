@@ -1,6 +1,6 @@
 # ADR 0032：页面身份与操作迁入全局顶栏
 
-- Status: accepted
+- Status: accepted（2026-11-07），由 [ADR 0033](0033-clean-topbar-page-head.md) 取代
 - Date: 2026-11-07
 - Supersedes: [ADR 0031](0031-fixed-page-head-island.md)
 

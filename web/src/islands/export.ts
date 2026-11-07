@@ -189,7 +189,7 @@ export function mountExport(): void {
 
   const name = pngButton?.dataset.exportName || document.title.replace(/ · mdview$/, '');
   const downloadLink = document.querySelector<HTMLAnchorElement>(
-    '.page-actions a.action[href*="?download=1"]',
+    '.island-actions a.action[href*="?download=1"], .more-panel a.action[href*="?download=1"]',
   );
   let timer = 0;
 

@@ -2,7 +2,9 @@ use std::collections::{HashMap, HashSet};
 use std::ffi::OsStr;
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
+use std::pin::Pin;
 use std::sync::{Arc, Mutex};
+use std::task::{Context, Poll};
 use std::time::{Duration, Instant, SystemTime};
 
 use axum::Json;
@@ -19,7 +21,7 @@ use percent_encoding::{
 use rand::RngCore;
 use serde::Serialize;
 use time::OffsetDateTime;
-use tokio::io::AsyncReadExt;
+use tokio::io::{AsyncRead, AsyncReadExt, ReadBuf};
 use tokio_util::io::ReaderStream;
 use walkdir::WalkDir;
 
@@ -180,8 +182,20 @@ pub struct AppState {
     pub html_port: Option<u16>,
     pub archives: ArchiveStore,
     tokens: Arc<Mutex<HashMap<String, TokenEntry>>>,
+    zip_tokens: Arc<Mutex<HashMap<String, ZipToken>>>,
     cache: Arc<Mutex<HashMap<PathBuf, CacheEntry>>>,
 }
+
+/// A folder zip that has been built into the system temp directory and waits
+/// for the browser to fetch it. Dropping the entry deletes the temp file.
+struct ZipToken {
+    rel: String,
+    name: String,
+    path: tempfile::TempPath,
+    expires: Instant,
+}
+
+const ZIP_TOKEN_TTL: Duration = Duration::from_secs(600);
 
 #[derive(Debug, Clone)]
 struct TokenEntry {
@@ -194,6 +208,7 @@ struct CacheEntry {
     mtime: SystemTime,
     size: u64,
     encoding: String,
+    lines: usize,
     html: String,
 }
 
@@ -215,6 +230,7 @@ impl AppState {
             html_port: None,
             archives: ArchiveStore::new(),
             tokens: Arc::new(Mutex::new(HashMap::new())),
+            zip_tokens: Arc::new(Mutex::new(HashMap::new())),
             cache: Arc::new(Mutex::new(HashMap::new())),
         }
     }
@@ -814,6 +830,9 @@ async fn handle_inner(
             };
             return redirect(&location);
         }
+        if query.get("download").is_some_and(|value| value == "zip") {
+            return directory_zip(&state, &target, rel, &query, is_head).await;
+        }
         return list_dir(&state, &target, rel, is_head).await;
     }
 
@@ -1058,6 +1077,258 @@ async fn mode_error(
     }
 }
 
+async fn directory_zip(
+    state: &AppState,
+    path: &Path,
+    rel: &str,
+    query: &HashMap<String, String>,
+    is_head: bool,
+) -> Response {
+    if state.safe || !state.trust.trusted {
+        return error_page(
+            state,
+            StatusCode::FORBIDDEN,
+            "当前模式下不能打包下载文件夹",
+            is_head,
+        )
+        .await;
+    }
+    let rel = rel.trim_end_matches('/');
+    let folder = folder_zip_name(state, rel);
+    if query.contains_key("prepare") {
+        return prepare_dir_zip(state, path, rel, &folder, is_head).await;
+    }
+    if let Some(token) = query.get("token") {
+        return serve_dir_zip_token(state, rel, token, is_head).await;
+    }
+    let root = path.to_path_buf();
+    let prefix = folder.clone();
+    match tokio::task::spawn_blocking(move || build_dir_zip(&root, &prefix)).await {
+        Ok(Ok(temp)) => stream_temp_zip(temp, &format!("{folder}.zip"), is_head).await,
+        Ok(Err(error)) => {
+            eprintln!("directory_zip: 打包失败: {error}");
+            error_page(
+                state,
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "无法压缩这个文件夹，请稍后重试",
+                is_head,
+            )
+            .await
+        }
+        Err(_) => {
+            error_page(
+                state,
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "无法压缩这个文件夹，请稍后重试",
+                is_head,
+            )
+            .await
+        }
+    }
+}
+
+fn folder_zip_name(state: &AppState, rel: &str) -> String {
+    if rel.is_empty() {
+        return root_name(state);
+    }
+    rel.rsplit('/').next().unwrap_or("folder").to_string()
+}
+
+async fn prepare_dir_zip(
+    state: &AppState,
+    path: &Path,
+    rel: &str,
+    folder: &str,
+    is_head: bool,
+) -> Response {
+    if is_head {
+        return plain_error(StatusCode::METHOD_NOT_ALLOWED, "Method Not Allowed", true);
+    }
+    let root = path.to_path_buf();
+    let prefix = folder.to_string();
+    let temp = match tokio::task::spawn_blocking(move || build_dir_zip(&root, &prefix)).await {
+        Ok(Ok(temp)) => temp,
+        Ok(Err(error)) => {
+            eprintln!("prepare_dir_zip: 打包失败: {error}");
+            return json_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                serde_json::json!({ "error": "无法压缩这个文件夹，请稍后重试" }),
+            );
+        }
+        Err(_) => {
+            return json_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                serde_json::json!({ "error": "无法压缩这个文件夹，请稍后重试" }),
+            );
+        }
+    };
+    let token = random_nonce();
+    let name = format!("{folder}.zip");
+    let now = Instant::now();
+    {
+        let mut tokens = state.zip_tokens.lock().unwrap();
+        tokens.retain(|_, entry| entry.expires > now);
+        tokens.insert(
+            token.clone(),
+            ZipToken {
+                rel: rel.to_string(),
+                name: name.clone(),
+                path: temp,
+                expires: now + ZIP_TOKEN_TTL,
+            },
+        );
+    }
+    json_response(
+        StatusCode::OK,
+        serde_json::json!({ "token": token, "name": name }),
+    )
+}
+
+async fn serve_dir_zip_token(state: &AppState, rel: &str, token: &str, is_head: bool) -> Response {
+    let now = Instant::now();
+    let entry = {
+        let mut tokens = state.zip_tokens.lock().unwrap();
+        tokens.retain(|_, entry| entry.expires > now);
+        tokens.remove(token)
+    };
+    let Some(entry) = entry.filter(|entry| entry.rel == rel) else {
+        return plain_error(StatusCode::GONE, "下载链接已失效，请重新点击下载", is_head);
+    };
+    stream_temp_zip(entry.path, &entry.name, is_head).await
+}
+
+fn json_response(status: StatusCode, body: serde_json::Value) -> Response {
+    let text = body.to_string();
+    Response::builder()
+        .status(status)
+        .header(header::CONTENT_TYPE, "application/json; charset=utf-8")
+        .header(header::CONTENT_LENGTH, text.len().to_string())
+        .header(header::CACHE_CONTROL, "no-store")
+        .header("X-Content-Type-Options", "nosniff")
+        .body(Body::from(text))
+        .unwrap()
+}
+
+/// Open the prepared zip and stream it. `CleanupFile` deletes the temp file
+/// once the response body is dropped, including when the client aborts.
+async fn stream_temp_zip(temp: tempfile::TempPath, name: &str, is_head: bool) -> Response {
+    let temp_path: &Path = temp.as_ref();
+    let size = std::fs::metadata(temp_path)
+        .map(|meta| meta.len())
+        .unwrap_or(0);
+    if is_head {
+        drop(temp);
+        return zip_headers(name, size).body(Body::empty()).unwrap();
+    }
+    let file = match tokio::fs::File::open(temp_path).await {
+        Ok(file) => file,
+        Err(_) => {
+            drop(temp);
+            return plain_error(StatusCode::INTERNAL_SERVER_ERROR, "无法读取压缩包", false);
+        }
+    };
+    let cleanup = CleanupFile {
+        file: Some(Box::pin(file)),
+        temp: Some(temp),
+    };
+    zip_headers(name, size)
+        .body(Body::from_stream(ReaderStream::new(cleanup)))
+        .unwrap()
+}
+
+fn zip_headers(name: &str, size: u64) -> axum::http::response::Builder {
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, "application/zip")
+        .header(header::CONTENT_DISPOSITION, content_disposition(name))
+        .header(header::CONTENT_LENGTH, size.to_string())
+        .header(header::CACHE_CONTROL, "no-store")
+        .header("X-Content-Type-Options", "nosniff")
+}
+
+/// Wraps the temp zip so the file is removed after the response finishes.
+struct CleanupFile {
+    file: Option<Pin<Box<tokio::fs::File>>>,
+    temp: Option<tempfile::TempPath>,
+}
+
+impl AsyncRead for CleanupFile {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<std::io::Result<()>> {
+        match self.file.as_mut() {
+            Some(file) => file.as_mut().poll_read(cx, buf),
+            None => Poll::Ready(Ok(())),
+        }
+    }
+}
+
+impl Drop for CleanupFile {
+    fn drop(&mut self) {
+        self.file.take();
+        self.temp.take();
+    }
+}
+
+/// Build `<folder>/…` into a temp zip. Symlinks and special files are skipped
+/// so a folder download cannot escape the served root.
+fn build_dir_zip(root: &Path, prefix: &str) -> std::io::Result<tempfile::TempPath> {
+    let zip_error = |error: zip::result::ZipError| std::io::Error::other(error.to_string());
+    let mut temp = tempfile::Builder::new()
+        .prefix("mdview-zip-")
+        .suffix(".zip")
+        .tempfile()?;
+    {
+        let mut writer = zip::ZipWriter::new(temp.as_file_mut());
+        let file_options = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Deflated)
+            .unix_permissions(0o644);
+        let dir_options = file_options.unix_permissions(0o755);
+        writer
+            .add_directory(format!("{prefix}/"), dir_options)
+            .map_err(zip_error)?;
+        for entry in WalkDir::new(root).follow_links(false) {
+            let entry = entry.map_err(std::io::Error::other)?;
+            let path = entry.path();
+            if path == root {
+                continue;
+            }
+            let file_type = entry.file_type();
+            if file_type.is_symlink() {
+                continue;
+            }
+            let Ok(relative) = path.strip_prefix(root) else {
+                continue;
+            };
+            let name = format!("{prefix}/{}", relative.to_string_lossy().replace('\\', "/"));
+            if file_type.is_dir() {
+                writer
+                    .add_directory(format!("{name}/"), dir_options)
+                    .map_err(zip_error)?;
+                continue;
+            }
+            if !file_type.is_file() {
+                continue;
+            }
+            let mut file = std::fs::File::open(path)?;
+            writer.start_file(name, file_options).map_err(zip_error)?;
+            std::io::copy(&mut file, &mut writer)?;
+        }
+        writer.finish().map_err(zip_error)?;
+    }
+    std::io::Write::flush(temp.as_file_mut())?;
+    Ok(temp.into_temp_path())
+}
+
+fn zip_overlay_html() -> &'static str {
+    "<div class=\"zip-overlay\" id=\"zip-overlay\" hidden role=\"status\" aria-live=\"polite\">\
+     <div class=\"zip-dialog\"><span class=\"zip-spinner\" aria-hidden=\"true\"></span>\
+     <p class=\"zip-message\" id=\"zip-message\">正在压缩文件夹…</p>\
+     <button class=\"action\" id=\"zip-close\" type=\"button\" hidden>关闭</button></div></div>"
+}
+
 async fn load_archive(
     state: &AppState,
     request: &ArchiveRequest,
@@ -1137,9 +1408,6 @@ async fn handle_archive(
             Err(response) => return *response,
         };
         let view = ArchiveView {
-            label: request.kind.label_for(&request.path),
-            size: request.size,
-            entries: extracted.entries,
             download_href: format!("/{}?download=1", encode_path(&request.archive_rel)),
         };
         return list_dir_with(
@@ -1398,9 +1666,6 @@ fn redirect(location: &str) -> Response {
 }
 
 struct ArchiveView {
-    label: String,
-    size: u64,
-    entries: usize,
     download_href: String,
 }
 
@@ -1466,17 +1731,32 @@ async fn list_dir_with(
             .then_with(|| a.1.to_lowercase().cmp(&b.1.to_lowercase()))
     });
 
+    // Folder zips would bypass the untrusted-file interstitial and --safe
+    // filtering, so both modes keep the action off the page and the route shut.
+    let can_zip = archive.is_none() && state.trust.trusted && !state.safe;
     let mut dir_rows = String::new();
     let mut file_rows = String::new();
     for (is_dir, name, metadata) in &entries {
         let href = join_href(rel, name, *is_dir);
         if *is_dir {
+            let zip_link = if can_zip {
+                format!(
+                    "<a class=\"dl zip\" href=\"{href}?download=zip\" \
+                     aria-label=\"打包下载 {name}\" data-tip=\"下载\" data-zip=\"1\">{download}\
+                     <span class=\"dl-label\">下载</span></a>",
+                    name = escape_html(name),
+                    download = icon("download")
+                )
+            } else {
+                String::new()
+            };
             dir_rows.push_str(&format!(
                 "<div class=\"dir-row\"><span class=\"file-icon folder\">{icon}</span>\
                  <a class=\"nm\" href=\"{href}\">{name}</a>\
-                 <span class=\"row-kind\">目录</span><span class=\"row-actions\"></span></div>",
+                 <span class=\"row-actions\">{zip_link}</span></div>",
                 icon = icon("folder"),
-                name = escape_html(name)
+                name = escape_html(name),
+                zip_link = zip_link
             ));
         } else {
             let size_label = format_size(metadata.len());
@@ -1485,7 +1765,7 @@ async fn list_dir_with(
             let source_link = if html && !state.safe {
                 format!(
                     "<a class=\"dl\" href=\"{href}?raw=1\" title=\"查看 {name} 源码\" \
-                     aria-label=\"查看 {name} 源码\">{code}</a>",
+                     aria-label=\"查看 {name} 源码\">{code}<span class=\"dl-label\">源码</span></a>",
                     name = escape_html(name),
                     code = icon("code")
                 )
@@ -1498,8 +1778,12 @@ async fn list_dir_with(
                  <span class=\"meta-size\">{size}</span>\
                  <span class=\"meta-time\">{time}</span>\
                  <span class=\"row-actions\">{source_link}\
-                 <a class=\"dl\" href=\"{href}?download=1\" title=\"下载 {name}\" \
-                 aria-label=\"下载 {name}\">{download}</a></span></div>",
+                 <a class=\"dl\" href=\"{href}?download=1\" data-tip=\"下载\" \
+                 aria-label=\"下载 {name}\">{download}<span class=\"dl-label\">下载</span></a>\
+                 <span class=\"row-more more-menu\" hidden><button class=\"dl more-btn\" type=\"button\" \
+                 aria-label=\"更多操作\" data-tip=\"更多\">{more}</button>\
+                 <div class=\"more-panel\" hidden><div class=\"page-actions\"></div></div></span>\
+                 </span></div>",
                 icon = if html {
                     icon("file-code")
                 } else {
@@ -1509,7 +1793,8 @@ async fn list_dir_with(
                 size = size_label,
                 time = time_label,
                 source_link = source_link,
-                download = icon("download")
+                download = icon("download"),
+                more = icon("more")
             ));
         }
     }
@@ -1527,20 +1812,25 @@ async fn list_dir_with(
         rel.rsplit('/').next().unwrap_or(rel).to_string()
     };
     let crumbs = page_crumbs(state, rel, PageKind::Dir);
-    let mut head = PageHead::new("dir-head", &crumbs, dir_name.clone());
-    head = match archive {
-        Some(view) => head
-            .meta(PageMeta::with_icon("file", view.label.clone()))
-            .meta(PageMeta::text(format_size(view.size)))
-            .meta(PageMeta::text(format!("{} 个条目", view.entries)))
-            .action(
+    let gap_crumb = gap_crumb_html(&crumbs);
+    // The archive download is the only directory-level action; it sits on the
+    // left of the main island head like every other file action.
+    let island_head = archive.as_ref().and_then(|view| {
+        island_head_html(
+            &[
                 PageAction::link(view.download_href.clone(), "下载压缩包", "download")
                     .aria("下载压缩包"),
-            ),
-        None => head.meta(PageMeta::text(format!("{} 个项目", entries.len()))),
-    };
-    let topbar = head.render_topbar();
-    let body = format!("<div class=\"content-card\">{sections}</div>");
+            ],
+            &[],
+            false,
+        )
+    });
+    let body = format!(
+        "<div class=\"content-card\">{island_head}{sections}</div>{overlay}",
+        island_head = island_head.as_deref().unwrap_or_default(),
+        sections = sections,
+        overlay = if can_zip { zip_overlay_html() } else { "" }
+    );
     html_page(
         state,
         StatusCode::OK,
@@ -1550,7 +1840,9 @@ async fn list_dir_with(
             query: String::new(),
             kind: PageKind::Dir,
             body,
-            topbar: Some(topbar),
+            topbar_title: None,
+            gap_crumb,
+            island_head,
         },
         is_head,
     )
@@ -1603,6 +1895,7 @@ async fn search(
             .unwrap_or_default()
     };
     let crumbs = page_crumbs(&state, "", PageKind::Search);
+    let gap_crumb = gap_crumb_html(&crumbs);
     let body = render_search(&q, &results, &crumbs);
     html_page(
         &state,
@@ -1617,7 +1910,9 @@ async fn search(
             query: q,
             kind: PageKind::Search,
             body,
-            topbar: None,
+            topbar_title: None,
+            gap_crumb,
+            island_head: None,
         },
         is_head,
     )
@@ -2401,10 +2696,6 @@ async fn source_page(
     } else {
         None
     };
-    let html_toolbar = preview_href
-        .as_deref()
-        .map(|href| html_toolbar_html(rel, href))
-        .unwrap_or_default();
     let notice_html = notice
         .map(|text| {
             format!(
@@ -2466,15 +2757,31 @@ async fn source_page(
                 .title(format!("检测编码：{encoding_label}")),
         )
         .meta(PageMeta::text(format!("{line_count} 行")))
-        .meta(PageMeta::text(format!("更新于 {mtime_label}")));
+        .meta(PageMeta::text(mtime_label.clone()));
+    // Order: search, copy, download, then the remaining actions.
+    head = head
+        .action(PageAction::button("find-open", "搜索", "search").aria("在文件中搜索"))
+        .action(PageAction::button("copy-file", "复制", "copy").aria("复制全文"))
+        .action(PageAction::link(
+            format!("/{}?download=1", encode_path(rel)),
+            "下载文件",
+            "download",
+        ));
     if info.kind == Kind::Markdown {
-        head = head
-            .action(PageAction::link(format!("/{}", encode_path(rel)), "预览", "book").primary());
+        head = head.action(PageAction::link(
+            format!("/{}", encode_path(rel)),
+            "预览",
+            "book",
+        ));
+    } else if let Some(href) = preview_href {
+        head = head.action(PageAction::link(href, "预览", "book"));
     }
-    let topbar = head.render_topbar();
+    head = head.topbar_title().island().file_tools();
+    let island_head = head.render_island_head();
+    let gap_crumb = head.render_gap_crumb();
     let body = format!(
-        "<div class=\"content-card\">{html_toolbar}{notice_html}{source_markup}</div>",
-        html_toolbar = html_toolbar,
+        "<div class=\"content-card\">{island_head}{notice_html}{source_markup}</div>",
+        island_head = island_head.as_deref().unwrap_or_default(),
         notice_html = notice_html,
         source_markup = source_markup
     );
@@ -2487,22 +2794,13 @@ async fn source_page(
             query: String::new(),
             kind: PageKind::Source,
             body,
-            topbar: Some(topbar),
+            topbar_title: Some(name.to_string()),
+            gap_crumb,
+            island_head,
         },
         is_head,
     )
     .await
-}
-
-fn html_toolbar_html(rel: &str, preview_href: &str) -> String {
-    let encoded = encode_path(rel);
-    let source_href = escape_html(&format!("/{encoded}?raw=1"));
-    format!(
-        "<div class=\"html-toolbar\"><div class=\"segmented\" role=\"group\" aria-label=\"HTML 文件视图\">\
-         <a class=\"seg\" href=\"{preview_href}\">预览</a>\
-         <a class=\"seg is-active\" href=\"{source_href}\" aria-current=\"page\">源码</a></div></div>",
-        preview_href = escape_html(preview_href)
-    )
 }
 
 async fn render_page(state: &AppState, path: &Path, rel: &str, is_head: bool) -> Response {
@@ -2525,9 +2823,9 @@ async fn render_page(state: &AppState, path: &Path, rel: &str, is_head: bool) ->
         cache
             .get(path)
             .filter(|entry| entry.mtime == mtime && entry.size == size)
-            .map(|entry| (entry.html.clone(), entry.encoding.clone()))
+            .map(|entry| (entry.html.clone(), entry.encoding.clone(), entry.lines))
     };
-    let (rendered, encoding_label) = if let Some(cached) = cached {
+    let (rendered, encoding_label, line_count) = if let Some(cached) = cached {
         cached
     } else {
         let bytes = match tokio::fs::read(path).await {
@@ -2550,6 +2848,8 @@ async fn render_page(state: &AppState, path: &Path, rel: &str, is_head: bool) ->
             return serve_file(state, path, &info, size, true, is_head).await;
         };
         let encoding_label = decoded.label();
+        // Same counting rule as the source page so both views agree.
+        let line_count = decoded.text.split('\n').count();
         let html = render_markdown_with_sourcepos(&decoded.text, rel);
         let mut cache = state.cache.lock().unwrap();
         if cache.len() > 128 {
@@ -2561,10 +2861,11 @@ async fn render_page(state: &AppState, path: &Path, rel: &str, is_head: bool) ->
                 mtime,
                 size,
                 encoding: encoding_label.clone(),
+                lines: line_count,
                 html: html.clone(),
             },
         );
-        (html, encoding_label)
+        (html, encoding_label, line_count)
     };
 
     let name = path
@@ -2589,16 +2890,19 @@ async fn render_page(state: &AppState, path: &Path, rel: &str, is_head: bool) ->
                 .class("doc-encoding")
                 .title(format!("检测编码：{encoding_label}")),
         )
-        .meta(PageMeta::text(format!("更新于 {}", format_mtime(mtime))))
-        .action(PageAction::link(
-            format!("/{encoded}?raw=1"),
-            "源码",
-            "code",
-        ))
+        .meta(PageMeta::text(format!("{line_count} 行")))
+        .meta(PageMeta::text(format_mtime(mtime)))
+        .action(PageAction::button("find-open", "搜索", "search").aria("在文件中搜索"))
+        .action(PageAction::button("copy-file", "复制", "copy").aria("复制全文"))
         .action(PageAction::link(
             format!("/{encoded}?download=1"),
             "下载",
             "download",
+        ))
+        .action(PageAction::link(
+            format!("/{encoded}?raw=1"),
+            "源码",
+            "code",
         ))
         .action(
             PageAction::button("export-png", "导出图片", "image")
@@ -2610,12 +2914,17 @@ async fn render_page(state: &AppState, path: &Path, rel: &str, is_head: bool) ->
             PageAction::button("export-pdf", "导出 PDF", "print")
                 .class("export-action")
                 .aria("导出 PDF"),
-        );
-    let topbar = head.render_topbar();
+        )
+        .topbar_title()
+        .island()
+        .file_tools();
+    let island_head = head.render_island_head();
+    let gap_crumb = head.render_gap_crumb();
     let body = format!(
-        "<article class=\"content-card doc-card\">\
+        "<article class=\"content-card doc-card\">{island_head}\
          <div class=\"toc-inline\" id=\"toc-slot\"><details class=\"toc\"><summary>本页目录</summary><nav class=\"toc-list\" aria-label=\"本页目录\"></nav></details></div>\
          <div class=\"doc-prose\"><article class=\"markdown-body\">{rendered}</article></div></article>",
+        island_head = island_head.as_deref().unwrap_or_default(),
         rendered = rendered
     );
     html_page(
@@ -2627,7 +2936,9 @@ async fn render_page(state: &AppState, path: &Path, rel: &str, is_head: bool) ->
             query: String::new(),
             kind: PageKind::Doc,
             body,
-            topbar: Some(topbar),
+            topbar_title: Some(name.to_string()),
+            gap_crumb,
+            island_head,
         },
         is_head,
     )
@@ -2659,7 +2970,9 @@ async fn interstitial_page(state: &AppState, rel: &str, is_head: bool) -> Respon
             query: String::new(),
             kind: PageKind::Other,
             body,
-            topbar: None,
+            topbar_title: None,
+            gap_crumb: None,
+            island_head: None,
         },
         is_head,
     )
@@ -2881,8 +3194,9 @@ struct Page {
     query: String,
     kind: PageKind,
     body: String,
-    /// Rendered page identity for the global topbar (C layout).
-    topbar: Option<String>,
+    topbar_title: Option<String>,
+    gap_crumb: Option<String>,
+    island_head: Option<String>,
 }
 
 fn icon(name: &str) -> &'static str {
@@ -2910,6 +3224,9 @@ fn icon(name: &str) -> &'static str {
         }
         "print" => {
             r#"<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>"#
+        }
+        "close" => {
+            r#"<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>"#
         }
         "copy" => {
             r#"<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>"#
@@ -3048,6 +3365,24 @@ impl PageMeta {
         self
     }
 
+    /// Plain-text variant used by the gap strip: no border, no padding, just
+    /// the label with an optional highlight class.
+    fn render_text(&self) -> String {
+        let class = self
+            .class
+            .map(|class| format!(" {class}"))
+            .unwrap_or_default();
+        let title = self
+            .title
+            .as_deref()
+            .map(|title| format!(" title=\"{}\"", escape_html(title)))
+            .unwrap_or_default();
+        format!(
+            "<span class=\"island-meta-item{class}\"{title}>{label}</span>",
+            label = escape_html(&self.label)
+        )
+    }
+
     fn render(&self) -> String {
         let icon = self.icon.map(icon).unwrap_or_default();
         let class = self
@@ -3107,13 +3442,6 @@ impl PageAction {
         }
     }
 
-    fn primary(mut self) -> Self {
-        if let Self::Link { primary, .. } = &mut self {
-            *primary = true;
-        }
-        self
-    }
-
     fn aria(mut self, aria: &'static str) -> Self {
         match &mut self {
             Self::Link { aria: slot, .. } | Self::Button { aria: slot, .. } => {
@@ -3146,12 +3474,13 @@ impl PageAction {
                 primary,
                 aria,
             } => format!(
-                "<a class=\"action{primary}\" href=\"{href}\"{aria}>{icon}<span>{label}</span></a>",
+                "<a class=\"action{primary}\" href=\"{href}\" data-tip=\"{label}\"{aria}>\
+                 {icon}<span>{label}</span></a>",
                 primary = if *primary { " primary" } else { "" },
                 href = escape_html(href),
                 aria = aria
                     .map(|aria| format!(" aria-label=\"{}\"", escape_html(aria)))
-                    .unwrap_or_default(),
+                    .unwrap_or_else(|| format!(" aria-label=\"{}\"", escape_html(label))),
                 icon = icon(icon_name),
                 label = escape_html(label)
             ),
@@ -3168,18 +3497,69 @@ impl PageAction {
                     .map(|(name, value)| format!(" data-{name}=\"{}\"", escape_html(value)))
                     .collect::<String>();
                 format!(
-                    "<button class=\"action{class}\" type=\"button\" id=\"{id}\"{data}\
+                    "<button class=\"action{class}\" type=\"button\" id=\"{id}\" data-tip=\"{label}\"{data}\
                      {aria}>{icon}<span>{label}</span></button>",
                     class = class.map(|class| format!(" {class}")).unwrap_or_default(),
                     aria = aria
                         .map(|aria| format!(" aria-label=\"{}\"", escape_html(aria)))
-                        .unwrap_or_default(),
+                        .unwrap_or_else(|| format!(" aria-label=\"{}\"", escape_html(label))),
                     icon = icon(icon_name),
                     label = escape_html(label)
                 )
             }
         }
     }
+}
+
+/// Topbar "more" menu for page actions.
+fn gap_crumb_html(crumbs: &str) -> Option<String> {
+    if crumbs.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "<nav class=\"crumbs\" aria-label=\"面包屑\">{crumbs}</nav>"
+    ))
+}
+
+/// Sticky top row of the main island: actions on the left, file metadata on
+/// the right. The "more" popup is empty by default; the island-head runtime
+/// moves the action nodes into it when the row gets too narrow.
+fn island_head_html(actions: &[PageAction], meta: &[PageMeta], file_tools: bool) -> Option<String> {
+    if actions.is_empty() && meta.is_empty() {
+        return None;
+    }
+    let actions_html = actions.iter().map(PageAction::render).collect::<String>();
+    let meta_html = meta
+        .iter()
+        .map(PageMeta::render_text)
+        .collect::<Vec<_>>()
+        .join("<span class=\"island-meta-sep\">·</span>");
+    let find_panel = if file_tools {
+        format!(
+            "<div class=\"find-panel\" id=\"find-panel\" role=\"search\" aria-label=\"在文件中查找\" hidden>\
+             <input id=\"find-input\" class=\"find-input\" type=\"search\" \
+             placeholder=\"在文件中查找\" aria-label=\"在文件中查找\" autocomplete=\"off\">\
+             <span class=\"find-count\" id=\"find-count\" role=\"status\" aria-live=\"polite\">0/0</span>\
+             <button class=\"icon-btn find-prev\" type=\"button\" aria-label=\"上一个匹配\" \
+             data-tip=\"上一个\">{chevron}</button>\
+             <button class=\"icon-btn find-next\" type=\"button\" aria-label=\"下一个匹配\" \
+             data-tip=\"下一个\">{chevron}</button>\
+             <button class=\"icon-btn find-close\" type=\"button\" aria-label=\"关闭查找\" \
+             data-tip=\"关闭\">{close}</button></div>",
+            chevron = icon("chevron"),
+            close = icon("close")
+        )
+    } else {
+        String::new()
+    };
+    Some(format!(
+        "<div class=\"island-head\"><div class=\"island-actions\">{actions_html}</div>\
+         <div class=\"more-menu island-more\"><button class=\"icon-btn more-btn\" type=\"button\" \
+         aria-label=\"更多\" data-tip=\"更多\" aria-expanded=\"false\">{more}</button>\
+         <div class=\"more-panel\" hidden><div class=\"page-actions\"></div></div></div>\
+         <div class=\"island-meta\">{meta_html}</div>{find_panel}</div>",
+        more = icon("more")
+    ))
 }
 
 /// Shared header for Markdown, source, directory and search pages.
@@ -3195,6 +3575,9 @@ struct PageHead {
     meta: Vec<PageMeta>,
     actions: Vec<PageAction>,
     aside: Option<String>,
+    island_layout: bool,
+    title_in_topbar: bool,
+    file_tools: bool,
 }
 
 impl PageHead {
@@ -3207,7 +3590,40 @@ impl PageHead {
             meta: Vec::new(),
             actions: Vec::new(),
             aside: None,
+            island_layout: false,
+            title_in_topbar: false,
+            file_tools: false,
         }
+    }
+
+    /// Move the file title to the centered topbar slot.
+    fn topbar_title(mut self) -> Self {
+        self.title_in_topbar = true;
+        self
+    }
+
+    /// Move the metadata and actions into the sticky row at the top of the
+    /// main island. The breadcrumb is rendered by [`render_gap_crumb`].
+    fn island(mut self) -> Self {
+        self.island_layout = true;
+        self
+    }
+
+    /// Enable the in-file search panel and the copy-full-text action.
+    fn file_tools(mut self) -> Self {
+        self.file_tools = true;
+        self
+    }
+
+    fn render_island_head(&self) -> Option<String> {
+        if !self.island_layout {
+            return None;
+        }
+        island_head_html(&self.actions, &self.meta, self.file_tools)
+    }
+
+    fn render_gap_crumb(&self) -> Option<String> {
+        gap_crumb_html(&self.crumbs)
     }
 
     fn subtitle(mut self, text: impl Into<String>) -> Self {
@@ -3231,56 +3647,13 @@ impl PageHead {
         self
     }
 
-    /// Identity/actions for the global topbar (C layout). The content card
-    /// no longer renders a page head on document/source/directory pages.
-    fn render_topbar(&self) -> String {
-        let path = if self.crumbs.is_empty() {
-            String::new()
-        } else {
-            format!(
-                "<div class=\"topbar-path\"><nav class=\"crumbs\" aria-label=\"面包屑\">{}</nav></div>",
-                self.crumbs
-            )
-        };
-        let meta = if self.meta.is_empty() {
-            String::new()
-        } else {
-            format!(
-                "<div class=\"page-meta\">{}</div>",
-                self.meta.iter().map(PageMeta::render).collect::<String>()
-            )
-        };
-        let context = format!(
-            "<div class=\"topbar-context\"><h1>{}</h1>{}</div>",
-            escape_html(&self.title),
-            meta
-        );
-        let actions = if self.actions.is_empty() {
-            String::new()
-        } else {
-            format!(
-                "<div class=\"topbar-page-actions\"><div class=\"action-menu\">\
-                 <button class=\"icon-btn action-menu-btn\" type=\"button\" aria-label=\"页面操作\" aria-expanded=\"false\" title=\"页面操作（源码 / 下载 / 导出）\">{more}</button>\
-                 <div class=\"action-panel\" hidden><div class=\"page-actions\">{actions}</div></div>\
-                 </div></div>",
-                more = icon("more"),
-                actions = self
-                    .actions
-                    .iter()
-                    .map(PageAction::render)
-                    .collect::<String>()
-            )
-        };
-        format!("{path}{context}{actions}")
-    }
-
     fn render(&self) -> String {
         let subtitle = self
             .subtitle
             .as_ref()
             .map(|text| format!("<p class=\"page-subtitle\">{}</p>", escape_html(text)))
             .unwrap_or_default();
-        let meta = if self.meta.is_empty() {
+        let meta = if self.meta.is_empty() || self.island_layout {
             String::new()
         } else {
             format!(
@@ -3288,7 +3661,7 @@ impl PageHead {
                 self.meta.iter().map(PageMeta::render).collect::<String>()
             )
         };
-        let actions = if self.actions.is_empty() {
+        let actions = if self.actions.is_empty() || self.island_layout {
             String::new()
         } else {
             format!(
@@ -3304,16 +3677,26 @@ impl PageHead {
         } else {
             "head-inner page-head-inner"
         };
-        format!(
-            "<header class=\"page-head {kind}\"><div class=\"{inner_class}\">\
-             <div class=\"grow\"><nav class=\"crumbs\" aria-label=\"面包屑\">{crumbs}</nav>\
-             <h1>{title}</h1>{subtitle}{meta}</div>{aside}{actions}\
-             </div></header>",
-            kind = self.kind,
-            crumbs = self.crumbs,
-            title = escape_html(&self.title),
-            aside = self.aside.as_deref().unwrap_or_default()
-        )
+        let has_header = !self.title_in_topbar
+            || !meta.is_empty()
+            || self.aside.is_some()
+            || !actions.is_empty();
+        if has_header {
+            format!(
+                "<header class=\"page-head {kind}\"><div class=\"{inner_class}\">\
+                 <div class=\"grow\">{title_tag}{subtitle}{meta}</div>{aside}{actions}\
+                 </div></header>",
+                kind = self.kind,
+                title_tag = if self.title_in_topbar {
+                    String::new()
+                } else {
+                    format!("<h1>{}</h1>", escape_html(&self.title))
+                },
+                aside = self.aside.as_deref().unwrap_or_default()
+            )
+        } else {
+            String::new()
+        }
     }
 }
 
@@ -3321,7 +3704,8 @@ fn topbar_search(query: &str) -> String {
     format!(
         "<div class=\"search-wrap\">\
          <a class=\"icon-btn search-open\" id=\"search-open\" href=\"/search?__mdview=search\" \
-         aria-label=\"搜索\" title=\"搜索（/）\" aria-expanded=\"false\">{search}</a>\
+         aria-label=\"全局搜索\" data-tip=\"全局搜索\" \
+         aria-expanded=\"false\">{search}</a>\
          <div class=\"search-pop\" id=\"search-pop\" hidden>\
          <form class=\"search-form\" id=\"search-form\" action=\"/search\" method=\"get\" role=\"search\">\
          <input type=\"hidden\" name=\"__mdview\" value=\"search\">\
@@ -3357,25 +3741,30 @@ async fn html_page(state: &AppState, status: StatusCode, page: Page, is_head: bo
         PageKind::Search => "search",
         PageKind::Other => "other",
     };
-    let has_topbar = page.topbar.is_some();
-    let topbar_class = if has_topbar {
-        "topbar has-context"
+    let has_gap_crumb = page.gap_crumb.is_some();
+    let has_island_head = page.island_head.is_some();
+    let app_class = if has_gap_crumb {
+        "app has-gap-crumb"
     } else {
-        "topbar"
+        "app"
     };
     let mut islands = vec!["theme", "nav"];
     if !state.no_search {
         islands.push("search");
     }
-    if page
-        .topbar
-        .as_deref()
-        .map(|topbar| topbar.contains("class=\"action-menu\""))
-        .unwrap_or(false)
-    {
-        islands.push("actions");
+    if has_island_head {
+        islands.extend(["islandhead", "more"]);
+    }
+    if page.kind == PageKind::Dir {
+        islands.extend(["dirrows", "dirzip"]);
+        if !has_island_head {
+            islands.push("more");
+        }
     }
     islands.push("totop");
+    if is_doc || page.kind == PageKind::Source {
+        islands.push("filetools");
+    }
     if is_doc {
         islands.extend(["toc", "linetarget", "code", "zoom", "export"]);
     }
@@ -3404,14 +3793,17 @@ async fn html_page(state: &AppState, status: StatusCode, page: Page, is_head: bo
          <script nonce=\"{nonce}\" src=\"/_assets/app.js?__mdview=asset&v={version}\" defer></script>\
          </head><body data-totop=\"1\" data-page=\"{page_class}\" data-islands=\"{islands}\" \
          data-current-path=\"{current_path}\" data-current-dir=\"{current_is_dir}\">\
-         <div class=\"app\"><header class=\"{topbar_class}\">\
-         <button class=\"icon-btn nav-toggle\" id=\"nav-toggle\" type=\"button\" aria-label=\"打开全站导航\" aria-expanded=\"false\">{panel}</button>\
-         {topbar}\
-         <div class=\"topbar-actions\">{search}<button class=\"icon-btn theme-toggle\" id=\"theme-toggle\" type=\"button\" aria-label=\"切换主题\" title=\"主题：跟随系统\">\
+         <div class=\"{app_class}\"><header class=\"topbar\">\
+         <button class=\"icon-btn nav-toggle\" id=\"nav-toggle\" type=\"button\" aria-label=\"打开全站导航\" \
+         data-tip=\"全站导航\" aria-expanded=\"false\">{panel}</button>\
+         {topbar_title}\
+         <div class=\"topbar-actions\">{search}<button class=\"icon-btn theme-toggle\" id=\"theme-toggle\" type=\"button\" aria-label=\"切换主题\" \
+         data-tip=\"主题：跟随系统\">\
          <span class=\"theme-icon theme-system\">{monitor}</span>\
          <span class=\"theme-icon theme-light\">{sun}</span>\
          <span class=\"theme-icon theme-dark\">{moon}</span></button></div>\
          </header>\
+         {gap_crumb}\
          <aside class=\"nav-panel\" id=\"nav-panel\" data-root=\"{root}\" aria-label=\"全站导航\" aria-hidden=\"true\"></aside>\
          <div class=\"nav-scrim\" id=\"nav-scrim\"></div>\
          <div class=\"{shell_class}\" id=\"shell\"><main class=\"main\">{body}</main>{toc_rail}</div></div></body></html>",
@@ -3424,8 +3816,20 @@ async fn html_page(state: &AppState, status: StatusCode, page: Page, is_head: bo
         current_path = escape_html(current_path),
         current_is_dir = current_is_dir,
         panel = icon("panel"),
-        topbar_class = topbar_class,
-        topbar = page.topbar.as_deref().unwrap_or(""),
+        app_class = app_class,
+        gap_crumb = page
+            .gap_crumb
+            .as_deref()
+            .map(|crumbs| format!("<div class=\"gap-crumb\">{}</div>", crumbs))
+            .unwrap_or_default(),
+        topbar_title = page
+            .topbar_title
+            .as_deref()
+            .map(|title| format!(
+                "<div class=\"topbar-title\"><h1>{}</h1></div>",
+                escape_html(title)
+            ))
+            .unwrap_or_default(),
         search = search,
         shell_class = shell_class,
         toc_rail = toc_rail,
@@ -3479,7 +3883,9 @@ async fn error_page(
             query: String::new(),
             kind: PageKind::Other,
             body,
-            topbar: None,
+            topbar_title: None,
+            gap_crumb: None,
+            island_head: None,
         },
         is_head,
     )
@@ -4154,7 +4560,8 @@ mod tests {
         let html = String::from_utf8(body).unwrap();
         assert!(html.contains("id=\"L1\""));
         assert!(html.contains("hello"));
-        assert!(!html.contains("?download=1"), "{html}");
+        assert!(html.contains("class=\"more-panel\""), "{html}");
+        assert!(html.contains("b.txt?download=1"), "{html}");
 
         let (status, _, body) = call(app.clone(), Method::GET, "/a.md?raw=1").await;
         assert_eq!(status, StatusCode::OK);
@@ -4164,7 +4571,7 @@ mod tests {
         assert!(html.contains("href=\"/a.md\""), "{html}");
         assert!(html.contains("id=\"L1\""), "{html}");
         assert!(html.contains("&lt;1 KB"), "{html}");
-        assert!(html.contains("更新于"), "{html}");
+        assert!(html.contains("island-meta-item"), "{html}");
 
         let (status, _, body) = call(app.clone(), Method::GET, "/b.txt").await;
         assert_eq!(status, StatusCode::OK);
@@ -4172,7 +4579,7 @@ mod tests {
         assert!(html.contains("<h1>b.txt</h1>"), "{html}");
         assert!(html.contains(">文本<"), "{html}");
         assert!(
-            html.contains("title=\"检测编码：UTF-8\"><span>UTF-8</span>"),
+            html.contains("title=\"检测编码：UTF-8\">UTF-8</span>"),
             "{html}"
         );
         assert!(html.contains("3 行"), "{html}");
@@ -4253,36 +4660,44 @@ mod tests {
         let dir = fixture();
         let app = app(state(dir.path(), false, 0, 0));
         let cases = [
-            ("/", false),
-            ("/a.md", false),
-            ("/a.md?raw=1", false),
-            ("/search?__mdview=search&q=second", true),
+            "/",
+            "/a.md",
+            "/a.md?raw=1",
+            "/search?__mdview=search&q=second",
         ];
-        for (uri, is_search) in cases {
+        for uri in cases {
             let (status, _, body) = call(app.clone(), Method::GET, uri).await;
             assert_eq!(status, StatusCode::OK, "{uri}");
             let html = String::from_utf8(body).unwrap();
-            if is_search {
-                assert!(
-                    html.contains("class=\"page-head search-head\""),
-                    "{uri}: {html}"
-                );
-            } else {
-                assert!(
-                    html.contains("class=\"topbar has-context\""),
-                    "{uri}: {html}"
-                );
-                assert!(html.contains("class=\"topbar-path\""), "{uri}: {html}");
-                assert!(html.contains("class=\"topbar-context\""), "{uri}: {html}");
-            }
-            assert!(html.contains("class=\"page-meta\""), "{uri}: {html}");
+            assert!(html.contains("class=\"gap-crumb\""), "{uri}: {html}");
+            assert!(html.contains("class=\"crumbs\""), "{uri}: {html}");
         }
+
+        // Only the search page still owns a content page head; file pages keep
+        // their identity in the topbar, gap breadcrumb and island head.
+        let (_, _, body) = call(app.clone(), Method::GET, "/search?__mdview=search&q=second").await;
+        let html = String::from_utf8(body).unwrap();
+        assert!(
+            html.contains("<header class=\"page-head search-head\">"),
+            "{html}"
+        );
 
         let (_, _, body) = call(app, Method::GET, "/a.md").await;
         let html = String::from_utf8(body).unwrap();
-        assert!(html.contains("<h1>a.md</h1>"), "{html}");
-        assert!(html.contains("class=\"badge doc-kind\""), "{html}");
+        assert!(
+            html.contains("<div class=\"topbar-title\"><h1>a.md</h1></div>"),
+            "{html}"
+        );
+        assert!(html.contains("class=\"island-head\""), "{html}");
+        assert!(html.contains("id=\"find-open\""), "{html}");
+        assert!(html.contains("id=\"copy-file\""), "{html}");
+        assert!(html.contains("id=\"find-panel\""), "{html}");
+        assert!(
+            html.contains("class=\"island-meta-item doc-kind\""),
+            "{html}"
+        );
         assert!(html.contains("class=\"page-actions\""), "{html}");
+        assert!(!html.contains("page-head"), "{html}");
         assert!(!html.contains("class=\"sr-only\">a.md"), "{html}");
     }
 
@@ -4301,7 +4716,7 @@ mod tests {
         assert!(html.contains("class=\"toc-rail\" id=\"toc-rail\""));
         assert!(html.contains("id=\"toc-slot\""));
         assert!(html.contains(
-            "data-islands=\"theme nav search actions totop toc linetarget code zoom export\""
+            "data-islands=\"theme nav search islandhead more totop filetools toc linetarget code zoom export\""
         ));
         assert!(html.contains("id=\"export-png\""));
         assert!(html.contains("data-export-name=\"a\""));
@@ -4439,7 +4854,7 @@ mod tests {
         let html = String::from_utf8(body).unwrap();
         assert!(html.contains("中文标题"), "{html}");
         assert!(
-            html.contains("class=\"page-meta\"") && html.contains("Markdown"),
+            html.contains("class=\"island-meta-item doc-kind\"") && html.contains("Markdown"),
             "{html}"
         );
         assert!(html.contains("GBK"), "{html}");
@@ -4448,7 +4863,7 @@ mod tests {
         let html = String::from_utf8(body).unwrap();
         assert!(html.contains("source-encoding"), "{html}");
         assert!(
-            html.contains("title=\"检测编码：GBK\"><span>GBK</span>"),
+            html.contains("title=\"检测编码：GBK\">GBK</span>"),
             "{html}"
         );
         assert!(html.contains("中文标题"), "{html}");
@@ -4466,7 +4881,7 @@ mod tests {
         let (_, _, body) = call(app.clone(), Method::GET, "/gbk.txt").await;
         let html = String::from_utf8(body).unwrap();
         assert!(
-            html.contains("title=\"检测编码：GBK\"><span>GBK</span>"),
+            html.contains("title=\"检测编码：GBK\">GBK</span>"),
             "{html}"
         );
         assert!(html.contains("编码测试 GBK 文本"), "{html}");
@@ -4502,7 +4917,7 @@ mod tests {
         let (_, _, body) = call(app.clone(), Method::GET, "/utf16.txt").await;
         let html = String::from_utf8(body).unwrap();
         assert!(
-            html.contains("title=\"检测编码：UTF-16LE BOM\"><span>UTF-16LE BOM</span>"),
+            html.contains("title=\"检测编码：UTF-16LE BOM\">UTF-16LE BOM</span>"),
             "{html}"
         );
         assert!(html.contains("UTF-16LE 文本"), "{html}");
@@ -4620,7 +5035,7 @@ mod tests {
         .await;
         assert_eq!(status, StatusCode::OK);
         let html = String::from_utf8(body).unwrap();
-        assert!(html.contains("html-toolbar"), "{html}");
+        assert!(html.contains("more-panel"), "{html}");
         assert!(
             html.contains("href=\"http://localhost:8001/page.html\""),
             "{html}"
@@ -4640,7 +5055,7 @@ mod tests {
         let html = String::from_utf8(body).unwrap();
         assert!(html.starts_with("<!doctype html>"), "{html}");
         assert!(html.contains("<h1>Page</h1>"), "{html}");
-        assert!(!html.contains("html-toolbar"), "{html}");
+        assert!(!html.contains("more-btn"), "{html}");
         assert!(!html.contains("<iframe"), "{html}");
 
         // Real asset MIME on the static origin.
@@ -4780,7 +5195,7 @@ mod tests {
             let html = String::from_utf8(body).unwrap();
             assert!(html.starts_with("<!doctype html>"), "{uri}: {html}");
             assert!(html.contains("<h1>Page</h1>"), "{uri}: {html}");
-            assert!(!html.contains("html-toolbar"), "{uri}: {html}");
+            assert!(!html.contains("more-btn"), "{uri}: {html}");
             assert!(!html.contains("<iframe"), "{uri}: {html}");
         }
 
@@ -4802,8 +5217,8 @@ mod tests {
         let (status, _, body) = call(app, Method::GET, "/page.html?raw=1").await;
         assert_eq!(status, StatusCode::OK);
         let html = String::from_utf8(body).unwrap();
-        assert!(html.contains("html-toolbar"), "{html}");
-        assert!(html.contains("href=\"/page.html?raw=1\""), "{html}");
+        assert!(html.contains("more-panel"), "{html}");
+        assert!(html.contains("href=\"/page.html\""), "{html}");
         assert!(!html.contains("<iframe"), "{html}");
     }
 
@@ -4817,7 +5232,7 @@ mod tests {
             let html = String::from_utf8(body).unwrap();
             assert!(html.contains("<h1>page.html</h1>"), "{uri}: {html}");
             assert!(!html.contains("<iframe"), "{uri}: {html}");
-            assert!(!html.contains("html-toolbar"), "{uri}: {html}");
+            assert!(!html.contains(">预览<"), "{uri}: {html}");
         }
         let (_, _, body) = call(app, Method::GET, "/").await;
         let html = String::from_utf8(body).unwrap();
@@ -4907,6 +5322,93 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn directory_zip_download_and_token() {
+        let dir = fixture();
+        let app = app(state(dir.path(), false, 0, 0));
+
+        let (status, headers, body) = call(app.clone(), Method::GET, "/sub/?download=zip").await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            headers.get(header::CONTENT_TYPE).unwrap(),
+            "application/zip"
+        );
+        assert!(
+            headers
+                .get(header::CONTENT_DISPOSITION)
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .contains("sub.zip")
+        );
+        assert!(body.starts_with(b"PK"), "zip magic");
+        let mut archive = zip::ZipArchive::new(std::io::Cursor::new(body)).unwrap();
+        let names = (0..archive.len())
+            .map(|index| archive.by_index(index).unwrap().name().unwrap().to_string())
+            .collect::<Vec<_>>();
+        assert!(names.iter().any(|name| name == "sub/c.md"), "{names:?}");
+
+        let (status, headers, body) =
+            call(app.clone(), Method::GET, "/sub/?download=zip&prepare=1").await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            headers
+                .get(header::CONTENT_TYPE)
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .starts_with("application/json")
+        );
+        let value: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let token = value["token"].as_str().expect("token").to_string();
+        let uri = format!("/sub/?download=zip&token={token}");
+        let (status, _, body) = call(app.clone(), Method::GET, &uri).await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(body.starts_with(b"PK"));
+        // The token is single use.
+        let (status, _, _) = call(app, Method::GET, &uri).await;
+        assert_eq!(status, StatusCode::GONE);
+    }
+
+    #[tokio::test]
+    async fn directory_zip_requires_trust_and_skips_archives() {
+        let dir = fixture();
+        let (_, _, body) = call(app(state(dir.path(), false, 0, 0)), Method::GET, "/").await;
+        let html = String::from_utf8(body).unwrap();
+        assert!(html.contains("download=zip"), "{html}");
+        assert!(html.contains("data-zip=\"1\""), "{html}");
+        assert!(html.contains("id=\"zip-overlay\""), "{html}");
+
+        let untrusted = app(state_untrusted(dir.path(), false, 0, 0));
+        let (status, _, _) = call(untrusted.clone(), Method::GET, "/sub/?download=zip").await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        let (_, _, body) = call(untrusted, Method::GET, "/").await;
+        let html = String::from_utf8(body).unwrap();
+        assert!(!html.contains("download=zip"), "{html}");
+        assert!(!html.contains("id=\"zip-overlay\""), "{html}");
+
+        let safe = app(state(dir.path(), true, 0, 0));
+        let (status, _, _) = call(safe.clone(), Method::GET, "/sub/?download=zip").await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        let (_, _, body) = call(
+            app(state(dir.path(), false, 0, 0)),
+            Method::GET,
+            "/sub/?download=zip",
+        )
+        .await;
+        assert!(body.starts_with(b"PK"));
+    }
+
+    #[tokio::test]
+    async fn archive_directories_have_no_folder_zip() {
+        let dir = archive_fixture();
+        let app = app(state(dir.path(), false, 0, 0));
+        let (status, _, body) = call(app, Method::GET, "/sample.zip/").await;
+        assert_eq!(status, StatusCode::OK);
+        let html = String::from_utf8(body).unwrap();
+        assert!(!html.contains("data-zip"), "{html}");
+    }
+
+    #[tokio::test]
     async fn archive_virtual_paths_and_formats() {
         let dir = archive_fixture();
         let app = app(state(dir.path(), false, 0, 0));
@@ -4918,8 +5420,7 @@ mod tests {
         let (status, _, body) = call(app.clone(), Method::GET, "/sample.zip/").await;
         assert_eq!(status, StatusCode::OK);
         let html = String::from_utf8(body).unwrap();
-        assert!(html.contains("<h1>sample.zip</h1>"), "{html}");
-        assert!(html.contains("ZIP") && html.contains("个条目"), "{html}");
+        assert!(html.contains("class=\"current\">sample.zip"), "{html}");
         assert!(html.contains("下载压缩包"), "{html}");
         assert!(html.contains("href=\"/sample.zip/docs/\""), "{html}");
 
@@ -5063,7 +5564,7 @@ mod tests {
         let (status, _, body) = call(app.clone(), Method::GET, "/sample.jar/").await;
         assert_eq!(status, StatusCode::OK);
         let html = String::from_utf8(body).unwrap();
-        assert!(html.contains("JAR"), "{html}");
+        assert!(html.contains("class=\"current\">sample.jar"), "{html}");
         assert!(html.contains("META-INF"), "{html}");
         let (status, _, body) =
             call(app.clone(), Method::GET, "/sample.jar/META-INF/MANIFEST.MF").await;
@@ -5076,7 +5577,11 @@ mod tests {
 
         let (status, _, body) = call(app.clone(), Method::GET, "/sample.epub/").await;
         assert_eq!(status, StatusCode::OK);
-        assert!(String::from_utf8(body).unwrap().contains("EPUB"));
+        assert!(
+            String::from_utf8(body)
+                .unwrap()
+                .contains("class=\"current\">sample.epub")
+        );
         let (status, headers, body) = call(
             app.clone(),
             Method::GET,
@@ -5099,7 +5604,11 @@ mod tests {
 
         let (status, _, body) = call(app.clone(), Method::GET, "/sample.cbz/").await;
         assert_eq!(status, StatusCode::OK);
-        assert!(String::from_utf8(body).unwrap().contains("CBZ"));
+        assert!(
+            String::from_utf8(body)
+                .unwrap()
+                .contains("class=\"current\">sample.cbz")
+        );
         let (status, headers, _) = call(app.clone(), Method::GET, "/sample.cbz/page-01.png").await;
         assert_eq!(status, StatusCode::OK);
         assert!(
@@ -5254,7 +5763,7 @@ mod tests {
         let html = String::from_utf8(body).unwrap();
         assert!(html.starts_with("<!doctype html>"), "{html}");
         assert!(html.contains("<h1>Archive HTML</h1>"), "{html}");
-        assert!(!html.contains("html-toolbar"), "{html}");
+        assert!(!html.contains("more-btn"), "{html}");
         assert!(!html.contains("<iframe"), "{html}");
     }
 
