@@ -1537,6 +1537,7 @@ async fn list_dir_with(
                     .aria("下载压缩包"),
             ],
             &[],
+            false,
         )
     });
     let body = format!(
@@ -2471,7 +2472,15 @@ async fn source_page(
         )
         .meta(PageMeta::text(format!("{line_count} 行")))
         .meta(PageMeta::text(mtime_label.clone()));
-    // Preview and download are the source page actions on the island head.
+    // Order: search, copy, download, then the remaining actions.
+    head = head
+        .action(PageAction::button("find-open", "搜索", "search").aria("在文件中搜索"))
+        .action(PageAction::button("copy-file", "复制", "copy").aria("复制全文"))
+        .action(PageAction::link(
+            format!("/{}?download=1", encode_path(rel)),
+            "下载文件",
+            "download",
+        ));
     if info.kind == Kind::Markdown {
         head = head.action(PageAction::link(
             format!("/{}", encode_path(rel)),
@@ -2481,14 +2490,7 @@ async fn source_page(
     } else if let Some(href) = preview_href {
         head = head.action(PageAction::link(href, "预览", "book"));
     }
-    head = head
-        .action(PageAction::link(
-            format!("/{}?download=1", encode_path(rel)),
-            "下载文件",
-            "download",
-        ))
-        .topbar_title()
-        .island();
+    head = head.topbar_title().island().file_tools();
     let island_head = head.render_island_head();
     let gap_crumb = head.render_gap_crumb();
     let body = format!(
@@ -2604,15 +2606,17 @@ async fn render_page(state: &AppState, path: &Path, rel: &str, is_head: bool) ->
         )
         .meta(PageMeta::text(format!("{line_count} 行")))
         .meta(PageMeta::text(format_mtime(mtime)))
-        .action(PageAction::link(
-            format!("/{encoded}?raw=1"),
-            "源码",
-            "code",
-        ))
+        .action(PageAction::button("find-open", "搜索", "search").aria("在文件中搜索"))
+        .action(PageAction::button("copy-file", "复制", "copy").aria("复制全文"))
         .action(PageAction::link(
             format!("/{encoded}?download=1"),
             "下载",
             "download",
+        ))
+        .action(PageAction::link(
+            format!("/{encoded}?raw=1"),
+            "源码",
+            "code",
         ))
         .action(
             PageAction::button("export-png", "导出图片", "image")
@@ -2626,7 +2630,8 @@ async fn render_page(state: &AppState, path: &Path, rel: &str, is_head: bool) ->
                 .aria("导出 PDF"),
         )
         .topbar_title()
-        .island();
+        .island()
+        .file_tools();
     let island_head = head.render_island_head();
     let gap_crumb = head.render_gap_crumb();
     let body = format!(
@@ -2934,6 +2939,9 @@ fn icon(name: &str) -> &'static str {
         "print" => {
             r#"<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>"#
         }
+        "close" => {
+            r#"<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>"#
+        }
         "copy" => {
             r#"<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>"#
         }
@@ -3230,7 +3238,7 @@ fn gap_crumb_html(crumbs: &str) -> Option<String> {
 /// Sticky top row of the main island: actions on the left, file metadata on
 /// the right. The "more" popup is empty by default; the island-head runtime
 /// moves the action nodes into it when the row gets too narrow.
-fn island_head_html(actions: &[PageAction], meta: &[PageMeta]) -> Option<String> {
+fn island_head_html(actions: &[PageAction], meta: &[PageMeta], file_tools: bool) -> Option<String> {
     if actions.is_empty() && meta.is_empty() {
         return None;
     }
@@ -3240,12 +3248,30 @@ fn island_head_html(actions: &[PageAction], meta: &[PageMeta]) -> Option<String>
         .map(PageMeta::render_text)
         .collect::<Vec<_>>()
         .join("<span class=\"island-meta-sep\">·</span>");
+    let find_panel = if file_tools {
+        format!(
+            "<div class=\"find-panel\" id=\"find-panel\" role=\"search\" aria-label=\"在文件中查找\" hidden>\
+             <input id=\"find-input\" class=\"find-input\" type=\"search\" \
+             placeholder=\"在文件中查找\" aria-label=\"在文件中查找\" autocomplete=\"off\">\
+             <span class=\"find-count\" id=\"find-count\" role=\"status\" aria-live=\"polite\">0/0</span>\
+             <button class=\"icon-btn find-prev\" type=\"button\" aria-label=\"上一个匹配\" \
+             data-tip=\"上一个\">{chevron}</button>\
+             <button class=\"icon-btn find-next\" type=\"button\" aria-label=\"下一个匹配\" \
+             data-tip=\"下一个\">{chevron}</button>\
+             <button class=\"icon-btn find-close\" type=\"button\" aria-label=\"关闭查找\" \
+             data-tip=\"关闭\">{close}</button></div>",
+            chevron = icon("chevron"),
+            close = icon("close")
+        )
+    } else {
+        String::new()
+    };
     Some(format!(
         "<div class=\"island-head\"><div class=\"island-actions\">{actions_html}</div>\
          <div class=\"more-menu island-more\"><button class=\"icon-btn more-btn\" type=\"button\" \
          aria-label=\"更多\" data-tip=\"更多\" aria-expanded=\"false\">{more}</button>\
          <div class=\"more-panel\" hidden><div class=\"page-actions\"></div></div></div>\
-         <div class=\"island-meta\">{meta_html}</div></div>",
+         <div class=\"island-meta\">{meta_html}</div>{find_panel}</div>",
         more = icon("more")
     ))
 }
@@ -3265,6 +3291,7 @@ struct PageHead {
     aside: Option<String>,
     island_layout: bool,
     title_in_topbar: bool,
+    file_tools: bool,
 }
 
 impl PageHead {
@@ -3279,6 +3306,7 @@ impl PageHead {
             aside: None,
             island_layout: false,
             title_in_topbar: false,
+            file_tools: false,
         }
     }
 
@@ -3295,11 +3323,17 @@ impl PageHead {
         self
     }
 
+    /// Enable the in-file search panel and the copy-full-text action.
+    fn file_tools(mut self) -> Self {
+        self.file_tools = true;
+        self
+    }
+
     fn render_island_head(&self) -> Option<String> {
         if !self.island_layout {
             return None;
         }
-        island_head_html(&self.actions, &self.meta)
+        island_head_html(&self.actions, &self.meta, self.file_tools)
     }
 
     fn render_gap_crumb(&self) -> Option<String> {
@@ -3439,6 +3473,9 @@ async fn html_page(state: &AppState, status: StatusCode, page: Page, is_head: bo
         islands.extend(["dirrows", "more"]);
     }
     islands.push("totop");
+    if is_doc || page.kind == PageKind::Source {
+        islands.push("filetools");
+    }
     if is_doc {
         islands.extend(["toc", "linetarget", "code", "zoom", "export"]);
     }
@@ -4363,6 +4400,9 @@ mod tests {
             "{html}"
         );
         assert!(html.contains("class=\"island-head\""), "{html}");
+        assert!(html.contains("id=\"find-open\""), "{html}");
+        assert!(html.contains("id=\"copy-file\""), "{html}");
+        assert!(html.contains("id=\"find-panel\""), "{html}");
         assert!(
             html.contains("class=\"island-meta-item doc-kind\""),
             "{html}"
@@ -4387,7 +4427,7 @@ mod tests {
         assert!(html.contains("class=\"toc-rail\" id=\"toc-rail\""));
         assert!(html.contains("id=\"toc-slot\""));
         assert!(html.contains(
-            "data-islands=\"theme nav search islandhead more totop toc linetarget code zoom export\""
+            "data-islands=\"theme nav search islandhead more totop filetools toc linetarget code zoom export\""
         ));
         assert!(html.contains("id=\"export-png\""));
         assert!(html.contains("data-export-name=\"a\""));
