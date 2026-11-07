@@ -150,9 +150,10 @@ Single-context: root `GLOSSARY.md` + `docs/architecture/adr/`. See
    TOC 岛挂载时用 `shell-split`/`toc-island-in` 做一次约 240ms 的分栏动画，正文
    阅读行宽度不变，只让主岛右侧空边收窄。阅读行最大 1200px。
    **≥901px** 固定顶栏与主岛：`.content-card` 作为滚动容器，页面 body 不滚动。
-   顶栏只保留最左导航、右侧搜索/主题；页面身份与操作放在内容区的 sticky 页头岛
-   （top 12、左右 14 内缩、圆角/阴影）。面包屑、文件名/标题、元信息、操作都在页头
-   内，长路径在页头内换行，不能覆盖标题。顶栏、主岛、TOC 岛间距统一 24px。
+   顶栏只放最左导航、居中文件名、全局搜索与主题；面包屑左对齐放在顶栏与主岛之间
+   的缝隙，长路径换行时缝隙自然增高。文件信息右对齐、操作左对齐，固定在主岛顶部
+   sticky 栏；窄屏先收「更多」再隐藏文件信息。目录页列表限宽 1100px 居中，文件
+   预览页铺满并做 240ms 淡入。顶栏、主岛、TOC 岛间距统一 24px。
    TOC 岛与主岛同高，目录列表在岛内滚动；**≤900px** 保留普通文档滚动。
    全站导航是默认收起的浮层（桌面浮岛 / 移动抽屉），不占用正文列。改布局后跑浏览器探针。
 6. **目录 `rel` 带尾斜杠**：`list_dir` 入口会 `trim_end_matches('/')`；新增目录页逻辑
@@ -260,7 +261,10 @@ Single-context: root `GLOSSARY.md` + `docs/architecture/adr/`. See
 | 搜索范围/结果/分批 | `search_files`（cursor 批次）/ `render_search` / `search.ts` 追加；正文按检测编码解码后只扫文本文件 |
 | 目录行列对齐 | `list_dir` 的五列模板 + `web/src/styles/app.css` 的 `.dir-row` grid |
 | 搜索结果行定位 | `render_markdown_with_sourcepos` + `web/src/islands/linetarget.ts` |
-| 页头（文档/源码/目录/搜索） | `PageHead`/`PageMeta`/`PageAction` + `app.css` 的 `.page-head`/`.page-meta`/`.page-actions` |
+| 顶栏文件名 / 缝隙面包屑 / 主岛功能区 | `html_page`、`PageHead`、`island_head_html` + `app.css` 的 `.topbar-title`/`.gap-crumb`/`.island-head` |
+| 搜索页页头 / 错误页 | `PageHead`/`PageMeta`/`PageAction` + `app.css` 的 `.page-head` |
+| 文件查找 / 复制 | `web/src/islands/filetools.ts` + `.find-panel` |
+| 文件夹打包下载 | `src/server.rs` 的 `directory_zip`/`build_dir_zip` + `web/src/islands/dirzip.ts` |
 | 顶部栏/导航/页面 chrome/内容面 | `html_page`、`crumbs_html`、`nav.tsx` |
 | TOC 常驻岛/细轨/返回顶部 | `web/src/islands/toc.tsx` + `app.css` 的 `.toc-island`/`.toc-tip`/`.totop` 媒体查询 |
 | TOC/行定位/代码条/主题/导航/大源码分块 | `web/src/islands/*` |
@@ -325,12 +329,14 @@ Single-context: root `GLOSSARY.md` + `docs/architecture/adr/`. See
   桌面端 `.content-card` 是唯一滚动容器，body 不滚动；新增滚动相关逻辑要读
   `card.scrollTop`/`card.getBoundingClientRect()`，不要假设 `window.scrollY`。
   大源码的 `IntersectionObserver` 要用 `.content-card` 作 `root`。
-- **页头统一逻辑**：Markdown/源码/目录/搜索都走服务端 `PageHead` 构建器，页头在
-  content card 内；不要分别拼四套 header。顶栏只保留导航、搜索、主题，不要把
-  面包屑/文件名/操作塞回顶栏。桌面端页头是 sticky 岛（top 12、左右 14 内缩、
-  圆角/阴影）；长面包屑在页头内换行。Markdown 正文的 H1 仍是文档标题；不要恢复
-  `sr-only` 文件名副本。信任/错误页保留专用面板。不要再给页头套
-  `max-width: 1000px` 的容器。
+- **页面身份**：文档/源码页文件名在顶栏居中，面包屑在缝隙，文件信息与操作在主岛
+  顶部 sticky 栏；操作顺序是「搜索 复制 下载 其余」。搜索页仍用 `PageHead`，
+  错误/信任页用专用面板。不要恢复内容区页头岛、把面包屑塞回主岛，或把操作塞回
+  顶栏；窄屏先收「更多」再隐藏信息。Markdown 正文的 H1 仍是文档标题。
+- **文件夹打包下载**：只在可信根且非 `--safe` 时显示；临时 zip 放系统临时目录，
+  下载结束/中断后删除，token 绑定目录、单次、10 分钟过期；跳过软链接。
+- **目录页**：列表限宽 1100px 居中，目录行操作常驻、固定两槽位，超出收进「更多」；
+  不要再渲染「目录」「项目数」文字。文件页铺满并有 240ms 淡入。
 - **搜索结果行**：整条 `.hit` 是链接；Markdown 内容行到渲染页 `#L<n>`，文件标题
   与文件条目到文件开头。不要恢复独立的“打开文档/源码 Ln”按钮。
 - **行定位**：`render_markdown` 默认不带 sourcepos，保持 golden/render_compat 不变；
