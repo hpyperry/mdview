@@ -26,6 +26,18 @@
   --surface-translucent: rgba(255,255,255,.72);
   --accent-wash: rgba(221,244,255,.38);
   --hover: #f9fafb;
+  --hl-fg: #000000;
+  --hl-comment: #008000;
+  --hl-keyword: #0000ff;
+  --hl-string: #a31515;
+  --hl-number: #098658;
+  --hl-function: #795e26;
+  --hl-variable: #001080;
+  --hl-type: #267f99;
+  --hl-attr: #e50000;
+  --hl-tag: #800000;
+  --hl-meta: #2b91af;
+  --hl-regexp: #811f3f;
   --panel: var(--surface-2);
   --vscode-editor-foreground: var(--fg);
   --vscode-editor-background: var(--surface);
@@ -68,6 +80,18 @@
     --surface-translucent: rgba(22,27,34,.72);
     --accent-wash: rgba(18,29,47,.38);
     --hover: #1e232a;
+    --hl-fg: #d4d4d4;
+    --hl-comment: #6a9955;
+    --hl-keyword: #569cd6;
+    --hl-string: #ce9178;
+    --hl-number: #b5cea8;
+    --hl-function: #dcdcaa;
+    --hl-variable: #9cdcfe;
+    --hl-type: #4ec9b0;
+    --hl-attr: #9cdcfe;
+    --hl-tag: #569cd6;
+    --hl-meta: #9b9b9b;
+    --hl-regexp: #d16969;
   }
 }
 
@@ -92,6 +116,18 @@ html[data-theme="dark"] {
   --surface-translucent: rgba(22,27,34,.72);
   --accent-wash: rgba(18,29,47,.38);
   --hover: #1e232a;
+    --hl-fg: #d4d4d4;
+    --hl-comment: #6a9955;
+    --hl-keyword: #569cd6;
+    --hl-string: #ce9178;
+    --hl-number: #b5cea8;
+    --hl-function: #dcdcaa;
+    --hl-variable: #9cdcfe;
+    --hl-type: #4ec9b0;
+    --hl-attr: #9cdcfe;
+    --hl-tag: #569cd6;
+    --hl-meta: #9b9b9b;
+    --hl-regexp: #d16969;
 }
 html[data-theme="light"] { color-scheme: light; }
 
@@ -950,6 +986,18 @@ html.no-js .shell.has-toc { grid-template-columns: minmax(0, 1fr); }
     --mark: #fff8c5;
     --code-bg: #f6f8fa;
     --hover: #f9fafb;
+    --hl-fg: #000000;
+    --hl-comment: #008000;
+    --hl-keyword: #0000ff;
+    --hl-string: #a31515;
+    --hl-number: #098658;
+    --hl-function: #795e26;
+    --hl-variable: #001080;
+    --hl-type: #267f99;
+    --hl-attr: #e50000;
+    --hl-tag: #800000;
+    --hl-meta: #2b91af;
+    --hl-regexp: #811f3f;
   }
   html, body { background: #ffffff !important; color: #1f2328 !important; }
   .topbar, .nav-panel, .nav-scrim, .page-head, .doc-head, .toc-rail, .toc-inline, .zoomdlg, .totop, .code-bar { display: none !important; }
