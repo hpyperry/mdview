@@ -98,8 +98,8 @@ Single-context: root `GLOSSARY.md` + `docs/architecture/adr/`. See
    `docs/archive/rust-rewrite/execution-plan.md`；
 5. `docs/research/comrak-vs-markdown-it.md`：P0 差分证据。
 
-**不要“顺手修”记录在案的取舍。** 典型：标题无 id、任务列表字面量、全角句号进 URL、
-`www.` 链接化、字面 `%xx` 文件名不可达。它们都有 ADR/测试钉着。
+**不要“顺手修”记录在案的取舍。** 典型：标题无 id、任务列表字面量、`www.` 链接化、
+字面 `%xx` 文件名不可达。它们都有 ADR/测试钉着。
 
 ## 代码地图
 

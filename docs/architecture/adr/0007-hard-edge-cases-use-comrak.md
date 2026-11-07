@@ -25,6 +25,11 @@ P0 差分发现 28 条 comrak 与 markdown-it/VS Code 的不一致。其中 23 �
 1. **Linkify 用 comrak autolink**：开 `extension.autolink`，不写独立 linkify pass。
    已知差异：`www.example.com` 会被链接；`&copy;`、尾部 `:`、病态邮箱边界的文本
    范围与 markdown-it 不同。裸邮箱仍会链成 `mailto:`。
+   - 例外（2026-11 恢复旧设计）：comrak 会把 CJK 文本和 U+3000 当成 URL 字符，
+     导致 `http://x/　说明` 整句进链接。解析后由服务端裁掉尾部：可见文本在首个
+     非 ASCII 空白或全角句末标点 `。，、；：！？` 处截断，句子尾巴留在链接外；
+     URL 路径里的汉字（`/wiki/中文条目`）不裁。测试见
+     `render_compat::unicode_space_ends_autolink`、`full_width_punctuation_ends_autolink`。
 2. **Reference definition 用 comrak 解析**：不做预扫描。
    - 被拒协议的整条定义会被移除，引用退化成字面文本；
    - 尖括号目标 `[r]: <a b.md>` 在**文件末尾没有换行**时解析失败（comrak EOF quirk），

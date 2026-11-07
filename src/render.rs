@@ -11,7 +11,7 @@ use std::fmt::Write as _;
 use percent_encoding::{AsciiSet, CONTROLS, percent_decode_str, utf8_percent_encode};
 
 use comrak::html::ChildRendering;
-use comrak::nodes::{NodeValue, TableAlignment};
+use comrak::nodes::{AstNode, NodeValue, TableAlignment};
 use comrak::{Arena, Options, create_formatter, parse_document};
 
 const URL_SEGMENT_SET: &AsciiSet = &CONTROLS
@@ -67,10 +67,90 @@ fn render_markdown_inner(input: &str, doc_rel: &str, sourcepos: bool) -> String 
     options.render.sourcepos = sourcepos;
 
     let root = parse_document(&arena, input, &options);
+    trim_autolink_tails(&arena, root);
     let mut output = String::new();
     let ctx = RenderCtx::new(doc_rel);
     MvFormatter::format_document(root, &options, &mut output, ctx).expect("format markdown");
     output
+}
+
+/// Characters that end an autolink in Chinese prose but that comrak keeps in
+/// the URL: full-width terminal punctuation and Unicode spaces (U+3000 and
+/// friends). Splitting here restores the historical behavior without touching
+/// CJK path segments inside a URL (`/wiki/中文条目` stays intact).
+fn ends_autolink_tail(ch: char) -> bool {
+    if ch.is_whitespace() && ch != ' ' {
+        return true;
+    }
+    matches!(ch, '。' | '，' | '、' | '；' | '：' | '！' | '？')
+}
+
+fn is_autolink(url: &str, text: &str) -> bool {
+    if text == url || url == format!("http://{text}") || url == format!("https://{text}") {
+        return true;
+    }
+    percent_decode_str(url).decode_utf8_lossy() == text
+}
+
+/// comrak's autolink scanner treats CJK characters and U+3000 as URL
+/// characters. Trim the prose tail back out of autolinks so a bare URL followed
+/// by Chinese text does not swallow the sentence.
+fn trim_autolink_tails<'a>(arena: &'a Arena<'a>, root: &'a AstNode<'a>) {
+    let links: Vec<&'a AstNode<'a>> = root
+        .descendants()
+        .filter(|node| matches!(node.data().value, NodeValue::Link(_)))
+        .collect();
+    for link in links {
+        let Some(child) = link.first_child() else {
+            continue;
+        };
+        if child.next_sibling().is_some() {
+            continue;
+        }
+        // `<https://…>` is an explicit autolink: keep the whole target even if
+        // it contains CJK punctuation. Relaxed links start at the same column
+        // as their text; angle links start one column earlier at `<`.
+        if link.data().sourcepos.start.column < child.data().sourcepos.start.column {
+            continue;
+        }
+        let text = match &child.data().value {
+            NodeValue::Text(text) => text.clone(),
+            _ => continue,
+        };
+        let url = match &link.data().value {
+            NodeValue::Link(nl) => nl.url.clone(),
+            _ => continue,
+        };
+        if !is_autolink(&url, &text) {
+            continue;
+        }
+        let Some((split, _)) = text.char_indices().find(|(_, ch)| ends_autolink_tail(*ch)) else {
+            continue;
+        };
+        if split == 0 {
+            continue;
+        }
+        let prefix = &text[..split];
+        let tail = &text[split..];
+        let scheme = if prefix.starts_with("http://") || prefix.starts_with("https://") {
+            None
+        } else if prefix.starts_with("www.") && prefix.len() > 4 {
+            Some("http://")
+        } else {
+            continue;
+        };
+        if let Some(scheme) = scheme {
+            if let NodeValue::Link(nl) = &mut link.data_mut().value {
+                nl.url = format!("{scheme}{prefix}");
+            }
+        } else if let NodeValue::Link(nl) = &mut link.data_mut().value {
+            nl.url = prefix.to_string();
+        }
+        child.data_mut().value = NodeValue::Text(prefix.to_string().into());
+        let tail_node =
+            arena.alloc(NodeValue::Text(std::borrow::Cow::Owned(tail.to_string())).into());
+        link.insert_after(tail_node);
+    }
 }
 
 create_formatter!(MvFormatter<RenderCtx>, {

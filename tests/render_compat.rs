@@ -838,14 +838,43 @@ fn trailing_ascii_punctuation_belongs_to_sentence() {
 }
 
 #[test]
-fn full_width_punctuation_is_swallowed_by_comrak() {
-    // accepted deviation: VS Code's linkify-it stops before `。`.
-    let out = r("见 https://example.com/a。结束");
+fn full_width_punctuation_ends_autolink() {
+    // Restores the historical Chinese-doc rule: full-width terminal
+    // punctuation belongs to the sentence, not to the URL.
+    for ch in ["。", "，", "、", "；", "：", "！", "？"] {
+        let out = r(&format!("见 https://example.com/a{ch}结束"));
+        assert!(
+            out.contains("href=\"https://example.com/a\""),
+            "{ch}: {out}"
+        );
+        assert!(out.contains(&format!("</a>{ch}结束")), "{ch}: {out}");
+    }
+}
+
+#[test]
+fn unicode_space_ends_autolink() {
+    // comrak includes U+3000 in the autolink; the prose after it must not be
+    // swallowed. This is the common case after Chinese IME input.
+    let out = r("在http://example.com/　后面是中文说明，不应进链接");
+    assert!(out.contains("href=\"http://example.com/\""), "{out}");
+    assert!(out.contains("</a>　后面是中文说明，不应进链接"), "{out}");
+    assert!(!out.contains("%E5%90%8E"), "{out}");
+}
+
+#[test]
+fn angle_autolink_keeps_full_width_punctuation() {
+    // `<...>` is an explicit URL target, not prose; do not trim it.
+    let out = r("见 <https://example.com/a。结束> 说明");
     assert!(
         out.contains("href=\"https://example.com/a%E3%80%82%E7%BB%93%E6%9D%9F\""),
         "{out}"
     );
-    assert!(out.contains("https://example.com/a。结束</a>"), "{out}");
+}
+
+#[test]
+fn explicit_link_text_keeps_full_width_punctuation() {
+    let out = r("[中文。说明](https://example.com/a) 结束");
+    assert!(out.contains(">中文。说明</a>"), "{out}");
 }
 
 #[test]
