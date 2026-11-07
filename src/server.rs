@@ -1539,8 +1539,11 @@ async fn list_dir_with(
             ),
         None => head.meta(PageMeta::text(format!("{} 个项目", entries.len()))),
     };
-    let topbar = head.render_topbar();
-    let body = format!("<div class=\"content-card\">{sections}</div>");
+    let body = format!(
+        "<div class=\"content-card\">{head}{sections}</div>",
+        head = head.render(),
+        sections = sections
+    );
     html_page(
         state,
         StatusCode::OK,
@@ -1550,7 +1553,6 @@ async fn list_dir_with(
             query: String::new(),
             kind: PageKind::Dir,
             body,
-            topbar: Some(topbar),
         },
         is_head,
     )
@@ -1617,7 +1619,6 @@ async fn search(
             query: q,
             kind: PageKind::Search,
             body,
-            topbar: None,
         },
         is_head,
     )
@@ -2471,9 +2472,9 @@ async fn source_page(
         head = head
             .action(PageAction::link(format!("/{}", encode_path(rel)), "预览", "book").primary());
     }
-    let topbar = head.render_topbar();
     let body = format!(
-        "<div class=\"content-card\">{html_toolbar}{notice_html}{source_markup}</div>",
+        "<div class=\"content-card\">{head}{html_toolbar}{notice_html}{source_markup}</div>",
+        head = head.render(),
         html_toolbar = html_toolbar,
         notice_html = notice_html,
         source_markup = source_markup
@@ -2487,7 +2488,6 @@ async fn source_page(
             query: String::new(),
             kind: PageKind::Source,
             body,
-            topbar: Some(topbar),
         },
         is_head,
     )
@@ -2611,11 +2611,11 @@ async fn render_page(state: &AppState, path: &Path, rel: &str, is_head: bool) ->
                 .class("export-action")
                 .aria("导出 PDF"),
         );
-    let topbar = head.render_topbar();
     let body = format!(
-        "<article class=\"content-card doc-card\">\
+        "<article class=\"content-card doc-card\">{head}\
          <div class=\"toc-inline\" id=\"toc-slot\"><details class=\"toc\"><summary>本页目录</summary><nav class=\"toc-list\" aria-label=\"本页目录\"></nav></details></div>\
          <div class=\"doc-prose\"><article class=\"markdown-body\">{rendered}</article></div></article>",
+        head = head.render(),
         rendered = rendered
     );
     html_page(
@@ -2627,7 +2627,6 @@ async fn render_page(state: &AppState, path: &Path, rel: &str, is_head: bool) ->
             query: String::new(),
             kind: PageKind::Doc,
             body,
-            topbar: Some(topbar),
         },
         is_head,
     )
@@ -2659,7 +2658,6 @@ async fn interstitial_page(state: &AppState, rel: &str, is_head: bool) -> Respon
             query: String::new(),
             kind: PageKind::Other,
             body,
-            topbar: None,
         },
         is_head,
     )
@@ -2881,8 +2879,6 @@ struct Page {
     query: String,
     kind: PageKind,
     body: String,
-    /// Rendered page identity for the global topbar (C layout).
-    topbar: Option<String>,
 }
 
 fn icon(name: &str) -> &'static str {
@@ -3231,49 +3227,6 @@ impl PageHead {
         self
     }
 
-    /// Identity/actions for the global topbar (C layout). The content card
-    /// no longer renders a page head on document/source/directory pages.
-    fn render_topbar(&self) -> String {
-        let path = if self.crumbs.is_empty() {
-            String::new()
-        } else {
-            format!(
-                "<div class=\"topbar-path\"><nav class=\"crumbs\" aria-label=\"面包屑\">{}</nav></div>",
-                self.crumbs
-            )
-        };
-        let meta = if self.meta.is_empty() {
-            String::new()
-        } else {
-            format!(
-                "<div class=\"page-meta\">{}</div>",
-                self.meta.iter().map(PageMeta::render).collect::<String>()
-            )
-        };
-        let context = format!(
-            "<div class=\"topbar-context\"><h1>{}</h1>{}</div>",
-            escape_html(&self.title),
-            meta
-        );
-        let actions = if self.actions.is_empty() {
-            String::new()
-        } else {
-            format!(
-                "<div class=\"topbar-page-actions\"><div class=\"action-menu\">\
-                 <button class=\"icon-btn action-menu-btn\" type=\"button\" aria-label=\"页面操作\" aria-expanded=\"false\" title=\"页面操作（源码 / 下载 / 导出）\">{more}</button>\
-                 <div class=\"action-panel\" hidden><div class=\"page-actions\">{actions}</div></div>\
-                 </div></div>",
-                more = icon("more"),
-                actions = self
-                    .actions
-                    .iter()
-                    .map(PageAction::render)
-                    .collect::<String>()
-            )
-        };
-        format!("{path}{context}{actions}")
-    }
-
     fn render(&self) -> String {
         let subtitle = self
             .subtitle
@@ -3357,23 +3310,9 @@ async fn html_page(state: &AppState, status: StatusCode, page: Page, is_head: bo
         PageKind::Search => "search",
         PageKind::Other => "other",
     };
-    let has_topbar = page.topbar.is_some();
-    let topbar_class = if has_topbar {
-        "topbar has-context"
-    } else {
-        "topbar"
-    };
     let mut islands = vec!["theme", "nav"];
     if !state.no_search {
         islands.push("search");
-    }
-    if page
-        .topbar
-        .as_deref()
-        .map(|topbar| topbar.contains("class=\"action-menu\""))
-        .unwrap_or(false)
-    {
-        islands.push("actions");
     }
     islands.push("totop");
     if is_doc {
@@ -3404,9 +3343,8 @@ async fn html_page(state: &AppState, status: StatusCode, page: Page, is_head: bo
          <script nonce=\"{nonce}\" src=\"/_assets/app.js?__mdview=asset&v={version}\" defer></script>\
          </head><body data-totop=\"1\" data-page=\"{page_class}\" data-islands=\"{islands}\" \
          data-current-path=\"{current_path}\" data-current-dir=\"{current_is_dir}\">\
-         <div class=\"app\"><header class=\"{topbar_class}\">\
+         <div class=\"app\"><header class=\"topbar\">\
          <button class=\"icon-btn nav-toggle\" id=\"nav-toggle\" type=\"button\" aria-label=\"打开全站导航\" aria-expanded=\"false\">{panel}</button>\
-         {topbar}\
          <div class=\"topbar-actions\">{search}<button class=\"icon-btn theme-toggle\" id=\"theme-toggle\" type=\"button\" aria-label=\"切换主题\" title=\"主题：跟随系统\">\
          <span class=\"theme-icon theme-system\">{monitor}</span>\
          <span class=\"theme-icon theme-light\">{sun}</span>\
@@ -3424,8 +3362,6 @@ async fn html_page(state: &AppState, status: StatusCode, page: Page, is_head: bo
         current_path = escape_html(current_path),
         current_is_dir = current_is_dir,
         panel = icon("panel"),
-        topbar_class = topbar_class,
-        topbar = page.topbar.as_deref().unwrap_or(""),
         search = search,
         shell_class = shell_class,
         toc_rail = toc_rail,
@@ -3479,7 +3415,6 @@ async fn error_page(
             query: String::new(),
             kind: PageKind::Other,
             body,
-            topbar: None,
         },
         is_head,
     )
@@ -4253,28 +4188,23 @@ mod tests {
         let dir = fixture();
         let app = app(state(dir.path(), false, 0, 0));
         let cases = [
-            ("/", false),
-            ("/a.md", false),
-            ("/a.md?raw=1", false),
-            ("/search?__mdview=search&q=second", true),
+            ("/", "dir-head"),
+            ("/a.md", "doc-head"),
+            ("/a.md?raw=1", "source-head"),
+            ("/search?__mdview=search&q=second", "search-head"),
         ];
-        for (uri, is_search) in cases {
+        for (uri, kind) in cases {
             let (status, _, body) = call(app.clone(), Method::GET, uri).await;
             assert_eq!(status, StatusCode::OK, "{uri}");
             let html = String::from_utf8(body).unwrap();
-            if is_search {
-                assert!(
-                    html.contains("class=\"page-head search-head\""),
-                    "{uri}: {html}"
-                );
-            } else {
-                assert!(
-                    html.contains("class=\"topbar has-context\""),
-                    "{uri}: {html}"
-                );
-                assert!(html.contains("class=\"topbar-path\""), "{uri}: {html}");
-                assert!(html.contains("class=\"topbar-context\""), "{uri}: {html}");
-            }
+            assert!(
+                html.contains(&format!("<header class=\"page-head {kind}\">")),
+                "{uri}: {html}"
+            );
+            assert!(
+                html.contains("class=\"head-inner page-head-inner"),
+                "{uri}: {html}"
+            );
             assert!(html.contains("class=\"page-meta\""), "{uri}: {html}");
         }
 
@@ -4300,9 +4230,11 @@ mod tests {
         assert!(html.contains("class=\"shell has-toc\""));
         assert!(html.contains("class=\"toc-rail\" id=\"toc-rail\""));
         assert!(html.contains("id=\"toc-slot\""));
-        assert!(html.contains(
-            "data-islands=\"theme nav search actions totop toc linetarget code zoom export\""
-        ));
+        assert!(
+            html.contains(
+                "data-islands=\"theme nav search totop toc linetarget code zoom export\""
+            )
+        );
         assert!(html.contains("id=\"export-png\""));
         assert!(html.contains("data-export-name=\"a\""));
         assert!(html.contains("id=\"export-pdf\""));

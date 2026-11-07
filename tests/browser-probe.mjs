@@ -415,42 +415,23 @@ async function main() {
     console.log('== preview page ==');
     await goto('/page.md');
     check('标题渲染', (await evaluate('document.querySelector("article.markdown-body h1").textContent')) === 'Probe');
-    check('文档面包屑完整', await crumbsComplete('.topbar-path .crumbs', 'page.md'));
-    check('文档页头显示文件名', (await evaluate('document.querySelector(".topbar-context h1")?.textContent')) === 'page.md');
+    check('文档面包屑完整', await crumbsComplete('.doc-head .crumbs', 'page.md'));
+    check('文档页头显示文件名', (await evaluate('document.querySelector(".doc-head h1")?.textContent')) === 'page.md');
     check(
       '文档页头元信息徽标',
       (await evaluate(`(() => {
-        const badges = [...document.querySelectorAll('.topbar-context .page-meta .badge')];
+        const badges = [...document.querySelectorAll('.doc-head .page-meta .badge')];
         return badges.length >= 3 && badges.some((badge) => badge.textContent.includes('Markdown'));
       })()`)) === true,
     );
-    check('文档页头操作齐全', (await evaluate('[...document.querySelectorAll(".action-panel .page-actions .action")].map((a) => a.textContent.trim()).join(",")')) === '源码,下载,导出图片,导出 PDF');
-    check('页头操作岛已水合', await waitFor('window.__mdviewIslands?.mounted.includes("actions")', 3000));
-    check('操作菜单默认关闭', (await evaluate('document.querySelector(".action-panel")?.hidden')) === true);
-    await evaluate('document.querySelector(".action-menu-btn").click()');
-    check(
-      '操作菜单展开',
-      (await evaluate(`(() => {
-        const panel = document.querySelector('.action-panel');
-        const items = [...panel.querySelectorAll('.action')].map((node) => node.textContent.trim());
-        return panel.hidden === false && items.join(',') === '源码,下载,导出图片,导出 PDF';
-      })()`)) === true,
-    );
-    await evaluate('document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))');
-    check('操作菜单 Esc 关闭', (await evaluate('document.querySelector(".action-panel")?.hidden')) === true);
-    await evaluate('document.querySelector(".action-menu-btn").click()');
-    await evaluate('document.querySelector(".markdown-body").click()');
-    check('操作菜单点外部关闭', (await evaluate('document.querySelector(".action-panel")?.hidden')) === true);
-    check('文档岛已按需水合', await waitFor('["toc", "linetarget", "code", "zoom"].every((name) => window.__mdviewIslands?.mounted.includes(name))', 3000));
-    check('渲染页带行定位数据', (await evaluate('document.querySelectorAll(".markdown-body [data-sourcepos]").length')) > 0);
-    check(
-      '文档页头使用顶栏',
-      (await evaluate(`(() => {
-        const bar = document.querySelector('.topbar.has-context');
-        return Boolean(bar) && Boolean(bar.querySelector('.topbar-path .crumbs')) &&
-          Boolean(bar.querySelector('.topbar-context h1')) && Boolean(bar.querySelector('.action-menu-btn'));
-      })()`)) === true,
-    );
+    check('文档页头操作齐全', (await evaluate('[...document.querySelectorAll(".doc-head .page-actions .action")].map((a) => a.textContent.trim()).join(",")')) === '源码,下载,导出图片,导出 PDF');
+    check('文档页头为独立岛', (await evaluate(`(() => {
+      const card = document.querySelector('.content-card').getBoundingClientRect();
+      const head = document.querySelector('.doc-head').getBoundingClientRect();
+      const crumbs = document.querySelector('.doc-head .crumbs').getBoundingClientRect();
+      const pad = getComputedStyle(document.querySelector('.doc-head .head-inner')).paddingLeft;
+      return pad === '30px' && Math.abs(head.x - card.x - 15) <= 1 && Math.round(crumbs.x - head.x) <= 32;
+    })()`)) === true);
     check('代码块数量', (await evaluate('document.querySelectorAll("pre code").length')) === 2);
     check('highlight.js 着色', await waitFor('document.querySelectorAll("pre code.hljs span").length > 0', 3000));
     check('复制按钮已注入', (await evaluate('document.querySelectorAll(".copy-btn").length')) === 2);
@@ -670,7 +651,7 @@ async function main() {
     await evaluate('document.documentElement.dataset.theme = "dark"');
     const printState = await evaluate(`(() => ({
       topbar: getComputedStyle(document.querySelector('.topbar')).display,
-      head: getComputedStyle(document.querySelector('.topbar.has-context')).display,
+      head: getComputedStyle(document.querySelector('.topbar')).display,
       background: getComputedStyle(document.body).backgroundColor,
       maxWidth: getComputedStyle(document.querySelector('.markdown-body')).maxWidth,
     }))()`);
@@ -811,7 +792,7 @@ async function main() {
     const fixedShell = await evaluate(`(() => {
       const card = document.querySelector('.content-card');
       const bar = document.querySelector('.topbar');
-      const head = document.querySelector('.topbar.has-context');
+      const head = document.querySelector(".page-head");
       const before = { card: Math.round(card.getBoundingClientRect().top), bar: Math.round(bar.getBoundingClientRect().top), head: Math.round(head.getBoundingClientRect().top), bottom: Math.round(card.getBoundingClientRect().bottom) };
       card.scrollTop = 40;
       const after = { card: Math.round(card.getBoundingClientRect().top), bar: Math.round(bar.getBoundingClientRect().top), head: Math.round(head.getBoundingClientRect().top) };
@@ -824,7 +805,7 @@ async function main() {
       JSON.stringify(fixedShell),
     );
     check('主岛高度适配视口', fixedShell.before.bottom === fixedShell.viewport - 16, JSON.stringify(fixedShell));
-    check('顶栏固定不随正文滚动', fixedShell.before.head === fixedShell.after.head, JSON.stringify(fixedShell));
+    check('页头岛固定不随正文滚动', fixedShell.before.head === fixedShell.after.head, JSON.stringify(fixedShell));
     check('主岛放行横向回退手势', fixedShell.overscrollX === 'auto' && fixedShell.overscrollY === 'contain', JSON.stringify(fixedShell));
     await page.send('Emulation.setDeviceMetricsOverride', { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false });
     await goto('/page.md');
@@ -895,7 +876,7 @@ async function main() {
     check(
       'TOC 点击 h1 跳转',
       await waitFor(
-        '(() => { const top = document.getElementById("toc-1").getBoundingClientRect().top; return top >= 60 && top <= 130; })()',
+        '(() => { const top = document.getElementById("toc-1").getBoundingClientRect().top; const head = document.querySelector(".page-head").getBoundingClientRect().bottom; return top >= head + 8 && top <= head + 50; })()',
         3000,
       ),
     );
@@ -906,7 +887,7 @@ async function main() {
     check(
       'TOC 点击 h2 跳转',
       await waitFor(
-        '(() => { const top = document.getElementById("toc-2").getBoundingClientRect().top; return top >= 60 && top <= 130; })()',
+        '(() => { const top = document.getElementById("toc-2").getBoundingClientRect().top; const head = document.querySelector(".page-head").getBoundingClientRect().bottom; return top >= head + 8 && top <= head + 50; })()',
         3000,
       ),
     );
@@ -916,12 +897,12 @@ async function main() {
       const card = document.querySelector('.content-card');
       const t = document.getElementById('toc-7');
       if (card && getComputedStyle(card).overflowY === 'auto') {
-        card.scrollTop += t.getBoundingClientRect().top - card.getBoundingClientRect().top - 20;
+        card.scrollTop += t.getBoundingClientRect().top - card.getBoundingClientRect().top - (document.querySelector(".page-head").getBoundingClientRect().height + 36);
       } else {
         window.scrollTo(0, t.getBoundingClientRect().top + scrollY - 20);
       }
     })()`);
-    check('TOC 定位到 Section B', await waitFor('(() => { const top = document.getElementById("toc-7").getBoundingClientRect().top; return top >= 60 && top <= 130; })()', 3000));
+    check('TOC 定位到 Section B', await waitFor('(() => { const top = document.getElementById("toc-7").getBoundingClientRect().top; const head = document.querySelector(".page-head").getBoundingClientRect().bottom; return top >= head + 8 && top <= head + 50; })()', 3000));
     await evaluate('window.dispatchEvent(new Event("scroll")); window.dispatchEvent(new Event("resize"))');
     const tocActive = await waitFor('document.querySelector(".toc-tick.is-active")?.getAttribute("data-target") === "toc-7"', 3000);
     check(
@@ -978,7 +959,7 @@ async function main() {
     check(
       '1600 目录岛点击 h1 跳转',
       await waitFor(
-        '(() => { const top = document.getElementById("toc-1").getBoundingClientRect().top; return top >= 60 && top <= 130; })()',
+        '(() => { const top = document.getElementById("toc-1").getBoundingClientRect().top; const head = document.querySelector(".page-head").getBoundingClientRect().bottom; return top >= head + 8 && top <= head + 50; })()',
         3000,
       ),
     );
@@ -994,7 +975,7 @@ async function main() {
     check(
       '多 h1 从顶部点 h1 B',
       await waitFor(
-        '(() => { const top = document.getElementById("toc-4").getBoundingClientRect().top; return top >= 60 && top <= 130; })()',
+        '(() => { const top = document.getElementById("toc-4").getBoundingClientRect().top; const head = document.querySelector(".page-head").getBoundingClientRect().bottom; return top >= head + 8 && top <= head + 50; })()',
         3000,
       ),
     );
@@ -1012,7 +993,7 @@ async function main() {
           const vh = inner ? card.clientHeight : innerHeight;
           const sh = inner ? card.scrollHeight : document.body.scrollHeight;
           const nearBottom = Math.abs((y + vh) - sh) < 4;
-          return (top >= 60 && top <= 130) || (nearBottom && top > 0 && top < vh);
+          const head = document.querySelector(".page-head").getBoundingClientRect().bottom; return (top >= head + 8 && top <= head + 50) || (nearBottom && top > 0 && top < vh);
         })()`,
         3000,
       ),
@@ -1022,7 +1003,7 @@ async function main() {
     check(
       '多 h1 从底部点 h1 A',
       await waitFor(
-        '(() => { const top = document.getElementById("toc-1").getBoundingClientRect().top; return top >= 60 && top <= 130; })()',
+        '(() => { const top = document.getElementById("toc-1").getBoundingClientRect().top; const head = document.querySelector(".page-head").getBoundingClientRect().bottom; return top >= head + 8 && top <= head + 50; })()',
         3000,
       ),
     );
@@ -1276,7 +1257,7 @@ async function main() {
     console.log('== encodings ==');
     await goto('/gbk.md');
     check('GBK Markdown 文本', (await evaluate('document.querySelector("article.markdown-body h1")?.textContent')) === '中文标题');
-    check('GBK Markdown 标签', (await evaluate('document.querySelector(".topbar-context .page-meta")?.textContent'))?.includes('GBK') === true);
+    check('GBK Markdown 标签', (await evaluate('document.querySelector(".doc-head .page-meta")?.textContent'))?.includes('GBK') === true);
     await goto('/gbk.txt');
     check('GBK 源码文本', (await evaluate('document.querySelector(".source code")?.textContent'))?.includes('编码测试 GBK 文本') === true);
     check('GBK 源码编码标签', (await evaluate('document.querySelector(".source-encoding")?.textContent')) === 'GBK');
@@ -1310,14 +1291,16 @@ async function main() {
     await goto('/sub/');
     check('目录页回到顶部按钮', (await evaluate('document.querySelectorAll(".totop").length')) === 1);
     check('目录页无分组标题', (await evaluate('!document.querySelector(".dir-section h2") && !!document.querySelector(".dir-list")')) === true);
-    check('目录页 H1 无下划线', (await evaluate('getComputedStyle(document.querySelector(".topbar-context h1")).borderBottomWidth')) === '0px');
-    check('目录页头使用顶栏', (await evaluate(`(() => {
-      const bar = document.querySelector('.topbar.has-context');
-      return Boolean(bar?.querySelector('.topbar-path .crumbs')) && Boolean(bar?.querySelector('.topbar-context h1'));
+    check('目录页 H1 无下划线', (await evaluate('getComputedStyle(document.querySelector(".dir-head h1")).borderBottomWidth')) === '0px');
+    check('目录页头为独立岛', (await evaluate(`(() => {
+      const card = document.querySelector('.content-card').getBoundingClientRect();
+      const head = document.querySelector('.dir-head').getBoundingClientRect();
+      const title = document.querySelector('.dir-head h1').getBoundingClientRect();
+      return Math.abs(head.x - card.x - 15) <= 1 && Math.round(title.x - head.x) <= 32 && getComputedStyle(document.querySelector('.dir-head .head-inner')).paddingLeft === '30px';
     })()`)) === true);
-    check('目录页面包屑完整', await crumbsComplete('.topbar-path .crumbs', 'sub'));
-    check('目录页头显示目录名', (await evaluate('document.querySelector(".topbar-context h1")?.textContent')) === 'sub');
-    check('目录页头项目数徽标', (await evaluate('(() => { const text = document.querySelector(".topbar-context .page-meta")?.textContent || ""; return text.includes("个项目"); })()')) === true);
+    check('目录页面包屑完整', await crumbsComplete('.dir-head .crumbs', 'sub'));
+    check('目录页头显示目录名', (await evaluate('document.querySelector(".dir-head h1")?.textContent')) === 'sub');
+    check('目录页头项目数徽标', (await evaluate('(() => { const text = document.querySelector(".dir-head .page-meta")?.textContent || ""; return text.includes("个项目"); })()')) === true);
     check('目录页可滚动', (await evaluate('(() => { const card = document.querySelector(".content-card"); return card && getComputedStyle(card).overflowY === "auto" ? card.scrollHeight > card.clientHeight : document.documentElement.scrollHeight > innerHeight; })()')) === true);
     await scrollContentTo(500);
     await sleep(100);
@@ -1327,20 +1310,22 @@ async function main() {
 
     await goto('/page.md?raw=1');
     check('源码页回到顶部按钮', (await evaluate('document.querySelectorAll(".totop").length')) === 1);
-    check('源码页标题文件名', (await evaluate('document.querySelector(".topbar-context h1")?.textContent')) === 'page.md');
+    check('源码页标题文件名', (await evaluate('document.querySelector(".source-head h1")?.textContent')) === 'page.md');
     check('源码页浏览器标题', (await evaluate('document.title')) === 'page.md · 源码 · mdview');
     check('源码页类型标签', (await evaluate('document.querySelector(".source-kind")?.textContent.trim()')) === 'Markdown');
-    check('源码页信息标签', (await evaluate('(() => { const text = document.querySelector(".topbar-context .page-meta")?.textContent || ""; return text.includes("KB") && text.includes("行") && text.includes("更新于"); })()')) === true);
-    check('源码页预览按钮', (await evaluate('document.querySelector(".page-actions .action.primary")?.textContent.trim()')) === '预览');
-    check('源码页无下载按钮', (await evaluate(`document.querySelectorAll('.page-actions a.action[href*="?download=1"]').length`)) === 0);
-    check('源码页 H1 无下划线', (await evaluate('getComputedStyle(document.querySelector(".topbar-context h1")).borderBottomWidth')) === '0px');
-    check('源码页头使用顶栏', (await evaluate(`(() => {
-      const bar = document.querySelector('.topbar.has-context');
-      return Boolean(bar?.querySelector('.topbar-path .crumbs')) && Boolean(bar?.querySelector('.topbar-context h1')) && Boolean(bar?.querySelector('.page-actions .action.primary'));
+    check('源码页信息标签', (await evaluate('(() => { const text = document.querySelector(".source-head .page-meta")?.textContent || ""; return text.includes("KB") && text.includes("行") && text.includes("更新于"); })()')) === true);
+    check('源码页预览按钮', (await evaluate('document.querySelector(".source-head .page-actions .action.primary")?.textContent.trim()')) === '预览');
+    check('源码页无下载按钮', (await evaluate(`document.querySelectorAll('.source-head .page-actions a.action[href*="?download=1"]').length`)) === 0);
+    check('源码页 H1 无下划线', (await evaluate('getComputedStyle(document.querySelector(".source-head h1")).borderBottomWidth')) === '0px');
+    check('源码页头为独立岛', (await evaluate(`(() => {
+      const card = document.querySelector('.content-card').getBoundingClientRect();
+      const head = document.querySelector('.source-head').getBoundingClientRect();
+      const title = document.querySelector('.source-head h1').getBoundingClientRect();
+      return Math.abs(head.x - card.x - 15) <= 1 && Math.round(title.x - head.x) <= 32 && getComputedStyle(document.querySelector('.source-head .head-inner')).paddingLeft === '30px';
     })()`)) === true);
     check('源码页行锚点', (await evaluate('document.querySelector("#L1")?.textContent')) === '1');
     check('源码页原始内容', (await evaluate('document.querySelector(".source code").textContent')).startsWith('# Probe'));
-    check('源码页面包屑完整', await crumbsComplete('.topbar-path .crumbs', 'page.md'));
+    check('源码页面包屑完整', await crumbsComplete('.source-head .crumbs', 'page.md'));
 
     console.log('== html trusted ==');
     await goto('/page.html');
@@ -1416,7 +1401,7 @@ async function main() {
     console.log('== archives ==');
     await goto('/sample.zip/');
     check('压缩包页面标题', (await evaluate('document.querySelector("h1")?.textContent')) === 'sample.zip');
-    check('压缩包格式头', (await evaluate('document.querySelector(".topbar-context .page-meta")?.textContent'))?.includes('ZIP'));
+    check('压缩包格式头', (await evaluate('document.querySelector(".dir-head .page-meta")?.textContent'))?.includes('ZIP'));
     check('压缩包下载入口', (await evaluate('[...document.querySelectorAll(".page-actions .action")].some((a) => a.textContent.includes("下载压缩包"))')) === true);
     check('包内目录入口', (await evaluate(`document.querySelector('a[href="/sample.zip/docs/"]') !== null`)) === true);
     await goto('/sample.zip/docs/a.md');
@@ -1438,19 +1423,19 @@ async function main() {
     await goto('/sample.tar.bz2/docs/a.md');
     check('tar.bz2 包内渲染', (await evaluate('document.querySelector("article.markdown-body h1")?.textContent')) === 'Archive A');
     await goto('/sample.jar/');
-    check('JAR 页面标签', (await evaluate('document.querySelector(".topbar-context .page-meta")?.textContent'))?.includes('JAR'));
+    check('JAR 页面标签', (await evaluate('document.querySelector(".dir-head .page-meta")?.textContent'))?.includes('JAR'));
     await goto('/sample.jar/META-INF/MANIFEST.MF');
     check('JAR 清单源码页', (await evaluate('document.querySelector("h1")?.textContent')) === 'MANIFEST.MF');
     check('JAR 清单内容', (await evaluate('document.body.textContent'))?.includes('Manifest-Version'));
     check('JAR 清单标签', (await evaluate('document.body.textContent'))?.includes('Manifest'));
     await goto('/sample.epub/');
-    check('EPUB 页面标签', (await evaluate('document.querySelector(".topbar-context .page-meta")?.textContent'))?.includes('EPUB'));
+    check('EPUB 页面标签', (await evaluate('document.querySelector(".dir-head .page-meta")?.textContent'))?.includes('EPUB'));
     await goto('/sample.epub/OEBPS/chapter1.xhtml');
     check('EPUB 章节源码页', (await evaluate('document.querySelector("h1")?.textContent')) === 'chapter1.xhtml');
     check('EPUB 章节内容', (await evaluate('document.body.textContent'))?.includes('xhtmlneedle'));
     check('EPUB 章节行锚点', (await evaluate('document.querySelector("#L1")?.textContent')) === '1');
     await goto('/sample.cbz/');
-    check('CBZ 页面标签', (await evaluate('document.querySelector(".topbar-context .page-meta")?.textContent'))?.includes('CBZ'));
+    check('CBZ 页面标签', (await evaluate('document.querySelector(".dir-head .page-meta")?.textContent'))?.includes('CBZ'));
     await goto('/sample.cbz/page-01.png');
     check('CBZ 图片内联', (await evaluate('document.contentType')) === 'image/png');
     await goto('/page.xhtml');

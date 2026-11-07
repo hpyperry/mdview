@@ -1240,54 +1240,6 @@ button.action:disabled { cursor: default; }
 
 
 /* -------------------------------------------------------------------------
-   Page identity and page actions now live in the global topbar (C layout).
-   ------------------------------------------------------------------------- */
-.topbar.has-context { min-height: 64px; }
-.topbar-path { display: flex; align-items: center; min-width: 0; }
-.topbar-path .crumbs { margin: 0; flex-wrap: nowrap; overflow: hidden; }
-.topbar-path .crumbs > svg:first-child { display: none; }
-.topbar-path .crumbs .current { display: none; }
-.topbar-context {
-  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
-  max-width: min(520px, 46vw); pointer-events: none;
-  display: flex; flex-direction: column; align-items: center;
-}
-.topbar-context h1 {
-  margin: 0; padding: 0; border: 0; max-width: 100%;
-  font-size: 22px; line-height: 1.12; font-weight: 700; letter-spacing: -.015em;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-.topbar-context .page-meta { margin-top: 4px; justify-content: center; }
-.topbar-context .page-meta .badge { padding: 1px 7px; font-size: 11px; }
-.topbar-page-actions { margin-left: auto; display: flex; align-items: center; }
-.topbar.has-context .topbar-actions { margin-left: 0; }
-.action-menu { position: relative; }
-.action-menu-btn { width: 32px; height: 32px; padding: 0; display: inline-grid; place-items: center; }
-.action-panel {
-  position: absolute; top: calc(100% + 8px); right: 0; z-index: 70;
-  width: 142px; padding: 5px;
-  border: 1px solid var(--border); border-radius: 12px;
-  background: var(--surface); box-shadow: var(--shadow), var(--shadow-float);
-}
-.action-panel[hidden] { display: none; }
-.action-panel .page-actions { display: flex; flex-direction: column; align-items: stretch; margin: 0; gap: 2px; }
-.action-panel .action {
-  width: 100%; justify-content: flex-start; padding: 6px 8px;
-  border: 0; background: transparent; border-radius: 7px;
-}
-.action-panel .action:hover { background: var(--hover); color: var(--accent); }
-@media (max-width: 1280px) {
-  .topbar.has-context { min-height: 56px; }
-  .topbar-context .page-meta { display: none; }
-}
-@media (max-width: 900px) {
-  .topbar.has-context { min-height: 52px; }
-  .topbar-path { display: none; }
-  .topbar-context { max-width: 52vw; }
-  .topbar-context h1 { font-size: 16px; }
-}
-
-/* -------------------------------------------------------------------------
    Fixed page-head island: stays above the scrolling island body so source,
    download and export actions remain reachable while reading.
    ------------------------------------------------------------------------- */

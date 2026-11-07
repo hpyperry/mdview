@@ -66,11 +66,10 @@ cargo build --release
   悬停刻度显示单条标题，点击按钮展开大纲；**<1100px** 回正文顶部内联目录；导航是
   默认收起的浮层，不占用正文网格；桌面端顶栏与主岛固定，正文在岛内滚动，移动端
   保留普通页面滚动；
-- 内容面铺满 `.app`（最大 1680px）、阅读行最大 1200px；文档/源码/目录页的页面身份
-  与操作在全局顶栏：导航 + 面包屑、居中的文件名（22px）与第二行元信息、点状操作
-  菜单（源码/下载/导出图片/导出 PDF），再往右是搜索与主题；去掉产品 logo；顶栏、
-  主岛、TOC 岛间距统一 24px。搜索页仍保留内容面页头与表单。正文始终从主岛顶部
-  开始，代码块、表格随内容面变宽；
+- 内容面铺满 `.app`（最大 1680px）、阅读行最大 1200px；顶栏只保留最左侧导航、
+  右侧搜索和主题，不再放 logo 或页面信息；Markdown/源码/目录/搜索统一使用内容区
+  的 sticky 页头岛（面包屑 + 标题 + 元信息徽标 + 操作），长面包屑在页头内换行；
+  顶栏、主岛、TOC 岛间距统一 24px；正文保持阅读行，代码块、表格随内容面变宽；
 - 全站导航树只预载根 + 三层目录，更深目录按需展开；空闲预取带当前路径脊柱，
   深页打开导航也能一次定位当前文件；目录行只展开/收起，文件行才导航；当前路径
   自动展开，用户展开状态本地记忆；桌面端悬停目录会预热下一层；
@@ -270,7 +269,7 @@ cargo test                      # 96 单元 + 134 渲染兼容 + 27 golden
 cargo clippy --all-targets -- -D warnings
 bash tests/selftest-rust.sh     # 292 项真二进制 HTTP 断言
 node tests/check-css-baseline.mjs # Chromium 88 基线黑名单 + 深色色板同步
-node tests/browser-probe.mjs      # 338 项 headless Chrome 验收
+node tests/browser-probe.mjs      # 331 项 headless Chrome 验收
 node tests/perf-source.mjs        # 4 项源码页性能预算
 bash tests/trust-tty.sh           # 9 项真实 pty 信任测试
 ```

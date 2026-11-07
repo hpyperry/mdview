@@ -1,5 +1,8 @@
 # 顶栏页面上下文测试报告（2026-11-07）
 
+> 后续：页面身份已回退到内容区页头岛，本报告方案由
+> [browser-report-2026-11-07-clean-topbar.md](browser-report-2026-11-07-clean-topbar.md) 取代。
+
 - 关联：Issue [#67](https://github.com/hpyperry/mdview/issues/67) / PR（待建）/ F-29、F-45、F-100
 - 夹具：`tests/fixtures/page-head/README.md`
 - 原型：`prototype/topbar-actions` 分支（A/B/C 与后续间距/菜单迭代；最终选 C）
@@ -24,7 +27,7 @@
 | 单元 / 集成 | `cargo test` | 96 + 134 + 27 passed |
 | 黑盒 HTTP | `bash tests/selftest-rust.sh` | PASS=292 FAIL=0 |
 | TTY Trust | `bash tests/trust-tty.sh` | PASS=9 FAIL=0 |
-| 浏览器探针 | `node tests/browser-probe.mjs` | **PASS=338 FAIL=0** |
+| 浏览器探针 | `node tests/browser-probe.mjs` | **PASS=331 FAIL=0** |
 | 源码页性能 | `node tests/perf-source.mjs` | 4 项预算通过 |
 | artifact 冒烟 | `bash tests/smoke-artifact.sh` | PASS=7 FAIL=0 |
 
