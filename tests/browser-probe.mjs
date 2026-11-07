@@ -257,8 +257,7 @@ async function writeFixture(root) {
   await writeFile(join(root, 'huge-code.md'), `# Huge\n\n\`\`\`js\n${'const x = 1;\n'.repeat(22000)}\`\`\`\n`);
   const bigLines = Array.from({ length: 15000 }, (_, i) => `line ${i + 1} the quick brown fox jumps over the lazy dog`).join('\n') + '\n';
   await writeFile(join(root, 'big.txt'), bigLines);
-  const bigRust = Array.from({ length: 12000 }, (_, i) => `fn f${i + 1}() { let x = ${i + 1}; println!("hello"); }`).join('\n') + '\n';
-  await writeFile(join(root, 'big.rs'), bigRust);
+  await copyFile(join(REPO, 'tests', 'fixtures', 'large-source-highlight', 'root', 'big.rs'), join(root, 'big.rs'));
   const wideText = `${'wide-line-'.repeat(450)}\n${Array.from({ length: 12000 }, (_, i) => `row ${i + 1} ${'x'.repeat(30)}`).join('\n')}\n`;
   await writeFile(join(root, 'wide.txt'), wideText);
   for (let i = 0; i < 40; i += 1) {
