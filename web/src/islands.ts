@@ -3,7 +3,8 @@ import { mountTheme } from './islands/theme';
 import { mountNav } from './islands/nav';
 import { mountSearch } from './islands/search';
 import { mountMore } from './islands/more';
-import { mountGapMeta } from './islands/gapmeta';
+import { mountDirRows } from './islands/dirrows';
+import { mountIslandHead } from './islands/islandhead';
 import { mountBackToTop } from './islands/totop';
 import { mountToc } from './islands/toc';
 import { mountLineTarget } from './islands/linetarget';
@@ -31,11 +32,17 @@ export const islands: Record<string, IslandDefinition> = {
     root: () => document.querySelector('.search-wrap'),
     mount: mountSearch,
   },
-  gapmeta: {
-    name: 'gapmeta',
+  islandhead: {
+    name: 'islandhead',
     when: 'immediate',
-    root: () => document.querySelector('.gap-meta'),
-    mount: mountGapMeta,
+    root: () => document.querySelector('.island-head'),
+    mount: mountIslandHead,
+  },
+  dirrows: {
+    name: 'dirrows',
+    when: 'immediate',
+    root: () => document.querySelector('.dir-row'),
+    mount: mountDirRows,
   },
   more: {
     name: 'more',
