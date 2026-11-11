@@ -848,7 +848,8 @@ async function main() {
     );
     check('主岛高度适配视口', fixedShell.before.bottom === fixedShell.viewport - 16, JSON.stringify(fixedShell));
     check('页头岛固定不随正文滚动', fixedShell.before.head === fixedShell.after.head, JSON.stringify(fixedShell));
-    check('主岛放行横向回退手势', fixedShell.overscrollX === 'auto' && fixedShell.overscrollY === 'contain', JSON.stringify(fixedShell));
+    check('主岛放行横向回退手势', fixedShell.overscrollX === 'auto', JSON.stringify(fixedShell));
+    check('主岛关闭纵向回弹', fixedShell.overscrollY === 'none', JSON.stringify(fixedShell));
     await page.send('Emulation.setDeviceMetricsOverride', { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false });
     await goto('/page.md');
     check('1280 仍为目录岛', await waitFor('document.body?.dataset.hasToc === "1" && getComputedStyle(document.getElementById("toc-island")).display === "flex"', 3000));

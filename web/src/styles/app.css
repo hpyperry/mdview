@@ -1573,10 +1573,11 @@ mark.find-hit.is-active { background: var(--accent); color: #fff; }
     height: 100%;
     overflow-x: hidden;
     overflow-y: auto;
-    /* Keep vertical scroll inside the island, but let horizontal trackpad
-       swipes reach the browser's back/forward gesture. */
+    /* Keep vertical scrolling inside the island and suppress the macOS
+       rubber-band bounce; horizontal swipes still reach the browser's
+       back/forward gesture. */
     overscroll-behavior-x: auto;
-    overscroll-behavior-y: contain;
+    overscroll-behavior-y: none;
   }
   .toc-rail { position: static; height: 100%; max-height: none; }
   .shell.has-toc .toc-island { height: 100%; max-height: none; }

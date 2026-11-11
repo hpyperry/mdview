@@ -334,7 +334,9 @@ Single-context: root `GLOSSARY.md` + `docs/architecture/adr/`. See
 - **主岛与滚动**：文档页主岛的左边缘贴外壳左侧，右边缘 = 外壳右侧 -（TOC 宽度 +
   32px），不要让主岛 + TOC 整体居中，也不要把 TOC 绝对定位到主岛表面；无标题文档
   （`.no-toc`）恢复单列。源码/目录/搜索页的卡片铺满 `.app`。
-  桌面端 `.content-card` 是唯一滚动容器，body 不滚动；新增滚动相关逻辑要读
+  桌面端 `.content-card` 是唯一滚动容器，body 不滚动；纵向用
+  `overscroll-behavior-y: none` 关闭弹性回弹，横向保持 `auto` 以放行浏览器
+  后退/前进手势。新增滚动相关逻辑要读
   `card.scrollTop`/`card.getBoundingClientRect()`，不要假设 `window.scrollY`。
   大源码的 `IntersectionObserver` 要用 `.content-card` 作 `root`。
 - **页面身份**：文档/源码页文件名在顶栏居中，面包屑在缝隙，文件信息与操作在主岛

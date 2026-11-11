@@ -190,7 +190,7 @@
 |---|---|---|---|---|
 | F-94 | 引用块留白 | 底色引用块上下内边距对称（8px）；块内首/末子元素的外边距收口，列表末项也不残留空带；块后间距 16px、多段引用段间距 16px；嵌套引用同样对称 | 浏览器探针；[复测文档](../../tests/fixtures/blockquote-spacing/README.md) | ✅ 自动 |
 | F-100 | 干净顶栏与页头岛 | 顶栏只保留最左导航、右侧搜索/主题；页面身份与操作回到内容区 sticky 页头岛；长面包屑在页头内换行；顶栏/主岛/TOC 间距 24px；源码/目录/搜索页头结构一致 | 服务端单测、浏览器探针；[复测文档](../../tests/fixtures/page-head/README.md) · [视觉验收](../testing/reports/browser-report-2026-11-07-clean-topbar.md) | ✅ 自动 |
-| F-98 | 固定主岛与岛内滚动 | ≥901px 桌面端顶栏、主岛与 TOC 岛固定；`.content-card` 是唯一滚动容器，body 不滚动；正文、目录、源码与搜索结果在岛内滚动；≤900px 保留普通文档滚动；回顶、TOC 跳转与 scroll-spy、大源码懒加载都感知滚动容器 | 浏览器探针；[复测文档](../../tests/fixtures/toc-all-levels/README.md) · [视觉验收](../testing/reports/browser-report-2026-11-06-shell-layout.md) | ✅ 自动 |
+| F-98 | 固定主岛与岛内滚动 | ≥901px 桌面端顶栏、主岛与 TOC 岛固定；`.content-card` 是唯一滚动容器，body 不滚动；纵向关闭弹性回弹（`overscroll-behavior-y: none`），横向保持 `auto` 以放行浏览器后退/前进手势；正文、目录、源码与搜索结果在岛内滚动；≤900px 保留普通文档滚动；回顶、TOC 跳转与 scroll-spy、大源码懒加载都感知滚动容器 | 浏览器探针；[复测文档](../../tests/fixtures/overscroll/README.md) · [视觉验收](../testing/reports/browser-report-2026-11-11-overscroll.md) | ✅ 自动 |
 | F-95 | 导出图片 / PDF | 文档页导出 PNG 长图（白底、2x、超长自动降级并提示）与浏览器打印 PDF；打印样式隐藏外壳、强制浅色、分页；深色主题导出仍为浅色；下载/导出图片完成后图标变绿色对勾并禁用约 500ms 防止重复点击，随后恢复；导出过程与成功都不显示右侧状态文案；无 JS 隐藏按钮 | 浏览器探针、Rust 服务端断言；[复测文档](../../tests/fixtures/export-artifact/README.md) | ✅ 自动 |
 
 ## 变更规则
