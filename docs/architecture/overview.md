@@ -48,7 +48,7 @@ mdview --root docs --host 127.0.0.1
 ```
 
 - 一个可执行文件，内部嵌入 Markdown 渲染器、CSS、highlight.js、页面脚本。
-- 默认 `0.0.0.0:8000`、根为当前目录，与旧版一致。
+- 默认 `127.0.0.1:8000`（只监听本机）、根为当前目录；局域网访问需显式 `--host 0.0.0.0`。
 - 运行时零网络请求：页面只请求本站 `/_assets/…?__mdview=asset`，不访问 CDN。
 - `--version` 输出 `mdview 2.5.2`。
 
@@ -95,7 +95,7 @@ mdview --root docs --host 127.0.0.1
 CLI：
 
 ```text
---host <addr>            默认 0.0.0.0
+--host <addr>            默认 127.0.0.1（只监听本机）
 --port <port>            默认 8000；占用时向后重试
 --port-tries <n>         默认 10（只作用于主监听）
 --html-port <port>       HTML 第二 origin 起点；默认主端口 + 1，冲突时最多 10 个候选端口

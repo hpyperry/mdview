@@ -31,7 +31,7 @@ bash tests/run-all.sh
 [ADR 0023](docs/architecture/adr/0023-dev-build-artifact-size.md)。
 
 必须全绿：`cargo test`（101 单元 + 137 渲染兼容 + 27 golden）、303 项黑盒 HTTP、
-9 项 pty 信任测试、354 项 headless Chrome 验收、4 项源码页性能预算。
+9 项 pty 信任测试、357 项 headless Chrome 验收、4 项源码页性能预算。
 
 ## 协作流程
 

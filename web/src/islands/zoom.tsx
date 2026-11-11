@@ -14,6 +14,13 @@ function Zoom() {
   const itemRef = useRef<ZoomItem | null>(null);
   itemRef.current = item;
 
+  // Without <dialog>.showModal, leave the click to the browser so the image
+  // link still opens directly instead of being swallowed by preventDefault.
+  function canShowModal(): boolean {
+    const dialog = dialogRef.current;
+    return Boolean(dialog && typeof dialog.showModal === 'function');
+  }
+
   useEffect(() => {
     function onClick(event: MouseEvent): void {
       if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
@@ -21,6 +28,7 @@ function Zoom() {
       if (!target) return;
       const anchor = target.closest<HTMLAnchorElement>('a.zoom');
       if (anchor) {
+        if (!canShowModal()) return;
         event.preventDefault();
         const image = anchor.querySelector('img');
         setItem({
@@ -32,6 +40,7 @@ function Zoom() {
       }
       const image = target.closest<HTMLImageElement>('.markdown-body img');
       if (image && !image.closest('a')) {
+        if (!canShowModal()) return;
         event.preventDefault();
         setItem({
           src: image.currentSrc || image.src,
@@ -48,7 +57,13 @@ function Zoom() {
     const dialog = dialogRef.current;
     if (!dialog) return;
     if (item) {
-      if (!dialog.open) dialog.showModal();
+      if (!dialog.open) {
+        if (typeof dialog.showModal !== 'function') {
+          setItem(null);
+          return;
+        }
+        dialog.showModal();
+      }
       dialog.focus();
     } else if (dialog.open) {
       dialog.close();
@@ -56,7 +71,8 @@ function Zoom() {
   }, [item]);
 
   function close(): void {
-    dialogRef.current?.close();
+    const dialog = dialogRef.current;
+    if (dialog && typeof dialog.close === 'function') dialog.close();
   }
 
   return (

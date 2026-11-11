@@ -28,3 +28,4 @@
 | 2026-11-11 | 宽屏外壳铺满与主岛让位 | [browser-report-2026-11-11-wide-layout.md](browser-report-2026-11-11-wide-layout.md) | [`../evidence/2026-11-11/`](../evidence/2026-11-11/) | F-50 / F-20 / F-30 / F-33 / F-52 |
 | 2026-11-11 | 主岛纵向滚动回弹修复 | [browser-report-2026-11-11-overscroll.md](browser-report-2026-11-11-overscroll.md) | 无截图（计算样式 + 触控板人工确认） | F-98 |
 | 2026-11-11 | 面包屑返回文件位置 | [browser-report-2026-11-11-return-position.md](browser-report-2026-11-11-return-position.md) | [`../evidence/2026-11-11/`](../evidence/2026-11-11/) | F-09 |
+| 2026-11-11 | 能力降级兜底（复制/放大/默认监听） | [browser-report-2026-11-11-capability-fallbacks.md](browser-report-2026-11-11-capability-fallbacks.md) | [`../evidence/2026-11-11/`](../evidence/2026-11-11/) | F-25 / F-53 / F-74 / F-03 |

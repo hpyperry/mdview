@@ -9,8 +9,8 @@ use clap::Parser;
 #[derive(Debug, Parser)]
 #[command(name = "mdview", version, about = "单文件离线 Markdown 预览服务器")]
 pub struct Cli {
-    /// 监听地址
-    #[arg(long, default_value = "0.0.0.0")]
+    /// 监听地址；默认只监听本机，局域网访问时显式设为 0.0.0.0
+    #[arg(long, default_value = "127.0.0.1")]
     pub host: String,
 
     /// 监听端口
@@ -137,7 +137,7 @@ mod tests {
     #[test]
     fn defaults_are_stable() {
         let cli = Cli::try_parse_from(["mdview"]).unwrap();
-        assert_eq!(cli.host, "0.0.0.0");
+        assert_eq!(cli.host, "127.0.0.1");
         assert_eq!(cli.port, 8000);
         assert_eq!(cli.port_tries, 10);
         assert_eq!(cli.max_preview, "20M");

@@ -467,6 +467,35 @@ async function main() {
     const clipboard = await evaluate('navigator.clipboard.readText()').catch(() => '');
     check('剪贴板内容', clipboard.includes('def f():'), JSON.stringify(clipboard.slice(0, 40)));
 
+    await evaluate(`(() => {
+      window.__legacyCopyCalls = 0;
+      document.execCommand = (command) => {
+        if (command === 'copy') {
+          window.__legacyCopyCalls += 1;
+          return true;
+        }
+        return false;
+      };
+      Object.defineProperty(navigator, 'clipboard', {
+        configurable: true,
+        value: { writeText: () => Promise.reject(new Error('denied')) },
+      });
+      return true;
+    })()`);
+    await evaluate('document.querySelector(".copy-btn").click()');
+    await sleep(400);
+    check(
+      '剪贴板被拒时回退 execCommand',
+      (await evaluate('window.__legacyCopyCalls')) >= 1 &&
+        (await evaluate('document.querySelector(".copy-btn").textContent')) === '已复制',
+    );
+    await evaluate('document.execCommand = () => false');
+    await evaluate('document.getElementById("copy-file")?.click()');
+    check(
+      '文件复制失败有可见提示',
+      await waitFor('(document.querySelector(".toast")?.textContent || "").includes("复制失败")', 2500),
+    );
+
     const zoom = await evaluate(`(() => {
       const a = document.querySelector('a.zoom');
       if (!a) return null;
@@ -505,6 +534,23 @@ async function main() {
     await evaluate('document.querySelector(".zoom-close").click()');
     check('关闭按钮生效', await waitFor('document.querySelector("dialog.zoomdlg")?.open === false', 2000));
     check('焦点归还图片链接', await waitFor('document.activeElement === document.querySelector("a.zoom")', 2000));
+    const noModalFallback = await evaluate(`(() => {
+      const anchor = document.querySelector('a.zoom');
+      const dialog = document.querySelector('dialog.zoomdlg');
+      if (!anchor || !dialog) return null;
+      dialog.showModal = undefined;
+      let prevented = null;
+      const guard = (event) => { prevented = event.defaultPrevented; };
+      document.addEventListener('click', guard);
+      anchor.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 }));
+      document.removeEventListener('click', guard);
+      return { prevented, open: dialog.open === true };
+    })()`);
+    check(
+      'showModal 不可用时放行图片链接',
+      noModalFallback?.prevented === false && noModalFallback?.open === false,
+      JSON.stringify(noModalFallback),
+    );
 
     console.log('== blockquote spacing ==');
     await goto('/quote.md');
