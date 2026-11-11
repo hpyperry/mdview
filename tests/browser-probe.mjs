@@ -1399,6 +1399,75 @@ async function main() {
     })()`)) === true);
     check('源码页短文件左侧行号', (await evaluate('document.querySelectorAll(".gutter a").length')) === 5);
 
+    console.log('== return to file position ==');
+    await goto('/page.md');
+    check(
+      '文件页面包屑 URL 不变',
+      (await evaluate('document.querySelector(".gap-crumb .crumbs a:last-of-type")?.getAttribute("href")')) === '/',
+    );
+    await evaluate('document.querySelector(".gap-crumb .crumbs a:last-of-type").click()');
+    await sleep(400);
+    check(
+      '点击面包屑返回目录（无 URL 锚点）',
+      await waitFor('document.body.dataset.page === "dir" && location.hash === ""', 3000),
+    );
+    check(
+      '返回目录后高亮来源文件',
+      await waitFor('!!document.querySelector(".dir-row.is-return[data-file=\\"page.md\\"]")', 2000),
+    );
+    check(
+      '返回文件行在视口内',
+      (await evaluate(`(() => {
+        const row = document.querySelector('.dir-row.is-return');
+        const card = document.querySelector('.content-card')?.getBoundingClientRect();
+        if (!row || !card) return false;
+        const rect = row.getBoundingClientRect();
+        return rect.top >= card.top && rect.bottom <= card.bottom;
+      })()`)) === true,
+    );
+    await goto('/sub/page.md');
+    check(
+      '子目录面包屑 URL 不变',
+      (await evaluate('document.querySelector(".gap-crumb .crumbs a:last-of-type")?.getAttribute("href")')) === '/sub/',
+    );
+    await evaluate('document.querySelector(".gap-crumb .crumbs a:last-of-type").click()');
+    await sleep(400);
+    check(
+      '长目录返回无 URL 锚点',
+      await waitFor('document.body.dataset.page === "dir" && location.hash === ""', 3000),
+    );
+    const subReturn = await evaluate(`(() => {
+      const card = document.querySelector('.content-card');
+      const row = document.querySelector('.dir-row.is-return');
+      if (!card || !row) return null;
+      const rect = row.getBoundingClientRect();
+      const box = card.getBoundingClientRect();
+      return {
+        file: row.dataset.file,
+        scrollTop: Math.round(card.scrollTop),
+        inView: rect.top >= box.top && rect.bottom <= box.bottom,
+      };
+    })()`);
+    check(
+      '长目录滚动到来源文件',
+      subReturn?.file === 'page.md' && subReturn.scrollTop > 0 && subReturn.inView,
+      JSON.stringify(subReturn),
+    );
+    await goto('/sub/');
+    await scrollContentTo(320);
+    const savedScroll = await currentScrollTop();
+    await evaluate('document.querySelector(".dir-row[data-file=\\"page.md\\"] .nm").click()');
+    await sleep(600);
+    check('点击文件进入预览', await waitFor('document.body.dataset.page === "doc"', 3000));
+    await evaluate('history.back()');
+    await sleep(900);
+    const restoredScroll = await currentScrollTop();
+    check(
+      '后退恢复目录滚动位置',
+      Math.abs(restoredScroll - savedScroll) <= 2,
+      `${savedScroll} -> ${restoredScroll}`,
+    );
+
     console.log('== html trusted ==');
     await goto('/page.html');
     check('HTML 信任目录是原文', (await evaluate('document.querySelector("h1")?.textContent')) === 'HTML Probe');

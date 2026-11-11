@@ -1793,7 +1793,7 @@ async fn list_dir_with(
                 String::new()
             };
             file_rows.push_str(&format!(
-                "<div class=\"dir-row\"><span class=\"file-icon\">{icon}</span>\
+                "<div class=\"dir-row\" data-file=\"{file}\"><span class=\"file-icon\">{icon}</span>\
                  <a class=\"nm\" href=\"{href}\">{name}</a>\
                  <span class=\"meta-size\">{size}</span>\
                  <span class=\"meta-time\">{time}</span>\
@@ -1804,6 +1804,7 @@ async fn list_dir_with(
                  aria-label=\"更多操作\" data-tip=\"更多\">{more}</button>\
                  <div class=\"more-panel\" hidden><div class=\"page-actions\"></div></div></span>\
                  </span></div>",
+                file = escape_html(name),
                 icon = if html {
                     icon("file-code")
                 } else {
@@ -4310,6 +4311,17 @@ mod tests {
         std::fs::create_dir(root.join("sub")).unwrap();
         std::fs::write(root.join("sub").join("c.md"), "# c\n").unwrap();
         dir
+    }
+
+    #[tokio::test]
+    async fn dir_rows_expose_file_names_for_return_navigation() {
+        let dir = fixture();
+        let app = app(state(dir.path(), false, 1 << 20, 0));
+        let (status, _, body) = call(app, Method::GET, "/").await;
+        assert_eq!(status, StatusCode::OK);
+        let html = String::from_utf8(body).unwrap();
+        assert!(html.contains("data-file=\"a.md\""), "{html}");
+        assert!(html.contains("data-file=\"a b.txt\""), "{html}");
     }
 
     #[test]

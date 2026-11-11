@@ -19,7 +19,7 @@
 
 | 套件 | 命令 | 结果 |
 |---|---|---|
-| 单元/集成 | `cargo test --lib` | **100 passed** |
+| 单元/集成 | `cargo test --lib` | **101 passed** |
 | Golden | `cargo test --test golden` | **27 cases passed** |
 | 渲染兼容 | `cargo test --test render_compat` | **137 passed** |
 | 静态检查 | `cargo clippy --all-targets -- -D warnings` | **通过** |
@@ -27,7 +27,7 @@
 | CSS 基线 | `node tests/check-css-baseline.mjs` | **通过**（Chromium 88 黑名单 + 深色色板同步） |
 | Web 类型 | `npm --prefix web run typecheck` | **通过** |
 | 黑盒 HTTP | `bash tests/selftest-rust.sh` | **PASS=303 FAIL=0** |
-| 浏览器验收 | `node tests/browser-probe.mjs` | **PASS=345 FAIL=0** |
+| 浏览器验收 | `node tests/browser-probe.mjs` | **PASS=354 FAIL=0** |
 | 源码页性能 | `node tests/perf-source.mjs` | **4 项预算通过** |
 | TTY 信任 | `bash tests/trust-tty.sh` | **PASS=9 FAIL=0** |
 | artifact 冒烟 | `bash tests/smoke-artifact.sh target/release/mdview` | **PASS=7 FAIL=0** |
@@ -89,7 +89,7 @@ P0 差分报告：1035 条计分语料 **1015 条精确匹配（98.07%）**，0 
 
 ## 浏览器验证
 
-`tests/browser-probe.mjs` 在真实 headless Chrome 里跑 **345 项**断言：
+`tests/browser-probe.mjs` 在真实 headless Chrome 里跑 **354 项**断言：
 
 - 岛屿：文档页按需水合 toc/linetarget/code/zoom，源码页只挂 source；
 - HTML 文件：trusted 根原文顶层、脚本/localStorage/同源 fetch 正常；untrusted 根 302 到第二 origin，module/sessionStorage/Service Worker/同源 fetch/相对 CSS 全部正常，主 origin 无 iframe 外壳；源码页切换、SVG 直开脚本不执行、目录大小/时间列对齐；
@@ -136,7 +136,7 @@ P0 差分报告：1035 条计分语料 **1015 条精确匹配（98.07%）**，0 
 
 - 最近一次远程完整绿色：`CI · 41444350375`（2026-11-02，PR #35），8/8 job
   成功；macOS/Ubuntu/Windows 测试、Node 类型检查、4 目标构建全绿。
-- 本地 `run-all.sh` 当前为 303/345。
+- 本地 `run-all.sh` 当前为 303/354。
 - Release 由 annotated tag `v*` 触发 `release.yml`；发布结果以对应 GitHub Release
   为准。
 - 岛屿架构首跑 `39421064321` 暴露两个 CI 问题：Linux Chrome 因新增的
@@ -145,7 +145,7 @@ P0 差分报告：1035 条计分语料 **1015 条精确匹配（98.07%）**，0 
   参数、DevTools 超时 30s，并加 `Cross.toml` 透传预构建路径。
 - 更早的 `39285530389` 曾受 GitHub Actions `degraded_performance` 影响，
   8 个 job 长时间 queued；那是平台事件，不是代码失败。
-- 测试矩阵覆盖：`cargo test`、黑盒 303、TTY 9、浏览器 345、源码页性能 4；
+- 测试矩阵覆盖：`cargo test`、黑盒 303、TTY 9、浏览器 354、源码页性能 4；
   Windows 跳过 pty/浏览器/性能，其余全跑。
 - artifact 冒烟：macOS arm64、Linux x86_64 musl、Windows x86_64 通过；
   Linux arm64 musl 只构建（x86 runner 无法执行 arm64）。

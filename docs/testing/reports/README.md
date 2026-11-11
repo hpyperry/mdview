@@ -27,3 +27,4 @@
 | 2026-11-07 | 源码页铺满与大块高亮 Worker | [browser-report-2026-11-07-source-worker.md](browser-report-2026-11-07-source-worker.md) | [`../evidence/2026-11-07/`](../evidence/2026-11-07/) | F-101 / F-100 |
 | 2026-11-11 | 宽屏外壳铺满与主岛让位 | [browser-report-2026-11-11-wide-layout.md](browser-report-2026-11-11-wide-layout.md) | [`../evidence/2026-11-11/`](../evidence/2026-11-11/) | F-50 / F-20 / F-30 / F-33 / F-52 |
 | 2026-11-11 | 主岛纵向滚动回弹修复 | [browser-report-2026-11-11-overscroll.md](browser-report-2026-11-11-overscroll.md) | 无截图（计算样式 + 触控板人工确认） | F-98 |
+| 2026-11-11 | 面包屑返回文件位置 | [browser-report-2026-11-11-return-position.md](browser-report-2026-11-11-return-position.md) | [`../evidence/2026-11-11/`](../evidence/2026-11-11/) | F-09 |

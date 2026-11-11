@@ -30,8 +30,8 @@ bash tests/run-all.sh
 [`docs/guides/build-hygiene.md`](docs/guides/build-hygiene.md)，取舍见
 [ADR 0023](docs/architecture/adr/0023-dev-build-artifact-size.md)。
 
-必须全绿：`cargo test`（100 单元 + 137 渲染兼容 + 27 golden）、303 项黑盒 HTTP、
-9 项 pty 信任测试、338 项 headless Chrome 验收、4 项源码页性能预算。
+必须全绿：`cargo test`（101 单元 + 137 渲染兼容 + 27 golden）、303 项黑盒 HTTP、
+9 项 pty 信任测试、354 项 headless Chrome 验收、4 项源码页性能预算。
 
 ## 协作流程
 
@@ -346,7 +346,9 @@ Single-context: root `GLOSSARY.md` + `docs/architecture/adr/`. See
 - **文件夹打包下载**：只在可信根且非 `--safe` 时显示；临时 zip 放系统临时目录，
   下载结束/中断后删除，token 绑定目录、单次、10 分钟过期；跳过软链接。
 - **目录页**：列表限宽 1100px 居中，目录行操作常驻、固定两槽位，超出收进「更多」；
-  不要再渲染「目录」「项目数」文字。文件页铺满并有 240ms 淡入。
+  不要再渲染「目录」「项目数」文字。文件页铺满并有 240ms 淡入。文件行带
+  `data-file`；文件页面包屑保持普通目录 URL，点面包屑时用 `sessionStorage` 记录
+  来源文件，目录页 `dirrows` 岛滚动到该行并短暂高亮；后退时恢复 `scrollTop`。
 - **搜索结果行**：整条 `.hit` 是链接；Markdown 内容行到渲染页 `#L<n>`，文件标题
   与文件条目到文件开头。不要恢复独立的“打开文档/源码 Ln”按钮。
 - **行定位**：`render_markdown` 默认不带 sourcepos，保持 golden/render_compat 不变；

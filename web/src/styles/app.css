@@ -261,8 +261,10 @@ html[data-sidebar="collapsed"] .sidebar { padding: 0; border: 0; overflow: hidde
   grid-template-columns: 30px minmax(0, 1fr) 88px 150px 80px;
   align-items: center; gap: 12px;
   padding: 9px 12px; border-radius: 6px; border: 1px solid transparent;
+  transition: background .18s ease, border-color .18s ease;
 }
 .dir-row:hover { background: var(--surface-2); border-color: var(--border); }
+.dir-row.is-return { background: var(--accent-soft); border-color: var(--accent); }
 .file-icon { width: 30px; height: 30px; display: grid; place-items: center; border-radius: 7px; background: var(--surface-2); color: var(--muted); flex: 0 0 auto; }
 .file-icon.folder { color: var(--accent); background: var(--accent-soft); }
 .file-icon .icon { width: 16px; height: 16px; }

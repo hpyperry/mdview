@@ -1,3 +1,5 @@
+import { saveReturnTarget } from '../return-position';
+
 /**
  * File tools in the island head: copy the whole file to the clipboard and
  * search inside the rendered document (count, previous/next, Esc to close).
@@ -194,7 +196,36 @@ function mountFind(): void {
   paintCount();
 }
 
+/**
+ * Remember the current file when leaving through the breadcrumb, so the
+ * directory page can scroll back to its row without putting the file name in
+ * the URL.
+ */
+function mountCrumbReturn(): void {
+  const links = document.querySelectorAll<HTMLAnchorElement>('.gap-crumb .crumbs a[href]');
+  const parent = links[links.length - 1];
+  if (!parent) return;
+  parent.addEventListener('click', () => {
+    const segment = window.location.pathname.split('/').pop() || '';
+    let file = '';
+    try {
+      file = decodeURIComponent(segment);
+    } catch {
+      return;
+    }
+    if (!file) return;
+    let dir = '';
+    try {
+      dir = new URL(parent.href, window.location.href).pathname;
+    } catch {
+      return;
+    }
+    saveReturnTarget({ dir, file });
+  });
+}
+
 export function mountFileTools(): void {
+  mountCrumbReturn();
   mountCopy(document.getElementById('copy-file'));
   mountFind();
 }
