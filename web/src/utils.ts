@@ -14,24 +14,49 @@ export function savePref(key: string, value: string): void {
   }
 }
 
-export function copyText(text: string): Promise<void> {
-  if (navigator.clipboard && window.isSecureContext) {
-    return navigator.clipboard.writeText(text);
-  }
+function legacyCopy(text: string): Promise<void> {
   return new Promise((resolve, reject) => {
     const area = document.createElement('textarea');
     area.value = text;
+    area.setAttribute('readonly', '');
     area.style.position = 'fixed';
+    area.style.top = '-1000px';
     area.style.opacity = '0';
     document.body.appendChild(area);
     area.select();
     try {
-      document.execCommand('copy') ? resolve() : reject(new Error('copy failed'));
+      const copied = typeof document.execCommand === 'function' && document.execCommand('copy');
+      if (copied) resolve();
+      else reject(new Error('copy failed'));
     } catch (error) {
       reject(error);
+    } finally {
+      area.remove();
     }
-    document.body.removeChild(area);
   });
+}
+
+export function copyText(text: string): Promise<void> {
+  if (navigator.clipboard?.writeText && window.isSecureContext) {
+    try {
+      return navigator.clipboard.writeText(text).catch(() => legacyCopy(text));
+    } catch {
+      return legacyCopy(text);
+    }
+  }
+  return legacyCopy(text);
+}
+
+export function showToast(message: string, duration = 2400): void {
+  document.getElementById('mdview-toast')?.remove();
+  const toast = document.createElement('div');
+  toast.id = 'mdview-toast';
+  toast.className = 'toast';
+  toast.setAttribute('role', 'status');
+  toast.setAttribute('aria-live', 'polite');
+  toast.textContent = message;
+  document.body.appendChild(toast);
+  window.setTimeout(() => toast.remove(), duration);
 }
 
 export function hasExplicitLanguage(code: HTMLElement): boolean {

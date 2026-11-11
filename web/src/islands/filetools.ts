@@ -1,3 +1,6 @@
+import { copyText, showToast } from '../utils';
+import { saveReturnTarget } from '../return-position';
+
 /**
  * File tools in the island head: copy the whole file to the clipboard and
  * search inside the rendered document (count, previous/next, Esc to close).
@@ -27,22 +30,6 @@ function clearMarks(root: HTMLElement): void {
   }
 }
 
-async function writeClipboard(text: string): Promise<void> {
-  if (navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(text);
-    return;
-  }
-  const area = document.createElement('textarea');
-  area.value = text;
-  area.setAttribute('readonly', '');
-  area.style.position = 'fixed';
-  area.style.top = '-1000px';
-  document.body.appendChild(area);
-  area.select();
-  document.execCommand('copy');
-  area.remove();
-}
-
 function mountCopy(button: HTMLElement | null): void {
   if (!button) return;
   let timer = 0;
@@ -53,11 +40,12 @@ function mountCopy(button: HTMLElement | null): void {
           credentials: 'same-origin',
         });
         if (!res.ok) throw new Error(`status ${res.status}`);
-        await writeClipboard(await res.text());
+        await copyText(await res.text());
         button.classList.add('is-done');
         button.dataset.tip = '已复制';
       } catch {
         button.dataset.tip = '复制失败';
+        showToast('复制失败：请允许剪贴板权限，或使用下载');
       }
       window.clearTimeout(timer);
       timer = window.setTimeout(() => {
@@ -194,7 +182,36 @@ function mountFind(): void {
   paintCount();
 }
 
+/**
+ * Remember the current file when leaving through the breadcrumb, so the
+ * directory page can scroll back to its row without putting the file name in
+ * the URL.
+ */
+function mountCrumbReturn(): void {
+  const links = document.querySelectorAll<HTMLAnchorElement>('.gap-crumb .crumbs a[href]');
+  const parent = links[links.length - 1];
+  if (!parent) return;
+  parent.addEventListener('click', () => {
+    const segment = window.location.pathname.split('/').pop() || '';
+    let file = '';
+    try {
+      file = decodeURIComponent(segment);
+    } catch {
+      return;
+    }
+    if (!file) return;
+    let dir = '';
+    try {
+      dir = new URL(parent.href, window.location.href).pathname;
+    } catch {
+      return;
+    }
+    saveReturnTarget({ dir, file });
+  });
+}
+
 export function mountFileTools(): void {
+  mountCrumbReturn();
   mountCopy(document.getElementById('copy-file'));
   mountFind();
 }

@@ -16,7 +16,7 @@
 | `testing/` | 当前自测记录、浏览器验收报告与截图证据 | [selftest.md](testing/selftest.md) · [reports/README.md](testing/reports/README.md) · [agent-guide.md](testing/agent-guide.md) |
 | `research/` | 研究笔记：comrak 差分、旧引擎兼容审计 | [comrak-vs-markdown-it.md](research/comrak-vs-markdown-it.md) · [legacy-engine-compatibility.md](research/legacy-engine-compatibility.md) |
 | `archive/` | 历史 Python 台账、旧浏览器验收与已完成的重写计划 | [README.md](archive/README.md) |
-| `releases/` | 版本发布说明 | [2.5.2.md](releases/2.5.2.md) · [2.5.1.md](releases/2.5.1.md) · [2.5.0.md](releases/2.5.0.md) · [2.4.0.md](releases/2.4.0.md) · [2.3.0.md](releases/2.3.0.md) · [2.2.3.md](releases/2.2.3.md) · [2.2.2.md](releases/2.2.2.md) · [2.2.1.md](releases/2.2.1.md) · [2.2.0.md](releases/2.2.0.md) · [2.1.0.md](releases/2.1.0.md) · [2.0.1.md](releases/2.0.1.md) |
+| `releases/` | 版本发布说明 | [2.6.0.md](releases/2.6.0.md) · [2.5.2.md](releases/2.5.2.md) · [2.5.1.md](releases/2.5.1.md) · [2.5.0.md](releases/2.5.0.md) · [2.4.0.md](releases/2.4.0.md) · [2.3.0.md](releases/2.3.0.md) · [2.2.3.md](releases/2.2.3.md) · [2.2.2.md](releases/2.2.2.md) · [2.2.1.md](releases/2.2.1.md) · [2.2.0.md](releases/2.2.0.md) · [2.1.0.md](releases/2.1.0.md) · [2.0.1.md](releases/2.0.1.md) |
 | `agents/` | Agent skills 配置：Issue tracker、triage 标签、domain docs | [issue-tracker.md](agents/issue-tracker.md) · [triage-labels.md](agents/triage-labels.md) · [domain.md](agents/domain.md) |
 | `index.md` + `preview/` | 作为服务根时使用的示例文档与夹具，不是产品文档 | [index.md](index.md) · [preview/](preview/) |
 

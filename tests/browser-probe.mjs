@@ -419,6 +419,39 @@ async function main() {
     check('文档面包屑完整', await crumbsComplete('.gap-crumb .crumbs', 'page.md'));
     check('顶栏显示文件名', (await evaluate('document.querySelector(".topbar-title h1")?.textContent')) === 'page.md');
     check(
+      '顶栏 logo 在导航左侧并链接首页',
+      (await evaluate(`(() => {
+        const brand = document.querySelector('.topbar .brand');
+        const img = brand?.querySelector('img.brand-mark');
+        const nav = document.getElementById('nav-toggle')?.getBoundingClientRect();
+        const box = brand?.getBoundingClientRect();
+        return Boolean(brand) &&
+          brand.getAttribute('href') === '/' &&
+          img?.getAttribute('src')?.includes('/_assets/favicon.svg?__mdview=asset') === true &&
+          Boolean(nav && box && box.right <= nav.left);
+      })()`)) === true,
+    );
+    check(
+      'favicon 双链接',
+      (await evaluate(`(() => {
+        const links = [...document.querySelectorAll('link[rel="icon"]')];
+        return links.length === 2 &&
+          links.some((link) => link.type === 'image/svg+xml' && link.href.includes('/_assets/favicon.svg?__mdview=asset')) &&
+          links.some((link) => link.type === 'image/png' && link.href.includes('/_assets/favicon.png?__mdview=asset'));
+      })()`)) === true,
+    );
+    check(
+      'favicon 资产可访问',
+      (await evaluate(`Promise.all([
+        fetch('/_assets/favicon.svg?__mdview=asset'),
+        fetch('/_assets/favicon.png?__mdview=asset'),
+      ]).then(([svg, png]) =>
+        svg.ok && png.ok &&
+        svg.headers.get('content-type') === 'image/svg+xml' &&
+        png.headers.get('content-type') === 'image/png'
+      )`)) === true,
+    );
+    check(
       '主岛文件信息',
       (await evaluate(`(() => {
         const text = document.querySelector('.island-meta')?.textContent || '';
@@ -432,6 +465,8 @@ async function main() {
       const head = document.querySelector('.island-head').getBoundingClientRect();
       return Math.abs(head.x - card.x) <= 2 && Math.abs(head.width - cardEl.clientWidth) <= 2 && getComputedStyle(document.querySelector('.island-head')).position === 'sticky';
     })()`)) === true);
+    check('代码文档加载 highlight.js', (await evaluate(`!!document.querySelector('script[src*="/_assets/highlight.js"]')`)) === true);
+    check('代码文档加载 highlight.css', (await evaluate(`!!document.querySelector('link[href*="/_assets/highlight.css"]')`)) === true);
     check('代码块数量', (await evaluate('document.querySelectorAll("pre code").length')) === 2);
     check('highlight.js 着色', await waitFor('document.querySelectorAll("pre code.hljs span").length > 0', 3000));
     check('复制按钮已注入', (await evaluate('document.querySelectorAll(".copy-btn").length')) === 2);
@@ -466,6 +501,35 @@ async function main() {
     check('复制按钮反馈', copyText === '已复制', copyText);
     const clipboard = await evaluate('navigator.clipboard.readText()').catch(() => '');
     check('剪贴板内容', clipboard.includes('def f():'), JSON.stringify(clipboard.slice(0, 40)));
+
+    await evaluate(`(() => {
+      window.__legacyCopyCalls = 0;
+      document.execCommand = (command) => {
+        if (command === 'copy') {
+          window.__legacyCopyCalls += 1;
+          return true;
+        }
+        return false;
+      };
+      Object.defineProperty(navigator, 'clipboard', {
+        configurable: true,
+        value: { writeText: () => Promise.reject(new Error('denied')) },
+      });
+      return true;
+    })()`);
+    await evaluate('document.querySelector(".copy-btn").click()');
+    await sleep(400);
+    check(
+      '剪贴板被拒时回退 execCommand',
+      (await evaluate('window.__legacyCopyCalls')) >= 1 &&
+        (await evaluate('document.querySelector(".copy-btn").textContent')) === '已复制',
+    );
+    await evaluate('document.execCommand = () => false');
+    await evaluate('document.getElementById("copy-file")?.click()');
+    check(
+      '文件复制失败有可见提示',
+      await waitFor('(document.querySelector(".toast")?.textContent || "").includes("复制失败")', 2500),
+    );
 
     const zoom = await evaluate(`(() => {
       const a = document.querySelector('a.zoom');
@@ -505,9 +569,28 @@ async function main() {
     await evaluate('document.querySelector(".zoom-close").click()');
     check('关闭按钮生效', await waitFor('document.querySelector("dialog.zoomdlg")?.open === false', 2000));
     check('焦点归还图片链接', await waitFor('document.activeElement === document.querySelector("a.zoom")', 2000));
+    const noModalFallback = await evaluate(`(() => {
+      const anchor = document.querySelector('a.zoom');
+      const dialog = document.querySelector('dialog.zoomdlg');
+      if (!anchor || !dialog) return null;
+      dialog.showModal = undefined;
+      let prevented = null;
+      const guard = (event) => { prevented = event.defaultPrevented; };
+      document.addEventListener('click', guard);
+      anchor.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 }));
+      document.removeEventListener('click', guard);
+      return { prevented, open: dialog.open === true };
+    })()`);
+    check(
+      'showModal 不可用时放行图片链接',
+      noModalFallback?.prevented === false && noModalFallback?.open === false,
+      JSON.stringify(noModalFallback),
+    );
 
     console.log('== blockquote spacing ==');
     await goto('/quote.md');
+    check('无代码文档不加载 highlight.js', (await evaluate(`!document.querySelector('script[src*="/_assets/highlight.js"]')`)) === true);
+    check('无代码文档不加载 highlight.css', (await evaluate(`!document.querySelector('link[href*="/_assets/highlight.css"]')`)) === true);
     const blockquoteMetrics = await evaluate(`(() => {
       const quotes = [...document.querySelectorAll('.markdown-body blockquote')];
       return quotes.map((b) => {
@@ -773,23 +856,70 @@ async function main() {
     await goto('/page.md');
     check('1440 常驻目录岛', await waitFor('document.body?.dataset.hasToc === "1" && getComputedStyle(document.getElementById("toc-island")).display === "flex"', 3000));
     const docShell = await evaluate(`(() => {
-      const card = document.querySelector('.doc-card').getBoundingClientRect();
+      const cardEl = document.querySelector('.doc-card');
+      const card = cardEl.getBoundingClientRect();
       const bar = document.querySelector('.topbar').getBoundingClientRect();
       const toc = document.getElementById('toc-island').getBoundingClientRect();
       const prose = document.querySelector('.markdown-body').getBoundingClientRect();
       return {
         cardLeft: Math.round(card.left), cardRight: Math.round(card.right),
+        innerLeft: Math.round(card.left + cardEl.clientLeft),
+        innerRight: Math.round(card.left + cardEl.clientLeft + cardEl.clientWidth),
         barLeft: Math.round(bar.left), barRight: Math.round(bar.right),
-        tocRight: Math.round(toc.right), tocWidth: Math.round(toc.width),
-        proseWidth: Math.round(prose.width),
+        tocLeft: Math.round(toc.left), tocRight: Math.round(toc.right), tocWidth: Math.round(toc.width),
+        proseLeft: Math.round(prose.left), proseRight: Math.round(prose.right), proseWidth: Math.round(prose.width),
         animation: getComputedStyle(document.getElementById('shell')).animationName,
       };
     })()`);
-    check('文档主岛与顶栏左对齐', Math.abs(docShell.cardLeft - docShell.barLeft) <= 1, JSON.stringify(docShell));
+    check('主岛左侧与顶栏对齐', Math.abs(docShell.cardLeft - docShell.barLeft) <= 1, JSON.stringify(docShell));
     check('目录岛与顶栏右对齐', Math.abs(docShell.tocRight - docShell.barRight) <= 1 && docShell.tocWidth >= 180, JSON.stringify(docShell));
-    check('文档主岛为目录岛收窄', docShell.cardRight < docShell.barRight - 180, JSON.stringify(docShell));
+    check('主岛为目录岛让出宽度', Math.abs(docShell.tocLeft - docShell.cardRight) === 32, JSON.stringify(docShell));
+    check(
+      '正文在主岛内居中',
+      Math.abs((docShell.proseLeft - docShell.innerLeft) - (docShell.innerRight - docShell.proseRight)) <= 1,
+      JSON.stringify(docShell),
+    );
     check('文档正文保持宽阅读行', docShell.proseWidth >= 1000, JSON.stringify(docShell));
-    check('文档分栏已启用', docShell.animation.includes('shell-split') || (await evaluate('document.body.dataset.split === "1"')), JSON.stringify(docShell));
+    check('文档分栏已启用', (await evaluate('document.body.dataset.split === "1"')) === true, JSON.stringify(docShell));
+    await page.send('Emulation.setDeviceMetricsOverride', { width: 2560, height: 1440, deviceScaleFactor: 1, mobile: false });
+    await goto('/page.md');
+    check('2560 常驻目录岛', await waitFor('document.body?.dataset.hasToc === "1" && getComputedStyle(document.getElementById("toc-island")).display === "flex"', 3000));
+    const wideShell = await evaluate(`(() => {
+      const cardEl = document.querySelector('.doc-card');
+      const card = cardEl.getBoundingClientRect();
+      const bar = document.querySelector('.topbar').getBoundingClientRect();
+      const toc = document.getElementById('toc-island').getBoundingClientRect();
+      const prose = document.querySelector('.markdown-body').getBoundingClientRect();
+      return {
+        cardLeft: Math.round(card.left), cardRight: Math.round(card.right),
+        innerLeft: Math.round(card.left + cardEl.clientLeft),
+        innerRight: Math.round(card.left + cardEl.clientLeft + cardEl.clientWidth),
+        barLeft: Math.round(bar.left), barRight: Math.round(bar.right),
+        tocLeft: Math.round(toc.left), tocRight: Math.round(toc.right),
+        proseLeft: Math.round(prose.left), proseRight: Math.round(prose.right),
+      };
+    })()`);
+    check(
+      '2560 主岛铺到目录岛前',
+      wideShell.cardLeft === wideShell.barLeft &&
+        wideShell.tocRight === wideShell.barRight &&
+        Math.abs(wideShell.tocLeft - wideShell.cardRight) === 32,
+      JSON.stringify(wideShell),
+    );
+    check('2560 正文保持 1200 阅读行', wideShell.proseRight - wideShell.proseLeft === 1200, JSON.stringify(wideShell));
+    check(
+      '2560 正文在主岛内居中',
+      Math.abs((wideShell.proseLeft - wideShell.innerLeft) - (wideShell.innerRight - wideShell.proseRight)) <= 1,
+      JSON.stringify(wideShell),
+    );
+    check(
+      '2560 页面无横向溢出',
+      (await evaluate('document.documentElement.scrollWidth <= innerWidth + 1')) === true,
+      JSON.stringify(wideShell),
+    );
+    await page.send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+    await goto('/page.md');
+    await waitFor('document.body?.dataset.hasToc === "1"', 3000);
     const fixedShell = await evaluate(`(() => {
       const card = document.querySelector('.content-card');
       const bar = document.querySelector('.topbar');
@@ -807,7 +937,8 @@ async function main() {
     );
     check('主岛高度适配视口', fixedShell.before.bottom === fixedShell.viewport - 16, JSON.stringify(fixedShell));
     check('页头岛固定不随正文滚动', fixedShell.before.head === fixedShell.after.head, JSON.stringify(fixedShell));
-    check('主岛放行横向回退手势', fixedShell.overscrollX === 'auto' && fixedShell.overscrollY === 'contain', JSON.stringify(fixedShell));
+    check('主岛放行横向回退手势', fixedShell.overscrollX === 'auto', JSON.stringify(fixedShell));
+    check('主岛关闭纵向回弹', fixedShell.overscrollY === 'none', JSON.stringify(fixedShell));
     await page.send('Emulation.setDeviceMetricsOverride', { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false });
     await goto('/page.md');
     check('1280 仍为目录岛', await waitFor('document.body?.dataset.hasToc === "1" && getComputedStyle(document.getElementById("toc-island")).display === "flex"', 3000));
@@ -1310,6 +1441,7 @@ async function main() {
     check('目录操作点击区足够大', align.targetsBig, JSON.stringify(align));
     check('文件夹有打包下载入口', (await evaluate('!!document.querySelector(".dir-row a[data-zip]")')) === true);
     check('文件夹下载 hover 只有下载', (await evaluate('document.querySelector(".dir-row a[data-zip]")?.getAttribute("data-tip")')) === '下载');
+    check('目录页不加载 highlight.js', (await evaluate(`!document.querySelector('script[src*="/_assets/highlight.js"]')`)) === true);
     await goto('/sub/');
     check('目录页回到顶部按钮', (await evaluate('document.querySelectorAll(".totop").length')) === 1);
     check('目录页无分组标题', (await evaluate('!document.querySelector(".dir-section h2") && !!document.querySelector(".dir-list")')) === true);
@@ -1348,6 +1480,7 @@ async function main() {
     })()`)) === true);
     check('源码页行锚点', (await evaluate('document.querySelector("#L1")?.textContent')) === '1');
     check('源码页原始内容', (await evaluate('document.querySelector(".source code").textContent')).startsWith('# Probe'));
+    check('源码页加载 highlight.js', (await evaluate(`!!document.querySelector('script[src*="/_assets/highlight.js"]')`)) === true);
     check('源码页面包屑完整', await crumbsComplete('.gap-crumb .crumbs', 'page.md'));
     await goto('/small.rs?raw=1');
     check('源码页短文件铺满主岛', (await evaluate(`(() => {
@@ -1356,6 +1489,75 @@ async function main() {
       return Math.abs(wrap.bottom - card.bottom) <= 2 && !document.querySelector('.source-note');
     })()`)) === true);
     check('源码页短文件左侧行号', (await evaluate('document.querySelectorAll(".gutter a").length')) === 5);
+
+    console.log('== return to file position ==');
+    await goto('/page.md');
+    check(
+      '文件页面包屑 URL 不变',
+      (await evaluate('document.querySelector(".gap-crumb .crumbs a:last-of-type")?.getAttribute("href")')) === '/',
+    );
+    await evaluate('document.querySelector(".gap-crumb .crumbs a:last-of-type").click()');
+    await sleep(400);
+    check(
+      '点击面包屑返回目录（无 URL 锚点）',
+      await waitFor('document.body.dataset.page === "dir" && location.hash === ""', 3000),
+    );
+    check(
+      '返回目录后高亮来源文件',
+      await waitFor('!!document.querySelector(".dir-row.is-return[data-file=\\"page.md\\"]")', 2000),
+    );
+    check(
+      '返回文件行在视口内',
+      (await evaluate(`(() => {
+        const row = document.querySelector('.dir-row.is-return');
+        const card = document.querySelector('.content-card')?.getBoundingClientRect();
+        if (!row || !card) return false;
+        const rect = row.getBoundingClientRect();
+        return rect.top >= card.top && rect.bottom <= card.bottom;
+      })()`)) === true,
+    );
+    await goto('/sub/page.md');
+    check(
+      '子目录面包屑 URL 不变',
+      (await evaluate('document.querySelector(".gap-crumb .crumbs a:last-of-type")?.getAttribute("href")')) === '/sub/',
+    );
+    await evaluate('document.querySelector(".gap-crumb .crumbs a:last-of-type").click()');
+    await sleep(400);
+    check(
+      '长目录返回无 URL 锚点',
+      await waitFor('document.body.dataset.page === "dir" && location.hash === ""', 3000),
+    );
+    const subReturn = await evaluate(`(() => {
+      const card = document.querySelector('.content-card');
+      const row = document.querySelector('.dir-row.is-return');
+      if (!card || !row) return null;
+      const rect = row.getBoundingClientRect();
+      const box = card.getBoundingClientRect();
+      return {
+        file: row.dataset.file,
+        scrollTop: Math.round(card.scrollTop),
+        inView: rect.top >= box.top && rect.bottom <= box.bottom,
+      };
+    })()`);
+    check(
+      '长目录滚动到来源文件',
+      subReturn?.file === 'page.md' && subReturn.scrollTop > 0 && subReturn.inView,
+      JSON.stringify(subReturn),
+    );
+    await goto('/sub/');
+    await scrollContentTo(320);
+    const savedScroll = await currentScrollTop();
+    await evaluate('document.querySelector(".dir-row[data-file=\\"page.md\\"] .nm").click()');
+    await sleep(600);
+    check('点击文件进入预览', await waitFor('document.body.dataset.page === "doc"', 3000));
+    await evaluate('history.back()');
+    await sleep(900);
+    const restoredScroll = await currentScrollTop();
+    check(
+      '后退恢复目录滚动位置',
+      Math.abs(restoredScroll - savedScroll) <= 2,
+      `${savedScroll} -> ${restoredScroll}`,
+    );
 
     console.log('== html trusted ==');
     await goto('/page.html');
@@ -1476,6 +1678,7 @@ async function main() {
     console.log('== no-JS baseline ==');
     await page.send('Emulation.setScriptExecutionDisabled', { value: true });
     await goto('/page.md');
+    check('无 JS 仍有首页 logo', (await evaluate('!!document.querySelector(".topbar .brand[href=\\"/\\"] .brand-mark")')) === true);
     check('无 JS 无遮罩', (await evaluate('document.querySelectorAll("dialog").length')) === 0);
     check('无 JS 无复制按钮', (await evaluate('document.querySelectorAll(".copy-btn").length')) === 0);
     check('无 JS 无语言条', (await evaluate('document.querySelectorAll(".code-block").length')) === 0);

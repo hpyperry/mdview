@@ -1,9 +1,52 @@
+import { isFreshTarget, saveReturnTarget, takeReturnTarget, type ReturnTarget } from '../return-position';
+
 /**
  * Directory rows keep their action icons visible. The action column is fixed
  * at two slots: normally one icon per action, and when a row has more than two
  * actions the trailing ones move into the row's "more" popup.
  */
 const ROW_SLOTS = 2;
+
+function findFileRow(name: string): HTMLElement | null {
+  return (
+    Array.from(document.querySelectorAll<HTMLElement>('.dir-row[data-file]')).find(
+      (node) => node.dataset.file === name,
+    ) ?? null
+  );
+}
+
+function flashRow(row: HTMLElement): void {
+  requestAnimationFrame(() => {
+    row.scrollIntoView({ block: 'center', inline: 'nearest' });
+    row.classList.add('is-return');
+    window.setTimeout(() => row.classList.remove('is-return'), 2200);
+  });
+}
+
+function applyReturnTarget(target: ReturnTarget | null): void {
+  if (!target || target.dir !== window.location.pathname || !isFreshTarget(target)) return;
+  if (target.file) {
+    const row = findFileRow(target.file);
+    if (row) {
+      flashRow(row);
+      return;
+    }
+  }
+  if (typeof target.y === 'number') {
+    const card = document.querySelector<HTMLElement>('.content-card');
+    if (card) {
+      requestAnimationFrame(() => {
+        card.scrollTop = target.y ?? 0;
+      });
+    }
+  }
+}
+
+function saveDirectoryPosition(): void {
+  const card = document.querySelector<HTMLElement>('.content-card');
+  if (!card) return;
+  saveReturnTarget({ dir: window.location.pathname, y: Math.round(card.scrollTop) });
+}
 
 interface RowState {
   actions: HTMLElement;
@@ -23,6 +66,14 @@ function rowItems(state: RowState): HTMLElement[] {
 }
 
 export function mountDirRows(): void {
+  applyReturnTarget(takeReturnTarget());
+  for (const link of document.querySelectorAll<HTMLAnchorElement>('.dir-row[data-file] a[href]')) {
+    link.addEventListener('click', saveDirectoryPosition);
+  }
+  window.addEventListener('pageshow', (event) => {
+    if (!event.persisted) return;
+    applyReturnTarget(takeReturnTarget());
+  });
   const states: RowState[] = [];
   for (const row of document.querySelectorAll<HTMLElement>('.dir-row')) {
     const actions = row.querySelector<HTMLElement>('.row-actions');

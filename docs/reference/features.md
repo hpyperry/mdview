@@ -1,7 +1,7 @@
 # 功能矩阵
 
-**适用版本**：mdview 2.5.2
-**最后核对**：2026-11-07
+**适用版本**：mdview 2.6.0
+**最后核对**：2026-11-11
 **用途**：后续需求、回归测试和 agent 验收都从这里取编号；新增功能追加编号，不重排旧编号。
 
 状态说明：
@@ -18,7 +18,7 @@
 |---|---|---|---|---|
 | F-01 | 单文件二进制 | CSS、highlight.js、岛屿前端全部内嵌；运行时无外部请求 | `cargo build --release`、`smoke-artifact.sh`、浏览器探针外部请求检查 | ✅ 自动 |
 | F-02 | `--root` / 默认当前目录 | 根目录相对 URL 与路径夹紧正确 | CLI 单测、`selftest-rust.sh` | ✅ 自动 |
-| F-03 | `--host` / `--port` / `--port-tries` | 端口占用时按次数回退，日志显示实际端口 | 黑盒端口回退 | ✅ 自动 |
+| F-03 | `--host` / `--port` / `--port-tries` | 默认 `127.0.0.1:8000`（只监听本机），局域网访问需显式 `--host 0.0.0.0`；端口占用时按次数回退，日志显示实际端口 | CLI 单测、黑盒端口回退 | ✅ 自动 |
 | F-04 | `--safe` | 只放行 `.md`/`.markdown`、图片与 HTML 源码；文本/其他文件 404 | 黑盒 safe server | ✅ 自动 |
 | F-05 | `--max-preview` | 超限强制下载；搜索跳过超限文件；`0` 表示不限制 | 黑盒 max-preview、服务端单测 | ✅ 自动 |
 | F-06 | `--no-search` | 关闭带 `__mdview=search` 的搜索页与搜索入口；不带标记的 `/search` 仍是文件路径；岛清单省略 `search` | 黑盒 no-search | ✅ 自动 |
@@ -29,7 +29,7 @@
 
 | ID | 功能 | 验收要点 | 测试映射 | 状态 |
 |---|---|---|---|---|
-| F-09 | 目录索引 | 统一列表，目录在前；名称/大小/mtime/操作固定列，HTML 源码入口不改变列宽；无分组标题 | 黑盒目录断言、浏览器探针、视觉 | ✅ 自动 |
+| F-09 | 目录索引 | 统一列表，目录在前；名称/大小/mtime/操作固定列，HTML 源码入口不改变列宽；无分组标题；文件预览的面包屑保持普通目录 URL（不写文件名）；点面包屑时用 `sessionStorage` 记录来源文件，返回目录时滚动到该文件并短暂高亮 | 黑盒目录断言、浏览器探针、视觉；[复测文档](../../tests/fixtures/return-position/README.md) · [视觉验收](../testing/reports/browser-report-2026-11-11-return-position.md) | ✅ 自动 |
 | F-10 | 目录 301、文件尾斜杠与 URL 编码 | 目录缺尾斜杠 301；文件带尾斜杠（字面 `/` 或 `%2f`）404；空格/CJK 目录只编码一次；目录不自动寻找 `index.html`/`index.htm` | 服务端单测、黑盒 301/编码/尾斜杠断言 | ✅ 自动 |
 | F-11 | 面包屑 | 根目录、子目录、文档、源码、搜索页有完整路径；错误页/Trust 页目前没有面包屑 | 黑盒、浏览器探针 | ◐ 部分 |
 | F-12 | 文件下载 | `Content-Disposition`、原始字节、Markdown 类型 | 黑盒下载、artifact 冒烟 | ✅ 自动 |
@@ -50,7 +50,7 @@
 | F-22 | comrak 硬边角 | linkify、引用定义、front matter、URL/alt 的 accepted deviations | `render_compat`、golden、ADR 0007 | ✅ 自动 |
 | F-23 | 表格对齐 | 输出 `style="text-align:…"`，不使用 `align=` | `render_compat` | ✅ 自动 |
 | F-24 | 标题与任务列表 | 不生成标题 `id`；任务列表按字面量显示 | `render_compat`、golden | ✅ 自动 |
-| F-25 | 图片放大包裹 | 非链接图片包 `<a class="zoom">`；徽章不嵌套 | `render_compat`、浏览器探针 | ✅ 自动 |
+| F-25 | 图片放大包裹 | 非链接图片包 `<a class="zoom">`；徽章不嵌套；`<dialog>.showModal` 不可用时放行图片链接、直接打开原图 | `render_compat`、浏览器探针；[视觉验收](../testing/reports/browser-report-2026-11-11-capability-fallbacks.md) | ✅ 自动 |
 | F-26 | 渲染缓存 | 以 `(path, mtime, size)` 失效 | 服务端单测 | ✅ 自动 |
 | F-27 | 渲染行定位数据 | 服务端按需输出 `data-sourcepos`；默认渲染不带 | render 单测、浏览器行定位 | ✅ 自动 |
 
@@ -66,6 +66,7 @@
 | F-33 | 超大代码块 | >256 KB 代码块不自动高亮，语言条提示“高亮已关闭” | 浏览器探针 | ✅ 自动 |
 | F-34 | 源码行定位 | 分块源码跳到目标行并高亮；小源码只跳到锚点，没有目标行高亮 | 黑盒、浏览器探针、视觉 | ◐ 部分 |
 | F-101 | 大源码高亮调度 | 大源码仍按 500 行分块、可见块懒高亮；每轮 `requestIdleCallback` 只高亮一个块，快速滚过时跳过已离开视口的排队块；单块 >256KB 关闭高亮；滚动阶段不产生多块叠加的长任务 | 浏览器探针、CDP 长任务对比；[复测文档](../../tests/fixtures/large-source-highlight/README.md) · [测试报告](../testing/reports/test-report-2026-11-07-large-source-highlight.md) | ✅ 自动 |
+| F-102 | 资源按需加载与压缩 | 源码页/含代码文档才加载 highlight.js 与 highlight.css；文本响应 gzip/br、二进制不压缩并带 Vary；vendor CSS 构建时 minify；旧外壳 CSS 清理；meta description | 黑盒、浏览器探针、Lighthouse；[复测文档](../../tests/fixtures/performance/README.md) · [测试报告](../testing/reports/test-report-2026-11-11-performance.md) | ✅ 自动 |
 | F-35 | 源码页操作 | 预览收在顶栏点状菜单；回到顶部、面包屑；不提供下载按钮 | 浏览器探针、视觉 | ✅ 自动 |
 
 ## E. 搜索
@@ -92,10 +93,10 @@
 | F-47 | 导航树行为 | 目录只展开/收起，文件才导航；第 3 层目录按需加载一层，桌面悬停预热；当前文件高亮 | 浏览器探针、视觉 | ✅ 自动 |
 | F-48 | 导航浮层/抽屉 | 桌面浮岛不挤压正文；≤900px 抽屉 + 遮罩 | 浏览器探针、视觉 | ✅ 自动 |
 | F-49 | 导航记忆 | 展开状态 localStorage；当前路径祖先自动展开；深层记忆在打开时按祖先链补加载 | 浏览器探针 | ✅ 自动 |
-| F-50 | TOC 目录岛/细轨 | 内容岛铺满 `.app`；≥1280px 为“正文岛 1fr + 间距 16 + TOC 岛 clamp(180px,15vw,260px)”，主岛只收右边缘、正文行宽不变，并播放 240ms 分栏动画；1100–1279px 24px 细轨；h1–h6 全层级、逐级缩进、sticky、独立滚动、scroll-spy、标题跳转（顶栏下约 88px）；常驻岛内“回到顶部”，细轨模式回顶按钮右移 46px；深色未选中刻度用 `--border-strong` | 浏览器探针；[复测文档](../../tests/fixtures/toc-all-levels/README.md) · [视觉验收](../testing/reports/browser-report-2026-11-06-shell-layout.md) | ✅ 自动 |
+| F-50 | TOC 目录岛/细轨 | 顶栏与主岛铺满视口；≥1280px 的 Markdown 页主岛左边缘不动、右边缘缩进 TOC 宽度 + 32px，TOC 岛与顶栏右边缘对齐，两块面板以 32px 页面底色分隔；正文在主岛内居中、行宽 ≤1200px，其他元素不移动；无标题文档恢复单列；1100–1279px 24px 细轨；h1–h6 全层级、逐级缩进、sticky、独立滚动、scroll-spy、标题跳转（顶栏下约 88px）；常驻岛内“回到顶部”，细轨模式回顶按钮右移 46px；深色未选中刻度用 `--border-strong` | 浏览器探针；[复测文档](../../tests/fixtures/wide-layout/README.md) · [视觉验收](../testing/reports/browser-report-2026-11-11-wide-layout.md) | ✅ 自动 |
 | F-51 | TOC 文字大纲 | 常驻岛直接列出标题文字；1100–1279px 细轨悬停/聚焦只显示当前刻度标题浮层，完整大纲点击顶部按钮展开，不因悬停自动展开；不挤压正文 | 浏览器探针、视觉；[视觉验收](../testing/reports/browser-report-2026-11-06-shell-layout.md) | ✅ 自动 |
 | F-52 | 窄屏内联 TOC | <1100px 回到正文顶部可折叠块 | 浏览器探针 | ✅ 自动 |
-| F-53 | 代码工具条 | 语言条、复制/已复制/复制失败；无语言不自动高亮 | 浏览器探针 | ✅ 自动 |
+| F-53 | 代码工具条 | 语言条、复制/已复制/复制失败；`clipboard.writeText` 被拒时回退 `execCommand`；无语言不自动高亮 | 浏览器探针 | ✅ 自动 |
 | F-54 | 主题三态 | 跟随系统/浅色/深色；持久化；状态提示；写入失败仍能切换 | 浏览器探针、视觉 | ✅ 自动 |
 | F-55 | 回到顶部 | 目录/文档/源码页有回顶按钮；常驻目录岛内回顶，细轨模式右移 46px；即时滚动，不依赖 smooth | 浏览器探针 | ✅ 自动 |
 | F-56 | 响应式布局 | 1440/1200/901–1359/≤900/390 无横向溢出；390 目录长文件名换行可读性待优化 | 浏览器探针、视觉 | ◐ 部分 |
@@ -131,7 +132,7 @@
 | F-71 | 无 JS 基线 | 正文、搜索页、源码全文可读；无死按钮/浮层 | 浏览器探针无 JS 段 | ✅ 自动 |
 | F-72 | 焦点与键盘 | 弹层焦点、Esc/外部关闭、焦点归还、修饰键不劫持 | 浏览器探针 | ✅ 自动 |
 | F-73 | 减少动态效果 | `prefers-reduced-motion` 时关闭过渡/动画 | 无专门断言 | ○ 待补 |
-| F-74 | 失败状态 | 复制失败、导航加载失败、搜索空结果有明确反馈 | 浏览器探针、视觉 | ◐ 部分 |
+| F-74 | 失败状态 | 复制失败（含底部 toast）、导航加载失败、搜索空结果有明确反馈 | 浏览器探针、视觉 | ◐ 部分 |
 
 
 ## J. HTML 文件与压缩包
@@ -189,8 +190,8 @@
 | ID | 功能 | 验收要点 | 测试映射 | 状态 |
 |---|---|---|---|---|
 | F-94 | 引用块留白 | 底色引用块上下内边距对称（8px）；块内首/末子元素的外边距收口，列表末项也不残留空带；块后间距 16px、多段引用段间距 16px；嵌套引用同样对称 | 浏览器探针；[复测文档](../../tests/fixtures/blockquote-spacing/README.md) | ✅ 自动 |
-| F-100 | 干净顶栏与页头岛 | 顶栏只保留最左导航、右侧搜索/主题；页面身份与操作回到内容区 sticky 页头岛；长面包屑在页头内换行；顶栏/主岛/TOC 间距 24px；源码/目录/搜索页头结构一致 | 服务端单测、浏览器探针；[复测文档](../../tests/fixtures/page-head/README.md) · [视觉验收](../testing/reports/browser-report-2026-11-07-clean-topbar.md) | ✅ 自动 |
-| F-98 | 固定主岛与岛内滚动 | ≥901px 桌面端顶栏、主岛与 TOC 岛固定；`.content-card` 是唯一滚动容器，body 不滚动；正文、目录、源码与搜索结果在岛内滚动；≤900px 保留普通文档滚动；回顶、TOC 跳转与 scroll-spy、大源码懒加载都感知滚动容器 | 浏览器探针；[复测文档](../../tests/fixtures/toc-all-levels/README.md) · [视觉验收](../testing/reports/browser-report-2026-11-06-shell-layout.md) | ✅ 自动 |
+| F-100 | 干净顶栏与页头岛 | 顶栏最左是首页 logo 与导航、右侧搜索/主题；logo 24×24 链接 `/`；SVG/PNG favicon 走 `/_assets/favicon.*?__mdview=asset`；页面身份与操作回到内容区 sticky 页头岛；长面包屑在页头内换行；顶栏/主岛/TOC 间距 24px；源码/目录/搜索页头结构一致 | 服务端单测、浏览器探针；[复测文档](../../tests/fixtures/logo-favicon/README.md) · [视觉验收](../testing/reports/browser-report-2026-11-11-logo-favicon.md) | ✅ 自动 |
+| F-98 | 固定主岛与岛内滚动 | ≥901px 桌面端顶栏、主岛与 TOC 岛固定；`.content-card` 是唯一滚动容器，body 不滚动；纵向关闭弹性回弹（`overscroll-behavior-y: none`），横向保持 `auto` 以放行浏览器后退/前进手势；正文、目录、源码与搜索结果在岛内滚动；≤900px 保留普通文档滚动；回顶、TOC 跳转与 scroll-spy、大源码懒加载都感知滚动容器 | 浏览器探针；[复测文档](../../tests/fixtures/overscroll/README.md) · [视觉验收](../testing/reports/browser-report-2026-11-11-overscroll.md) | ✅ 自动 |
 | F-95 | 导出图片 / PDF | 文档页导出 PNG 长图（白底、2x、超长自动降级并提示）与浏览器打印 PDF；打印样式隐藏外壳、强制浅色、分页；深色主题导出仍为浅色；下载/导出图片完成后图标变绿色对勾并禁用约 500ms 防止重复点击，随后恢复；导出过程与成功都不显示右侧状态文案；无 JS 隐藏按钮 | 浏览器探针、Rust 服务端断言；[复测文档](../../tests/fixtures/export-artifact/README.md) | ✅ 自动 |
 
 ## 变更规则

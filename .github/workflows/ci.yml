@@ -51,7 +51,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-15, ubuntu-latest, windows-latest]
+        os: [macos-15, ubuntu-24.04, windows-latest]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -71,7 +71,21 @@ jobs:
         run: npm run typecheck
       - name: Install expect (Linux)
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y expect
+        run: |
+          if command -v expect >/dev/null 2>&1; then
+            echo "expect already installed"
+            exit 0
+          fi
+          for attempt in 1 2; do
+            timeout 45 sudo apt-get update -o Acquire::Retries=1 || true
+            if timeout 45 sudo apt-get install -y expect; then
+              echo "expect installed"
+              exit 0
+            fi
+            echo "apt attempt ${attempt} failed; retrying in 10s"
+            sleep 10
+          done
+          echo "expect unavailable; TTY test will be skipped on this runner"
       - name: Format
         if: runner.os == 'Linux'
         run: cargo fmt --all --check
@@ -85,7 +99,12 @@ jobs:
       - name: TTY trust prompt
         if: runner.os != 'Windows'
         shell: bash
-        run: bash tests/trust-tty.sh
+        run: |
+          if ! command -v expect >/dev/null 2>&1; then
+            echo "expect unavailable; skipping TTY trust prompt"
+            exit 0
+          fi
+          bash tests/trust-tty.sh
       - name: Browser acceptance probe
         if: runner.os != 'Windows'
         run: node tests/browser-probe.mjs

@@ -30,8 +30,8 @@ bash tests/run-all.sh
 [`docs/guides/build-hygiene.md`](docs/guides/build-hygiene.md)，取舍见
 [ADR 0023](docs/architecture/adr/0023-dev-build-artifact-size.md)。
 
-必须全绿：`cargo test`（100 单元 + 137 渲染兼容 + 27 golden）、303 项黑盒 HTTP、
-9 项 pty 信任测试、338 项 headless Chrome 验收、4 项源码页性能预算。
+必须全绿：`cargo test`（101 单元 + 137 渲染兼容 + 27 golden）、309 项黑盒 HTTP、
+9 项 pty 信任测试、367 项 headless Chrome 验收、4 项源码页性能预算。
 
 ## 协作流程
 
@@ -141,17 +141,20 @@ Single-context: root `GLOSSARY.md` + `docs/architecture/adr/`. See
    语言条、复制按钮、TOC 由 `web/src/` 的 island 运行时生成，服务端 Markdown 输出
    不得添加标题 id。
 
-   外壳布局约束：`.app` 最大 1680、外边距 16；顶栏 sticky `top:12`；正文始终是
-   主网格；所有页面类型的内容岛都铺满 `.app` 可用宽度并与顶栏左右边缘对齐。
-   **≥1280px** 的 Markdown 页为“正文岛 1fr + 间距 24 + TOC 岛
-   `clamp(160px, 13vw, 240px)`”，正文岛左边缘不动、只收右边；**1100–1279px**
-   使用 24px TOC 细轨，悬停刻度显示单条标题浮层，点击顶部按钮展开大纲；
-   **<1100px** 单列并回到正文顶部内联目录（≤900 为移动布局）。常驻 TOC 岛的
-   “回到顶部”在岛内；细轨模式全局回顶按钮右移 46px，其他宽度保持右下。
-   TOC 岛挂载时用 `shell-split`/`toc-island-in` 做一次约 240ms 的分栏动画，正文
-   阅读行宽度不变，只让主岛右侧空边收窄。阅读行最大 1200px。
+   外壳布局约束：`.app` 不设最大宽度、只保留 16px 外边距，顶栏与主岛铺满视口；
+   顶栏 sticky `top:12`；正文始终是主网格。**≥1280px** 的 Markdown 页：主岛左边缘
+   保持贴外壳左侧，右边缘只向左让出“TOC 岛宽度 + 32px”，TOC 岛
+   `clamp(160px, 13vw, 240px)` 作为右侧独立面板、与顶栏右边缘对齐；两块面板之间
+   露出 32px 页面底色，正文在主岛内居中、行宽最大 1200px，主岛/面包屑/工具栏/
+   TOC 位置不因正文居中而移动；`.no-toc` 恢复单列。
+   面包屑与主岛左边缘对齐。**1100–1279px** 使用 24px TOC
+   细轨，悬停刻度显示单条标题浮层，点击顶部按钮展开大纲；**<1100px** 单列并回到
+   正文顶部内联目录（≤900 为移动布局）。搜索页页头与结果限宽到
+   `--read-width + 32px + TOC 宽度` 并居中。常驻 TOC 岛的“回到顶部”在岛内；
+   细轨模式全局回顶按钮右移 46px，其他宽度保持右下。TOC 岛挂载时只播放约 240ms
+   的 `toc-island-in` 淡入，两列轨道首帧就存在。阅读行最大 1200px。
    **≥901px** 固定顶栏与主岛：`.content-card` 作为滚动容器，页面 body 不滚动。
-   顶栏只放最左导航、居中文件名、全局搜索与主题；面包屑左对齐放在顶栏与主岛之间
+   顶栏最左是首页 logo 与导航、居中文件名、全局搜索与主题；面包屑左对齐放在顶栏与主岛之间
    的缝隙，长路径换行时缝隙自然增高。文件信息右对齐、操作左对齐，固定在主岛顶部
    sticky 栏；窄屏先收「更多」再隐藏文件信息。目录页列表限宽 1100px 居中，文件
    预览页铺满并做 240ms 淡入。顶栏、主岛、TOC 岛间距统一 24px。
@@ -253,6 +256,11 @@ Single-context: root `GLOSSARY.md` + `docs/architecture/adr/`. See
     [ADR 0024](docs/architecture/adr/0024-browser-baseline-chromium-88.md)。旧内核
     会静默丢弃整条声明，Chrome 探针永远测不出来。
 
+24. **资源加载与压缩**：highlight.js/highlight.css 只在源码页与含 `<pre>` 的文档
+    加载，无代码页面不加载；文本响应走 gzip/br（tower-http），二进制不压缩并保留
+    `Vary: accept-encoding`；vendor CSS 在构建时 minify 但保持独立文件；旧侧栏/
+    三列外壳的 CSS 已删除，不要恢复。见 ADR 0038。
+
 ## 改哪里
 
 | 需求 | 落点 |
@@ -328,10 +336,12 @@ Single-context: root `GLOSSARY.md` + `docs/architecture/adr/`. See
   `npm --prefix web run typecheck`，`cargo build` 会自动重跑 esbuild。
 - **岛清单**：`body[data-islands]` 与页面实际控制区必须一致；源码页不要挂 `toc`，
   非文档页不要挂 `toc`/`linetarget`/`code`/`zoom`，否则会出现空岛或错误初始化。
-- **主岛铺满且固定**：不要再给 `.content-card` 加居中 `max-width`；它必须铺满
-  `.app` 并与顶栏对齐。Markdown 分栏只收主岛右边缘，正文行宽由 `--read-width`
-  固定，不要用 transform 缩放正文，也不要让内容在分栏时重新居中。
-  桌面端 `.content-card` 是唯一滚动容器，body 不滚动；新增滚动相关逻辑要读
+- **主岛与滚动**：文档页主岛的左边缘贴外壳左侧，右边缘 = 外壳右侧 -（TOC 宽度 +
+  32px），不要让主岛 + TOC 整体居中，也不要把 TOC 绝对定位到主岛表面；无标题文档
+  （`.no-toc`）恢复单列。源码/目录/搜索页的卡片铺满 `.app`。
+  桌面端 `.content-card` 是唯一滚动容器，body 不滚动；纵向用
+  `overscroll-behavior-y: none` 关闭弹性回弹，横向保持 `auto` 以放行浏览器
+  后退/前进手势。新增滚动相关逻辑要读
   `card.scrollTop`/`card.getBoundingClientRect()`，不要假设 `window.scrollY`。
   大源码的 `IntersectionObserver` 要用 `.content-card` 作 `root`。
 - **页面身份**：文档/源码页文件名在顶栏居中，面包屑在缝隙，文件信息与操作在主岛
@@ -341,7 +351,9 @@ Single-context: root `GLOSSARY.md` + `docs/architecture/adr/`. See
 - **文件夹打包下载**：只在可信根且非 `--safe` 时显示；临时 zip 放系统临时目录，
   下载结束/中断后删除，token 绑定目录、单次、10 分钟过期；跳过软链接。
 - **目录页**：列表限宽 1100px 居中，目录行操作常驻、固定两槽位，超出收进「更多」；
-  不要再渲染「目录」「项目数」文字。文件页铺满并有 240ms 淡入。
+  不要再渲染「目录」「项目数」文字。文件页铺满并有 240ms 淡入。文件行带
+  `data-file`；文件页面包屑保持普通目录 URL，点面包屑时用 `sessionStorage` 记录
+  来源文件，目录页 `dirrows` 岛滚动到该行并短暂高亮；后退时恢复 `scrollTop`。
 - **搜索结果行**：整条 `.hit` 是链接；Markdown 内容行到渲染页 `#L<n>`，文件标题
   与文件条目到文件开头。不要恢复独立的“打开文档/源码 Ln”按钮。
 - **行定位**：`render_markdown` 默认不带 sourcepos，保持 golden/render_compat 不变；

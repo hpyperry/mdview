@@ -25,3 +25,9 @@
 | 2026-11-07 | 大源码高亮空闲调度 | [test-report-2026-11-07-large-source-highlight.md](test-report-2026-11-07-large-source-highlight.md) | 无截图（CDP 长任务数据） | F-101 |
 | 2026-11-07 | 布局 v5（顶栏/缝隙/主岛功能区）与文件工具 | [browser-report-2026-11-07-layout-v5.md](browser-report-2026-11-07-layout-v5.md) | [`../evidence/2026-11-07/`](../evidence/2026-11-07/) | F-100 / F-22 |
 | 2026-11-07 | 源码页铺满与大块高亮 Worker | [browser-report-2026-11-07-source-worker.md](browser-report-2026-11-07-source-worker.md) | [`../evidence/2026-11-07/`](../evidence/2026-11-07/) | F-101 / F-100 |
+| 2026-11-11 | 宽屏外壳铺满与主岛让位 | [browser-report-2026-11-11-wide-layout.md](browser-report-2026-11-11-wide-layout.md) | [`../evidence/2026-11-11/`](../evidence/2026-11-11/) | F-50 / F-20 / F-30 / F-33 / F-52 |
+| 2026-11-11 | 主岛纵向滚动回弹修复 | [browser-report-2026-11-11-overscroll.md](browser-report-2026-11-11-overscroll.md) | 无截图（计算样式 + 触控板人工确认） | F-98 |
+| 2026-11-11 | 面包屑返回文件位置 | [browser-report-2026-11-11-return-position.md](browser-report-2026-11-11-return-position.md) | [`../evidence/2026-11-11/`](../evidence/2026-11-11/) | F-09 |
+| 2026-11-11 | 能力降级兜底（复制/放大/默认监听） | [browser-report-2026-11-11-capability-fallbacks.md](browser-report-2026-11-11-capability-fallbacks.md) | [`../evidence/2026-11-11/`](../evidence/2026-11-11/) | F-25 / F-53 / F-74 / F-03 |
+| 2026-11-11 | 品牌标记与 favicon | [browser-report-2026-11-11-logo-favicon.md](browser-report-2026-11-11-logo-favicon.md) | [`../evidence/2026-11-11/`](../evidence/2026-11-11/) | F-100 |
+| 2026-11-11 | 资源按需加载与压缩 | [test-report-2026-11-11-performance.md](test-report-2026-11-11-performance.md) | [`../evidence/2026-11-11/`](../evidence/2026-11-11/) | F-102 |
