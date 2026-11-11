@@ -1,4 +1,4 @@
-import { build } from 'esbuild';
+import { build, transform } from 'esbuild';
 import { readFile, writeFile } from 'node:fs/promises';
 
 const outdir = process.env.MDVIEW_WEB_OUTDIR || 'dist';
@@ -46,3 +46,13 @@ self.onmessage = function (event) {
 };
 `;
 await writeFile(`${outdir}/hlworker.js`, workerBootstrap);
+
+// VS Code's vendor CSS stays in source form under assets/; minify it into the
+// same OUT_DIR so the server ships the same bytes it has always shipped, just
+// smaller. Keep the files separate: ADR 0012 keeps markdown.css/highlight.css
+// independent from the app shell stylesheet.
+for (const name of ['markdown', 'highlight']) {
+  const source = await readFile(new URL(`../assets/${name}.css`, import.meta.url), 'utf8');
+  const result = await transform(source, { loader: 'css', minify: true, target: ['chrome88'] });
+  await writeFile(`${outdir}/${name}.css`, result.code);
+}

@@ -465,6 +465,8 @@ async function main() {
       const head = document.querySelector('.island-head').getBoundingClientRect();
       return Math.abs(head.x - card.x) <= 2 && Math.abs(head.width - cardEl.clientWidth) <= 2 && getComputedStyle(document.querySelector('.island-head')).position === 'sticky';
     })()`)) === true);
+    check('代码文档加载 highlight.js', (await evaluate(`!!document.querySelector('script[src*="/_assets/highlight.js"]')`)) === true);
+    check('代码文档加载 highlight.css', (await evaluate(`!!document.querySelector('link[href*="/_assets/highlight.css"]')`)) === true);
     check('代码块数量', (await evaluate('document.querySelectorAll("pre code").length')) === 2);
     check('highlight.js 着色', await waitFor('document.querySelectorAll("pre code.hljs span").length > 0', 3000));
     check('复制按钮已注入', (await evaluate('document.querySelectorAll(".copy-btn").length')) === 2);
@@ -587,6 +589,8 @@ async function main() {
 
     console.log('== blockquote spacing ==');
     await goto('/quote.md');
+    check('无代码文档不加载 highlight.js', (await evaluate(`!document.querySelector('script[src*="/_assets/highlight.js"]')`)) === true);
+    check('无代码文档不加载 highlight.css', (await evaluate(`!document.querySelector('link[href*="/_assets/highlight.css"]')`)) === true);
     const blockquoteMetrics = await evaluate(`(() => {
       const quotes = [...document.querySelectorAll('.markdown-body blockquote')];
       return quotes.map((b) => {
@@ -1431,6 +1435,7 @@ async function main() {
     check('目录操作点击区足够大', align.targetsBig, JSON.stringify(align));
     check('文件夹有打包下载入口', (await evaluate('!!document.querySelector(".dir-row a[data-zip]")')) === true);
     check('文件夹下载 hover 只有下载', (await evaluate('document.querySelector(".dir-row a[data-zip]")?.getAttribute("data-tip")')) === '下载');
+    check('目录页不加载 highlight.js', (await evaluate(`!document.querySelector('script[src*="/_assets/highlight.js"]')`)) === true);
     await goto('/sub/');
     check('目录页回到顶部按钮', (await evaluate('document.querySelectorAll(".totop").length')) === 1);
     check('目录页无分组标题', (await evaluate('!document.querySelector(".dir-section h2") && !!document.querySelector(".dir-list")')) === true);
@@ -1469,6 +1474,7 @@ async function main() {
     })()`)) === true);
     check('源码页行锚点', (await evaluate('document.querySelector("#L1")?.textContent')) === '1');
     check('源码页原始内容', (await evaluate('document.querySelector(".source code").textContent')).startsWith('# Probe'));
+    check('源码页加载 highlight.js', (await evaluate(`!!document.querySelector('script[src*="/_assets/highlight.js"]')`)) === true);
     check('源码页面包屑完整', await crumbsComplete('.gap-crumb .crumbs', 'page.md'));
     await goto('/small.rs?raw=1');
     check('源码页短文件铺满主岛', (await evaluate(`(() => {

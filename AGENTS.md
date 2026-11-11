@@ -30,8 +30,8 @@ bash tests/run-all.sh
 [`docs/guides/build-hygiene.md`](docs/guides/build-hygiene.md)，取舍见
 [ADR 0023](docs/architecture/adr/0023-dev-build-artifact-size.md)。
 
-必须全绿：`cargo test`（101 单元 + 137 渲染兼容 + 27 golden）、303 项黑盒 HTTP、
-9 项 pty 信任测试、361 项 headless Chrome 验收、4 项源码页性能预算。
+必须全绿：`cargo test`（101 单元 + 137 渲染兼容 + 27 golden）、309 项黑盒 HTTP、
+9 项 pty 信任测试、367 项 headless Chrome 验收、4 项源码页性能预算。
 
 ## 协作流程
 
@@ -255,6 +255,11 @@ Single-context: root `GLOSSARY.md` + `docs/architecture/adr/`. See
     改样式后跑 `node tests/check-css-baseline.mjs`（已接入 `run-all.sh`）；详见
     [ADR 0024](docs/architecture/adr/0024-browser-baseline-chromium-88.md)。旧内核
     会静默丢弃整条声明，Chrome 探针永远测不出来。
+
+24. **资源加载与压缩**：highlight.js/highlight.css 只在源码页与含 `<pre>` 的文档
+    加载，无代码页面不加载；文本响应走 gzip/br（tower-http），二进制不压缩并保留
+    `Vary: accept-encoding`；vendor CSS 在构建时 minify 但保持独立文件；旧侧栏/
+    三列外壳的 CSS 已删除，不要恢复。见 ADR 0038。
 
 ## 改哪里
 

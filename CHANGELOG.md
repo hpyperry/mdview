@@ -2,6 +2,13 @@
 
 ### 变更
 
+### 性能
+
+- highlight.js/highlight.css 改为按需加载：目录、搜索、无代码文档不再下载 1 MB
+  高亮包；目录页总传输约 41 KB。
+- 文本响应启用 gzip/brotli，二进制不压缩；vendor CSS 在构建时 minify。
+- 清理旧侧栏/三列外壳 CSS；补 meta description（SEO 100）。
+
 - 顶栏最左新增 24×24 品牌标记（蓝色圆角方块 + 白色 Markdown “M”），点击回到
   首页；新增 `/_assets/favicon.svg|png?__mdview=asset` 两条嵌入 favicon 接口。
 - 默认监听地址从 `0.0.0.0` 改为 `127.0.0.1`，默认只监听本机；局域网访问需显式

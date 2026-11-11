@@ -23,6 +23,7 @@ use serde::Serialize;
 use time::OffsetDateTime;
 use tokio::io::{AsyncRead, AsyncReadExt, ReadBuf};
 use tokio_util::io::ReaderStream;
+use tower_http::compression::CompressionLayer;
 use walkdir::WalkDir;
 
 use crate::archive::{self, ArchiveRequest, ArchiveStore, Extracted};
@@ -301,6 +302,7 @@ pub fn app(state: AppState) -> Router {
         .fallback(handle)
         .with_state(state.clone())
         .layer(middleware::from_fn_with_state(state, log_request))
+        .layer(CompressionLayer::new())
 }
 
 /// Read-only static server for the HTML origin. It deliberately has no mdview
@@ -312,6 +314,7 @@ pub fn app_static(state: AppState) -> Router {
         .fallback(handle_static)
         .with_state(state.clone())
         .layer(middleware::from_fn_with_state(state, log_request))
+        .layer(CompressionLayer::new())
 }
 
 /// `--verbose` access log. Request paths are enough to tell whether the browser
@@ -3837,20 +3840,40 @@ async fn html_page(state: &AppState, status: StatusCode, page: Page, is_head: bo
         _ => "",
     };
     let current_is_dir = if page.kind == PageKind::Dir { "1" } else { "0" };
+    // highlight.js only matters when the page actually renders code: source
+    // pages always, Markdown pages only when the server-rendered body has a
+    // <pre> block. Directory/search/trust pages skip the 1 MB bundle.
+    let needs_highlight =
+        page.kind == PageKind::Source || (page.kind == PageKind::Doc && page.body.contains("<pre"));
+    let highlight_css = if needs_highlight {
+        format!(
+            "<link rel=\"stylesheet\" href=\"/_assets/highlight.css?__mdview=asset&v={version}\">"
+        )
+    } else {
+        String::new()
+    };
+    let highlight_js = if needs_highlight {
+        format!(
+            "<script nonce=\"{nonce}\" src=\"/_assets/highlight.js?__mdview=asset&v={version}\" defer></script>"
+        )
+    } else {
+        String::new()
+    };
     let html = format!(
         "<!doctype html><html lang=\"zh-CN\" class=\"no-js\"><head><meta charset=\"utf-8\">\
          <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\
+         <meta name=\"description\" content=\"mdview：单文件、零外部请求的离线 Markdown 预览服务器\">\
          <title>{title} · mdview</title>\
          <script nonce=\"{nonce}\">(function(){{try{{var t=localStorage.getItem('mdview-theme');\
          if(t==='light'||t==='dark'){{document.documentElement.dataset.theme=t;document.documentElement.dataset.themeMode=t;}}\
          else if(t==='system'){{document.documentElement.dataset.themeMode='system';}}\
          }}catch(e){{}}}})();</script>\
          <link rel=\"stylesheet\" href=\"/_assets/markdown.css?__mdview=asset&v={version}\">\
-         <link rel=\"stylesheet\" href=\"/_assets/highlight.css?__mdview=asset&v={version}\">\
+         {highlight_css}\
          <link rel=\"stylesheet\" href=\"/_assets/app.css?__mdview=asset&v={version}\">\
          <link rel=\"icon\" type=\"image/svg+xml\" href=\"/_assets/favicon.svg?__mdview=asset&v={version}\">\
          <link rel=\"icon\" type=\"image/png\" sizes=\"32x32\" href=\"/_assets/favicon.png?__mdview=asset&v={version}\">\
-         <script nonce=\"{nonce}\" src=\"/_assets/highlight.js?__mdview=asset&v={version}\" defer></script>\
+         {highlight_js}\
          <script nonce=\"{nonce}\" src=\"/_assets/app.js?__mdview=asset&v={version}\" defer></script>\
          </head><body data-totop=\"1\" data-page=\"{page_class}\" data-islands=\"{islands}\" \
          data-current-path=\"{current_path}\" data-current-dir=\"{current_is_dir}\">\
@@ -3873,6 +3896,8 @@ async fn html_page(state: &AppState, status: StatusCode, page: Page, is_head: bo
         title = escape_html(&page.title),
         nonce = nonce,
         version = version,
+        highlight_css = highlight_css,
+        highlight_js = highlight_js,
         page_class = page_class,
         islands = islands,
         root = root,
@@ -6759,8 +6784,9 @@ mod tests {
         let (_, _, body) = call(app.clone(), Method::GET, "/a.md").await;
         let html = String::from_utf8(body).unwrap();
         assert!(html.contains("/_assets/markdown.css?__mdview=asset"));
-        assert!(html.contains("/_assets/highlight.js?__mdview=asset"));
+        assert!(!html.contains("/_assets/highlight.js?__mdview=asset"));
         assert!(html.contains("/_assets/app.css?__mdview=asset"));
+        assert!(html.contains("name=\"description\""));
         assert!(html.contains("/_assets/app.js?__mdview=asset"));
         assert!(html.contains("rel=\"icon\" type=\"image/svg+xml\""));
         assert!(html.contains("/_assets/favicon.png?__mdview=asset"));
@@ -6773,6 +6799,7 @@ mod tests {
 
         let (_, _, body) = call(app, Method::GET, "/code.rs").await;
         let html = String::from_utf8(body).unwrap();
+        assert!(html.contains("/_assets/highlight.js?__mdview=asset"));
         assert!(html.contains("class=\"language-rust\""));
     }
 }

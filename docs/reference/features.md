@@ -66,6 +66,7 @@
 | F-33 | 超大代码块 | >256 KB 代码块不自动高亮，语言条提示“高亮已关闭” | 浏览器探针 | ✅ 自动 |
 | F-34 | 源码行定位 | 分块源码跳到目标行并高亮；小源码只跳到锚点，没有目标行高亮 | 黑盒、浏览器探针、视觉 | ◐ 部分 |
 | F-101 | 大源码高亮调度 | 大源码仍按 500 行分块、可见块懒高亮；每轮 `requestIdleCallback` 只高亮一个块，快速滚过时跳过已离开视口的排队块；单块 >256KB 关闭高亮；滚动阶段不产生多块叠加的长任务 | 浏览器探针、CDP 长任务对比；[复测文档](../../tests/fixtures/large-source-highlight/README.md) · [测试报告](../testing/reports/test-report-2026-11-07-large-source-highlight.md) | ✅ 自动 |
+| F-102 | 资源按需加载与压缩 | 源码页/含代码文档才加载 highlight.js 与 highlight.css；文本响应 gzip/br、二进制不压缩并带 Vary；vendor CSS 构建时 minify；旧外壳 CSS 清理；meta description | 黑盒、浏览器探针、Lighthouse；[复测文档](../../tests/fixtures/performance/README.md) · [测试报告](../testing/reports/test-report-2026-11-11-performance.md) | ✅ 自动 |
 | F-35 | 源码页操作 | 预览收在顶栏点状菜单；回到顶部、面包屑；不提供下载按钮 | 浏览器探针、视觉 | ✅ 自动 |
 
 ## E. 搜索

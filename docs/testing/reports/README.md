@@ -30,3 +30,4 @@
 | 2026-11-11 | 面包屑返回文件位置 | [browser-report-2026-11-11-return-position.md](browser-report-2026-11-11-return-position.md) | [`../evidence/2026-11-11/`](../evidence/2026-11-11/) | F-09 |
 | 2026-11-11 | 能力降级兜底（复制/放大/默认监听） | [browser-report-2026-11-11-capability-fallbacks.md](browser-report-2026-11-11-capability-fallbacks.md) | [`../evidence/2026-11-11/`](../evidence/2026-11-11/) | F-25 / F-53 / F-74 / F-03 |
 | 2026-11-11 | 品牌标记与 favicon | [browser-report-2026-11-11-logo-favicon.md](browser-report-2026-11-11-logo-favicon.md) | [`../evidence/2026-11-11/`](../evidence/2026-11-11/) | F-100 |
+| 2026-11-11 | 资源按需加载与压缩 | [test-report-2026-11-11-performance.md](test-report-2026-11-11-performance.md) | [`../evidence/2026-11-11/`](../evidence/2026-11-11/) | F-102 |
