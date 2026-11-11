@@ -39,3 +39,4 @@
 | [0033](0033-clean-topbar-page-head.md) | 顶栏只保留外壳控制，页面身份回到底部页头岛 | superseded（布局）by [0034](0034-topbar-title-gap-crumb-island-head.md) |
 | [0034](0034-topbar-title-gap-crumb-island-head.md) | 顶栏文件名、缝隙面包屑与主岛功能区 | accepted |
 | [0035](0035-source-page-fill-and-worker-highlight.md) | 源码页铺满主岛与大块高亮 Worker | accepted |
+| [0036](0036-wide-content-group.md) | 超宽屏外壳铺满，进入 Markdown 时主岛让出目录岛宽度 | accepted |

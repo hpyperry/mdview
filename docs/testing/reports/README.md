@@ -25,3 +25,4 @@
 | 2026-11-07 | 大源码高亮空闲调度 | [test-report-2026-11-07-large-source-highlight.md](test-report-2026-11-07-large-source-highlight.md) | 无截图（CDP 长任务数据） | F-101 |
 | 2026-11-07 | 布局 v5（顶栏/缝隙/主岛功能区）与文件工具 | [browser-report-2026-11-07-layout-v5.md](browser-report-2026-11-07-layout-v5.md) | [`../evidence/2026-11-07/`](../evidence/2026-11-07/) | F-100 / F-22 |
 | 2026-11-07 | 源码页铺满与大块高亮 Worker | [browser-report-2026-11-07-source-worker.md](browser-report-2026-11-07-source-worker.md) | [`../evidence/2026-11-07/`](../evidence/2026-11-07/) | F-101 / F-100 |
+| 2026-11-11 | 宽屏外壳铺满与主岛让位 | [browser-report-2026-11-11-wide-layout.md](browser-report-2026-11-11-wide-layout.md) | [`../evidence/2026-11-11/`](../evidence/2026-11-11/) | F-50 / F-20 / F-30 / F-33 / F-52 |

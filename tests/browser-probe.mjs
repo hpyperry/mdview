@@ -780,16 +780,57 @@ async function main() {
       return {
         cardLeft: Math.round(card.left), cardRight: Math.round(card.right),
         barLeft: Math.round(bar.left), barRight: Math.round(bar.right),
-        tocRight: Math.round(toc.right), tocWidth: Math.round(toc.width),
-        proseWidth: Math.round(prose.width),
+        tocLeft: Math.round(toc.left), tocRight: Math.round(toc.right), tocWidth: Math.round(toc.width),
+        proseLeft: Math.round(prose.left), proseRight: Math.round(prose.right), proseWidth: Math.round(prose.width),
         animation: getComputedStyle(document.getElementById('shell')).animationName,
       };
     })()`);
-    check('文档主岛与顶栏左对齐', Math.abs(docShell.cardLeft - docShell.barLeft) <= 1, JSON.stringify(docShell));
+    check('主岛左侧与顶栏对齐', Math.abs(docShell.cardLeft - docShell.barLeft) <= 1, JSON.stringify(docShell));
     check('目录岛与顶栏右对齐', Math.abs(docShell.tocRight - docShell.barRight) <= 1 && docShell.tocWidth >= 180, JSON.stringify(docShell));
-    check('文档主岛为目录岛收窄', docShell.cardRight < docShell.barRight - 180, JSON.stringify(docShell));
+    check('主岛为目录岛让出宽度', Math.abs(docShell.tocLeft - docShell.cardRight) === 32, JSON.stringify(docShell));
+    check(
+      '正文在主岛内居中',
+      Math.abs((docShell.proseLeft - docShell.cardLeft) - (docShell.cardRight - docShell.proseRight)) <= 1,
+      JSON.stringify(docShell),
+    );
     check('文档正文保持宽阅读行', docShell.proseWidth >= 1000, JSON.stringify(docShell));
-    check('文档分栏已启用', docShell.animation.includes('shell-split') || (await evaluate('document.body.dataset.split === "1"')), JSON.stringify(docShell));
+    check('文档分栏已启用', (await evaluate('document.body.dataset.split === "1"')) === true, JSON.stringify(docShell));
+    await page.send('Emulation.setDeviceMetricsOverride', { width: 2560, height: 1440, deviceScaleFactor: 1, mobile: false });
+    await goto('/page.md');
+    check('2560 常驻目录岛', await waitFor('document.body?.dataset.hasToc === "1" && getComputedStyle(document.getElementById("toc-island")).display === "flex"', 3000));
+    const wideShell = await evaluate(`(() => {
+      const card = document.querySelector('.doc-card').getBoundingClientRect();
+      const bar = document.querySelector('.topbar').getBoundingClientRect();
+      const toc = document.getElementById('toc-island').getBoundingClientRect();
+      const prose = document.querySelector('.markdown-body').getBoundingClientRect();
+      return {
+        cardLeft: Math.round(card.left), cardRight: Math.round(card.right),
+        barLeft: Math.round(bar.left), barRight: Math.round(bar.right),
+        tocLeft: Math.round(toc.left), tocRight: Math.round(toc.right),
+        proseLeft: Math.round(prose.left), proseRight: Math.round(prose.right),
+      };
+    })()`);
+    check(
+      '2560 主岛铺到目录岛前',
+      wideShell.cardLeft === wideShell.barLeft &&
+        wideShell.tocRight === wideShell.barRight &&
+        Math.abs(wideShell.tocLeft - wideShell.cardRight) === 32,
+      JSON.stringify(wideShell),
+    );
+    check('2560 正文保持 1200 阅读行', wideShell.proseRight - wideShell.proseLeft === 1200, JSON.stringify(wideShell));
+    check(
+      '2560 正文在主岛内居中',
+      Math.abs((wideShell.proseLeft - wideShell.cardLeft) - (wideShell.cardRight - wideShell.proseRight)) <= 1,
+      JSON.stringify(wideShell),
+    );
+    check(
+      '2560 页面无横向溢出',
+      (await evaluate('document.documentElement.scrollWidth <= innerWidth + 1')) === true,
+      JSON.stringify(wideShell),
+    );
+    await page.send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+    await goto('/page.md');
+    await waitFor('document.body?.dataset.hasToc === "1"', 3000);
     const fixedShell = await evaluate(`(() => {
       const card = document.querySelector('.content-card');
       const bar = document.querySelector('.topbar');

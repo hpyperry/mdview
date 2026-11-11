@@ -595,7 +595,6 @@ body[data-page="source"] .source { min-height: 100%; }
 :root {
   --nav-width: 232px;
   --toc-rail: 24px;
-  --app-width: 1680px;
   --topbar-height: 56px;
   --shell-top: 84px;
   --radius-lg: 16px;
@@ -605,7 +604,6 @@ body[data-page="source"] .source { min-height: 100%; }
 
 .app {
   width: 100%;
-  max-width: var(--app-width);
   margin: 0 auto;
   padding: 16px 16px 56px;
 }
@@ -1299,9 +1297,17 @@ button.action:disabled { cursor: default; }
   body[data-has-toc="1"] .totop { right: calc(var(--toc-rail) + 22px); }
 }
 
-@media (min-width: 1280px) {
-  /* Before JS mounts the TOC, the island fills the whole surface. */
-  .shell.has-toc:not(.no-toc) { grid-template-columns: minmax(0, 1fr); }
+@media screen and (min-width: 1280px) {
+  /* 宽屏：顶栏与主岛铺满视口。进入 Markdown 预览时，主岛左边缘不动，
+     右边缘只缩进“TOC 岛宽度 + 32px 间距”，把 TOC 岛放到页面右边缘，
+     两块面板之间露出页面底色。 */
+  :root {
+    --doc-group: calc(var(--read-width) + var(--toc-island-gap) + var(--toc-island-width));
+  }
+  .shell.has-toc {
+    grid-template-columns: minmax(0, 1fr) var(--toc-island-width);
+    column-gap: var(--toc-island-gap);
+  }
   .shell.has-toc.no-toc { grid-template-columns: minmax(0, 1fr); }
   .shell.has-toc .toc-rail { display: block; width: var(--toc-island-width); }
   .shell.has-toc .toc-rail-btn,
@@ -1319,25 +1325,21 @@ button.action:disabled { cursor: default; }
   }
   .shell.has-toc .toc-inline { display: none; }
   body[data-has-toc="1"] .totop { display: none; }
-
-  body[data-has-toc="1"] .shell.has-toc:not(.no-toc) {
-    grid-template-columns: minmax(0, 1fr) var(--toc-island-width);
-    column-gap: var(--toc-island-gap);
-    animation: shell-split .24s ease-out;
+  /* 只把正文在主岛内居中；主岛、工具栏、面包屑和 TOC 岛位置都不动。 */
+  body[data-page="doc"] .doc-prose .markdown-body {
+    margin-left: auto;
+    margin-right: auto;
   }
+  /* 搜索页的页头与结果沿用正文组宽度，避免结果行在超宽屏上拉成一条长带。 */
+  body[data-page="search"] .head-inner,
+  body[data-page="search"] .page-body {
+    max-width: var(--doc-group);
+    margin-left: auto;
+    margin-right: auto;
+  }
+
   body[data-has-toc="1"] .shell.has-toc:not(.no-toc) .toc-island {
     animation: toc-island-in .24s ease-out;
-  }
-}
-
-@keyframes shell-split {
-  from {
-    grid-template-columns: minmax(0, 1fr) 0px;
-    column-gap: 0px;
-  }
-  to {
-    grid-template-columns: minmax(0, 1fr) var(--toc-island-width);
-    column-gap: var(--toc-island-gap);
   }
 }
 
@@ -1347,7 +1349,6 @@ button.action:disabled { cursor: default; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  body[data-has-toc="1"] .shell.has-toc:not(.no-toc),
   body[data-has-toc="1"] .shell.has-toc:not(.no-toc) .toc-island { animation: none; }
 }
 

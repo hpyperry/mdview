@@ -1,6 +1,6 @@
 # ADR 0028：内容岛铺满外壳，Markdown 分栏只收右边缘
 
-- Status: accepted
+- Status: accepted；其中“1680px 外壳上限 / 分栏只收右边缘”由 [0036](0036-wide-content-group.md) 取代
 - Date: 2026-11-06
 
 ## 背景

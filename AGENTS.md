@@ -141,15 +141,18 @@ Single-context: root `GLOSSARY.md` + `docs/architecture/adr/`. See
    语言条、复制按钮、TOC 由 `web/src/` 的 island 运行时生成，服务端 Markdown 输出
    不得添加标题 id。
 
-   外壳布局约束：`.app` 最大 1680、外边距 16；顶栏 sticky `top:12`；正文始终是
-   主网格；所有页面类型的内容岛都铺满 `.app` 可用宽度并与顶栏左右边缘对齐。
-   **≥1280px** 的 Markdown 页为“正文岛 1fr + 间距 24 + TOC 岛
-   `clamp(160px, 13vw, 240px)`”，正文岛左边缘不动、只收右边；**1100–1279px**
-   使用 24px TOC 细轨，悬停刻度显示单条标题浮层，点击顶部按钮展开大纲；
-   **<1100px** 单列并回到正文顶部内联目录（≤900 为移动布局）。常驻 TOC 岛的
-   “回到顶部”在岛内；细轨模式全局回顶按钮右移 46px，其他宽度保持右下。
-   TOC 岛挂载时用 `shell-split`/`toc-island-in` 做一次约 240ms 的分栏动画，正文
-   阅读行宽度不变，只让主岛右侧空边收窄。阅读行最大 1200px。
+   外壳布局约束：`.app` 不设最大宽度、只保留 16px 外边距，顶栏与主岛铺满视口；
+   顶栏 sticky `top:12`；正文始终是主网格。**≥1280px** 的 Markdown 页：主岛左边缘
+   保持贴外壳左侧，右边缘只向左让出“TOC 岛宽度 + 32px”，TOC 岛
+   `clamp(160px, 13vw, 240px)` 作为右侧独立面板、与顶栏右边缘对齐；两块面板之间
+   露出 32px 页面底色，正文在主岛内居中、行宽最大 1200px，主岛/面包屑/工具栏/
+   TOC 位置不因正文居中而移动；`.no-toc` 恢复单列。
+   面包屑与主岛左边缘对齐。**1100–1279px** 使用 24px TOC
+   细轨，悬停刻度显示单条标题浮层，点击顶部按钮展开大纲；**<1100px** 单列并回到
+   正文顶部内联目录（≤900 为移动布局）。搜索页页头与结果限宽到
+   `--read-width + 32px + TOC 宽度` 并居中。常驻 TOC 岛的“回到顶部”在岛内；
+   细轨模式全局回顶按钮右移 46px，其他宽度保持右下。TOC 岛挂载时只播放约 240ms
+   的 `toc-island-in` 淡入，两列轨道首帧就存在。阅读行最大 1200px。
    **≥901px** 固定顶栏与主岛：`.content-card` 作为滚动容器，页面 body 不滚动。
    顶栏只放最左导航、居中文件名、全局搜索与主题；面包屑左对齐放在顶栏与主岛之间
    的缝隙，长路径换行时缝隙自然增高。文件信息右对齐、操作左对齐，固定在主岛顶部
@@ -328,9 +331,9 @@ Single-context: root `GLOSSARY.md` + `docs/architecture/adr/`. See
   `npm --prefix web run typecheck`，`cargo build` 会自动重跑 esbuild。
 - **岛清单**：`body[data-islands]` 与页面实际控制区必须一致；源码页不要挂 `toc`，
   非文档页不要挂 `toc`/`linetarget`/`code`/`zoom`，否则会出现空岛或错误初始化。
-- **主岛铺满且固定**：不要再给 `.content-card` 加居中 `max-width`；它必须铺满
-  `.app` 并与顶栏对齐。Markdown 分栏只收主岛右边缘，正文行宽由 `--read-width`
-  固定，不要用 transform 缩放正文，也不要让内容在分栏时重新居中。
+- **主岛与滚动**：文档页主岛的左边缘贴外壳左侧，右边缘 = 外壳右侧 -（TOC 宽度 +
+  32px），不要让主岛 + TOC 整体居中，也不要把 TOC 绝对定位到主岛表面；无标题文档
+  （`.no-toc`）恢复单列。源码/目录/搜索页的卡片铺满 `.app`。
   桌面端 `.content-card` 是唯一滚动容器，body 不滚动；新增滚动相关逻辑要读
   `card.scrollTop`/`card.getBoundingClientRect()`，不要假设 `window.scrollY`。
   大源码的 `IntersectionObserver` 要用 `.content-card` 作 `root`。
