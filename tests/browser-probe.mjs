@@ -419,6 +419,39 @@ async function main() {
     check('文档面包屑完整', await crumbsComplete('.gap-crumb .crumbs', 'page.md'));
     check('顶栏显示文件名', (await evaluate('document.querySelector(".topbar-title h1")?.textContent')) === 'page.md');
     check(
+      '顶栏 logo 在导航左侧并链接首页',
+      (await evaluate(`(() => {
+        const brand = document.querySelector('.topbar .brand');
+        const img = brand?.querySelector('img.brand-mark');
+        const nav = document.getElementById('nav-toggle')?.getBoundingClientRect();
+        const box = brand?.getBoundingClientRect();
+        return Boolean(brand) &&
+          brand.getAttribute('href') === '/' &&
+          img?.getAttribute('src')?.includes('/_assets/favicon.svg?__mdview=asset') === true &&
+          Boolean(nav && box && box.right <= nav.left);
+      })()`)) === true,
+    );
+    check(
+      'favicon 双链接',
+      (await evaluate(`(() => {
+        const links = [...document.querySelectorAll('link[rel="icon"]')];
+        return links.length === 2 &&
+          links.some((link) => link.type === 'image/svg+xml' && link.href.includes('/_assets/favicon.svg?__mdview=asset')) &&
+          links.some((link) => link.type === 'image/png' && link.href.includes('/_assets/favicon.png?__mdview=asset'));
+      })()`)) === true,
+    );
+    check(
+      'favicon 资产可访问',
+      (await evaluate(`Promise.all([
+        fetch('/_assets/favicon.svg?__mdview=asset'),
+        fetch('/_assets/favicon.png?__mdview=asset'),
+      ]).then(([svg, png]) =>
+        svg.ok && png.ok &&
+        svg.headers.get('content-type') === 'image/svg+xml' &&
+        png.headers.get('content-type') === 'image/png'
+      )`)) === true,
+    );
+    check(
       '主岛文件信息',
       (await evaluate(`(() => {
         const text = document.querySelector('.island-meta')?.textContent || '';
@@ -1633,6 +1666,7 @@ async function main() {
     console.log('== no-JS baseline ==');
     await page.send('Emulation.setScriptExecutionDisabled', { value: true });
     await goto('/page.md');
+    check('无 JS 仍有首页 logo', (await evaluate('!!document.querySelector(".topbar .brand[href=\\"/\\"] .brand-mark")')) === true);
     check('无 JS 无遮罩', (await evaluate('document.querySelectorAll("dialog").length')) === 0);
     check('无 JS 无复制按钮', (await evaluate('document.querySelectorAll(".copy-btn").length')) === 0);
     check('无 JS 无语言条', (await evaluate('document.querySelectorAll(".code-block").length')) === 0);

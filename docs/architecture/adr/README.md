@@ -40,3 +40,4 @@
 | [0034](0034-topbar-title-gap-crumb-island-head.md) | 顶栏文件名、缝隙面包屑与主岛功能区 | accepted |
 | [0035](0035-source-page-fill-and-worker-highlight.md) | 源码页铺满主岛与大块高亮 Worker | accepted |
 | [0036](0036-wide-content-group.md) | 超宽屏外壳铺满，进入 Markdown 时主岛让出目录岛宽度 | accepted |
+| [0037](0037-brand-mark-and-favicon.md) | 品牌标记：蓝色 M 方块与嵌入 favicon | accepted |

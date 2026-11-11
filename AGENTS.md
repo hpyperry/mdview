@@ -31,7 +31,7 @@ bash tests/run-all.sh
 [ADR 0023](docs/architecture/adr/0023-dev-build-artifact-size.md)。
 
 必须全绿：`cargo test`（101 单元 + 137 渲染兼容 + 27 golden）、303 项黑盒 HTTP、
-9 项 pty 信任测试、357 项 headless Chrome 验收、4 项源码页性能预算。
+9 项 pty 信任测试、361 项 headless Chrome 验收、4 项源码页性能预算。
 
 ## 协作流程
 
@@ -154,7 +154,7 @@ Single-context: root `GLOSSARY.md` + `docs/architecture/adr/`. See
    细轨模式全局回顶按钮右移 46px，其他宽度保持右下。TOC 岛挂载时只播放约 240ms
    的 `toc-island-in` 淡入，两列轨道首帧就存在。阅读行最大 1200px。
    **≥901px** 固定顶栏与主岛：`.content-card` 作为滚动容器，页面 body 不滚动。
-   顶栏只放最左导航、居中文件名、全局搜索与主题；面包屑左对齐放在顶栏与主岛之间
+   顶栏最左是首页 logo 与导航、居中文件名、全局搜索与主题；面包屑左对齐放在顶栏与主岛之间
    的缝隙，长路径换行时缝隙自然增高。文件信息右对齐、操作左对齐，固定在主岛顶部
    sticky 栏；窄屏先收「更多」再隐藏文件信息。目录页列表限宽 1100px 居中，文件
    预览页铺满并做 240ms 淡入。顶栏、主岛、TOC 岛间距统一 24px。

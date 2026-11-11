@@ -4,6 +4,8 @@
 //! styles are produced by `web/build.mjs` into Cargo's OUT_DIR.
 
 pub const HIGHLIGHT_JS: &[u8] = include_bytes!("../assets/highlight.min.js");
+pub const FAVICON_SVG: &str = include_str!("../assets/favicon.svg");
+pub const FAVICON_PNG: &[u8] = include_bytes!("../assets/favicon.png");
 pub const HIGHLIGHT_CSS: &str = include_str!("../assets/highlight.css");
 pub const MARKDOWN_CSS: &str = include_str!("../assets/markdown.css");
 pub const APP_JS: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/app.js"));
@@ -26,6 +28,8 @@ pub fn asset_version() -> &'static str {
             APP_JS,
             HLWORKER_JS,
             APP_CSS.as_bytes(),
+            FAVICON_SVG.as_bytes(),
+            FAVICON_PNG,
         ] {
             for &byte in bytes {
                 hash ^= u64::from(byte);
