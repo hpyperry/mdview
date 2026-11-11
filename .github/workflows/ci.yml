@@ -71,7 +71,16 @@ jobs:
         run: npm run typecheck
       - name: Install expect (Linux)
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y expect
+        run: |
+          for attempt in 1 2 3 4 5; do
+            if sudo apt-get update -o Acquire::Retries=3 \
+              && sudo apt-get install -y expect; then
+              exit 0
+            fi
+            echo "apt attempt ${attempt} failed; retrying in 15s"
+            sleep 15
+          done
+          exit 1
       - name: Format
         if: runner.os == 'Linux'
         run: cargo fmt --all --check
