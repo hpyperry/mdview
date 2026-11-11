@@ -856,12 +856,15 @@ async function main() {
     await goto('/page.md');
     check('1440 常驻目录岛', await waitFor('document.body?.dataset.hasToc === "1" && getComputedStyle(document.getElementById("toc-island")).display === "flex"', 3000));
     const docShell = await evaluate(`(() => {
-      const card = document.querySelector('.doc-card').getBoundingClientRect();
+      const cardEl = document.querySelector('.doc-card');
+      const card = cardEl.getBoundingClientRect();
       const bar = document.querySelector('.topbar').getBoundingClientRect();
       const toc = document.getElementById('toc-island').getBoundingClientRect();
       const prose = document.querySelector('.markdown-body').getBoundingClientRect();
       return {
         cardLeft: Math.round(card.left), cardRight: Math.round(card.right),
+        innerLeft: Math.round(card.left + cardEl.clientLeft),
+        innerRight: Math.round(card.left + cardEl.clientLeft + cardEl.clientWidth),
         barLeft: Math.round(bar.left), barRight: Math.round(bar.right),
         tocLeft: Math.round(toc.left), tocRight: Math.round(toc.right), tocWidth: Math.round(toc.width),
         proseLeft: Math.round(prose.left), proseRight: Math.round(prose.right), proseWidth: Math.round(prose.width),
@@ -873,7 +876,7 @@ async function main() {
     check('主岛为目录岛让出宽度', Math.abs(docShell.tocLeft - docShell.cardRight) === 32, JSON.stringify(docShell));
     check(
       '正文在主岛内居中',
-      Math.abs((docShell.proseLeft - docShell.cardLeft) - (docShell.cardRight - docShell.proseRight)) <= 1,
+      Math.abs((docShell.proseLeft - docShell.innerLeft) - (docShell.innerRight - docShell.proseRight)) <= 1,
       JSON.stringify(docShell),
     );
     check('文档正文保持宽阅读行', docShell.proseWidth >= 1000, JSON.stringify(docShell));
@@ -882,12 +885,15 @@ async function main() {
     await goto('/page.md');
     check('2560 常驻目录岛', await waitFor('document.body?.dataset.hasToc === "1" && getComputedStyle(document.getElementById("toc-island")).display === "flex"', 3000));
     const wideShell = await evaluate(`(() => {
-      const card = document.querySelector('.doc-card').getBoundingClientRect();
+      const cardEl = document.querySelector('.doc-card');
+      const card = cardEl.getBoundingClientRect();
       const bar = document.querySelector('.topbar').getBoundingClientRect();
       const toc = document.getElementById('toc-island').getBoundingClientRect();
       const prose = document.querySelector('.markdown-body').getBoundingClientRect();
       return {
         cardLeft: Math.round(card.left), cardRight: Math.round(card.right),
+        innerLeft: Math.round(card.left + cardEl.clientLeft),
+        innerRight: Math.round(card.left + cardEl.clientLeft + cardEl.clientWidth),
         barLeft: Math.round(bar.left), barRight: Math.round(bar.right),
         tocLeft: Math.round(toc.left), tocRight: Math.round(toc.right),
         proseLeft: Math.round(prose.left), proseRight: Math.round(prose.right),
@@ -903,7 +909,7 @@ async function main() {
     check('2560 正文保持 1200 阅读行', wideShell.proseRight - wideShell.proseLeft === 1200, JSON.stringify(wideShell));
     check(
       '2560 正文在主岛内居中',
-      Math.abs((wideShell.proseLeft - wideShell.cardLeft) - (wideShell.cardRight - wideShell.proseRight)) <= 1,
+      Math.abs((wideShell.proseLeft - wideShell.innerLeft) - (wideShell.innerRight - wideShell.proseRight)) <= 1,
       JSON.stringify(wideShell),
     );
     check(
